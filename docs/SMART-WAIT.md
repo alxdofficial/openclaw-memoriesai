@@ -141,29 +141,114 @@ def prepare_frame(frame: np.ndarray, max_dim: int = 720) -> bytes:
     return buffer.getvalue()  # ~50-100KB
 ```
 
-### Step 4: Model Evaluation
+### Step 4: Per-Job Context Window
+
+Each watch job maintains a rolling context window — not just the current frame, but a history of recent frames, previous model verdicts, and timing metadata. This gives the model temporal reasoning ("progress was at 60%, then 75%, now 90%") rather than stateless single-frame evaluation.
+
+```python
+from collections import deque
+from dataclasses import dataclass
+
+@dataclass
+class FrameSnapshot:
+    data: bytes          # full resolution JPEG
+    thumbnail: bytes     # 360p thumbnail for history
+    timestamp: float
+
+class JobContext:
+    """Rolling context window for a single watch job."""
+    
+    def __init__(self, max_frames: int = 4, max_verdicts: int = 3):
+        self.frames: deque[FrameSnapshot] = deque(maxlen=max_frames)
+        self.verdicts: deque[dict] = deque(maxlen=max_verdicts)
+        self.started_at: float = time.time()
+        self.last_change_at: float = time.time()
+    
+    def add_frame(self, frame_jpeg: bytes, timestamp: float):
+        thumbnail = resize_jpeg(frame_jpeg, max_dim=360, quality=60)
+        self.frames.append(FrameSnapshot(
+            data=frame_jpeg, thumbnail=thumbnail, timestamp=timestamp
+        ))
+        self.last_change_at = timestamp
+    
+    def add_verdict(self, verdict: str, description: str, timestamp: float):
+        self.verdicts.append({
+            "verdict": verdict, "description": description, "timestamp": timestamp
+        })
+    
+    def build_prompt(self, criteria: str) -> tuple[str, list[bytes]]:
+        """Build evaluation prompt with full temporal context."""
+        elapsed = time.time() - self.started_at
+        since_change = time.time() - self.last_change_at
+        
+        verdict_lines = "\n".join(
+            f"- [{format_ago(v['timestamp'])}] {v['verdict']}: {v['description']}"
+            for v in self.verdicts
+        ) or "None yet (first evaluation)."
+        
+        text = f"""You are monitoring a screen for a specific condition.
+
+CONDITION: {criteria}
+MONITORING DURATION: {format_duration(elapsed)}
+TIME SINCE LAST SCREEN CHANGE: {format_duration(since_change)}
+
+PREVIOUS OBSERVATIONS (oldest first):
+{verdict_lines}
+
+Frame history: {len(self.frames)} frames attached (oldest → newest).
+The last image is the current frame at full resolution.
+
+Based on the progression and current state, has the condition been met?
+Respond with exactly one of:
+- YES: <brief description of what satisfies the condition>
+- NO: <brief description of current state>  
+- PARTIAL: <brief description of progress toward the condition>
+
+Be concise. One line only."""
+        
+        # Thumbnails for history frames + full res for current
+        images = [f.thumbnail for f in list(self.frames)[:-1]]
+        if self.frames:
+            images.append(self.frames[-1].data)  # current = full resolution
+        
+        return text, images
+```
+
+**Memory budget per job:**
+
+| Component | Size | Notes |
+|-----------|------|-------|
+| Current frame (full) | ~80 KB | 720p JPEG |
+| 3 history thumbnails | ~15 KB each = 45 KB | 360p JPEG |
+| Status text + verdicts | ~500 bytes | |
+| **Total per job** | **~125 KB** | Fits easily in MiniCPM-o context |
+
+For 5 concurrent jobs: ~625 KB total — well within limits.
+
+**Why context windows are better than single-frame:**
+
+1. **Temporal reasoning** — "bar was at 90% and is now gone" = download finished
+2. **Stall detection** — "stuck at 90% for 60s" = possible hang, report as PARTIAL with warning
+3. **False positive prevention** — brief glitches in one frame won't trigger false YES
+4. **Error detection** — "progress bar was moving, now a dialog appeared" = error
+5. **Smarter polling** — model can infer "advancing at 5%/10s, should finish in ~20s"
+
+### Step 5: Model Evaluation
 
 ```python
 async def evaluate_condition(
-    frame_jpeg: bytes,
+    job_context: JobContext,
     criteria: str,
     model_client: OllamaClient
 ) -> tuple[str, str]:  # (verdict, description)
-    """Ask MiniCPM-o if the condition is met."""
+    """Ask MiniCPM-o if the condition is met, with full temporal context."""
+    
+    prompt_text, images = job_context.build_prompt(criteria)
     
     response = await model_client.generate(
         model="minicpm-v",
-        prompt=f"""Look at this screenshot and evaluate the following condition:
-
-CONDITION: {criteria}
-
-Respond with exactly one of:
-- YES: <brief description of what you see that satisfies the condition>
-- NO: <brief description of current state>
-- PARTIAL: <brief description of progress toward the condition>
-
-Be concise. One line only.""",
-        images=[frame_jpeg]
+        prompt=prompt_text,
+        images=images
     )
     
     text = response.strip()
@@ -330,7 +415,7 @@ def wake_via_file(message: str):
 
 Add to HEARTBEAT.md: "Check smart-wait-events.json; if present, read and clear it."
 
-**Decision**: Start with Option C (file-based) for v1 since it requires zero OpenClaw internals knowledge. Upgrade to Option A once we understand the gateway API better.
+**Decision**: Start with Option A (`openclaw system event` CLI). It's purpose-built for this exact use case, requires zero custom OpenClaw code, and wakes the agent within seconds. Three lines of Python.
 
 ## PTY Fast Path
 
