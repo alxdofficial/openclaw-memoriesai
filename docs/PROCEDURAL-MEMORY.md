@@ -1,271 +1,390 @@
-# Procedural Memory — Detailed Design (Phase 2)
+# Memories AI Integration — Detailed Design
 
 ## Overview
 
-Procedural Memory turns passive screen recordings into a searchable knowledge base of "how the user does things." Instead of the agent figuring out every UI from scratch, it first checks: "Have I seen this done before?"
+Memories AI gives the agent video comprehension abilities that go beyond frame-by-frame screenshot analysis. Instead of sending 20 individual screenshots to Claude (massive token cost), the agent records a short video clip and sends it to Memories AI as a single API call — purpose-built for understanding temporal sequences, UI actions, and state changes.
 
-This component depends on [Memories AI](https://memories.ai) for video comprehension and semantic search.
+Two modes of use:
 
-## How It Works
+1. **Record & Remember** (async) — Record something worth remembering for future reference
+2. **Record & Understand** (sync) — Record something the agent needs to understand right now
 
-### Recording Pipeline
+## Mode 1: Record & Remember (Async)
 
-```
-User's Desktop
-  │
-  ▼
-Screen Recorder (daemon)
-  │ continuous recording, chunked into 5-min segments
-  ▼
-Local Buffer (~1 hour rolling)
-  │
-  ▼
-Upload to Memories AI
-  │ segments uploaded in background
-  │ indexed for semantic search
-  ▼
-Memories AI Index
-  │ searchable by natural language
-  │ returns timestamps + extracted actions
-```
+The LLM is doing or watching something complex and thinks "this would be useful to remember for next time."
 
-### Query Pipeline
+### Flow
 
 ```
-Agent needs to do something unfamiliar
+LLM: "I just navigated a complex settings page. Let me record this for future reference."
   │
   ▼
-memory_recall({ query: "how to add SSH key on GitHub" })
+video_record({
+  target: "window:Firefox",
+  duration: 30,
+  prompt: "What are the steps to navigate to SSH key settings on GitHub?",
+  mode: "remember",
+  tags: ["github", "ssh", "settings"]
+})
+  │
+  ▼ (returns immediately)
+{ recording_id: "rec-456", status: "recording",
+  message: "Recording 30s of Firefox. Will analyze and report back." }
+  │
+  │  LLM continues with other work...
+  │
+  ▼ (30s recording + Memories AI analysis)
+Daemon: record → upload to Memories AI → get analysis
+  │
+  ▼ (inject system event via `openclaw system event --mode now`)
+[system] video_record analysis complete (rec-456):
+  "Steps to navigate to SSH key settings on GitHub:
+   1) Click profile avatar in top-right corner
+   2) Click 'Settings' from dropdown menu
+   3) In left sidebar, click 'SSH and GPG keys' under 'Access'
+   4) Page shows existing keys and 'New SSH key' button"
+  Tags: github, ssh, settings
   │
   ▼
-Memories AI Semantic Search
-  │ finds relevant video segments
-  ▼
-Action Extraction (via VLM)
-  │ converts video segments into step-by-step actions
-  ▼
-Returns to Agent:
-  "On Feb 10, user: 1) opened github.com/settings/keys
-   2) clicked New SSH key 3) pasted key 4) clicked Add"
-  │
-  ▼
-Agent replays steps (adapting to current UI state)
+LLM wakes up, recognizes this as procedural knowledge.
+Decides to save it (e.g., writes to MEMORY.md, creates a runbook, etc.)
 ```
 
-## Screen Recorder Design
+### Key Characteristics
+- **Async**: LLM doesn't wait. Recording and analysis happen in the background.
+- **Persistent**: The analysis is meant to be saved by the LLM for future reference.
+- **Videos stored**: Kept in Memories AI index for potential future search/re-analysis.
+- **LLM decides what to save**: The system event just delivers the analysis. The LLM chooses whether and where to persist it (memory files, runbooks, etc.).
 
-### Requirements
-- Low CPU/memory footprint (it's always running)
-- Chunk-based: 5-minute segments for parallel upload
-- Privacy controls: exclude specific windows/apps
-- Pause/resume capability
-- Rolling buffer to limit disk usage
+### When to use
+- After completing a complex UI navigation ("let me record how I did that")
+- While watching the user do something ("let me capture this workflow")
+- When exploring an unfamiliar application ("record what I find")
 
-### Implementation (Linux/X11)
+## Mode 2: Record & Understand (Sync)
+
+The LLM is mid-task and encounters something that requires video-level understanding — more than a single screenshot can convey.
+
+### Flow
+
+```
+LLM: "There's a progress animation happening. I need to understand the current state."
+  │
+  ▼
+video_understand({
+  target: "window:Firefox",
+  duration: 10,
+  prompt: "What is happening on this page? Is the upload progressing and what percentage?"
+})
+  │
+  ▼ (LLM BLOCKS — waits for result)
+Daemon: record 10s → upload to Memories AI → get analysis → return
+  │
+  ▼ (tool result returned directly to LLM)
+{ answer: "A file upload is in progress. The progress bar shows 73% complete.
+   The filename is 'dataset.zip' (420 MB). Upload speed indicator shows ~2.4 MB/s.
+   Estimated time remaining: ~45 seconds. No errors visible.",
+  confidence: 0.94,
+  duration_recorded: 10 }
+  │
+  ▼
+LLM continues its task with this information.
+Video is DISCARDED (not saved to index).
+```
+
+### Key Characteristics
+- **Sync**: LLM waits for the result — this is a blocking tool call.
+- **Ephemeral**: Video is not saved after analysis. It's a one-time understanding aid.
+- **Replaces multi-frame screenshot analysis**: Instead of the LLM taking 20 screenshots and reasoning over them (expensive), one API call to Memories AI.
+- **Returns directly**: No system event — the answer comes back as the tool result.
+
+### When to use
+- Progress bars, animations, loading sequences ("what percentage is this at?")
+- Complex UI states that need temporal context ("is this page still loading or is it stuck?")
+- Multi-step processes happening on screen ("what just happened in this terminal?")
+- Any time >3-4 frames would be needed to understand the visual state
+
+## Why Memories AI Over Direct LLM Vision?
+
+| Approach | 10-second video (2 FPS = 20 frames) | Cost | Quality |
+|----------|--------------------------------------|------|---------|
+| Send 20 screenshots to Claude | 20 × ~200KB = ~4MB base64, thousands of vision tokens | $$$ | Frame-by-frame, misses temporal patterns |
+| Send 20 screenshots to MiniCPM-o | Same but local | Free but slow (20 sequential inferences) | Same limitation |
+| **Memories AI (1 video upload)** | **One API call, native video understanding** | **API cost (reasonable)** | **Understands motion, progress, state changes** |
+
+Memories AI is purpose-built for video comprehension. It understands:
+- **Temporal sequences**: "the user clicked A, then B, then C"
+- **State transitions**: "the page went from loading to loaded"
+- **Progress tracking**: "the bar went from 50% to 73% over 10 seconds"
+- **Semantic search**: Find relevant moments in longer recordings
+
+## Implementation
+
+### Screen Recorder Module
 
 ```python
 import subprocess
-import time
 import os
+import tempfile
+import asyncio
 
 class ScreenRecorder:
-    """Continuous screen recorder using ffmpeg."""
+    """Record short video clips from Xvfb for Memories AI analysis."""
     
-    def __init__(self, 
-                 output_dir: str = "~/.openclaw-memoriesai/recordings",
-                 segment_duration: int = 300,  # 5 minutes
-                 max_segments: int = 12,  # 1 hour rolling buffer
-                 fps: int = 2,  # 2 FPS is enough for UI actions
-                 resolution: str = "1280x720"):
-        self.output_dir = os.path.expanduser(output_dir)
-        self.segment_duration = segment_duration
-        self.max_segments = max_segments
-        self.fps = fps
-        self.resolution = resolution
+    def __init__(self, display: str = ":99"):
+        self.display = display
     
-    def start(self):
-        """Start recording in segments."""
-        os.makedirs(self.output_dir, exist_ok=True)
+    async def record_window(self, window_name: str, duration: int, 
+                            fps: int = 5) -> str:
+        """Record a specific window for N seconds. Returns path to mp4."""
+        # Find window ID
+        result = subprocess.run(
+            ["xdotool", "search", "--name", window_name],
+            capture_output=True, text=True,
+            env={**os.environ, "DISPLAY": self.display}
+        )
+        if not result.stdout.strip():
+            raise ValueError(f"Window not found: {window_name}")
         
-        # ffmpeg segment recording
-        # -f x11grab: capture X11 display (works with Xvfb on headless)
-        # -r 2: 2 FPS (sufficient for UI actions, low CPU)
-        # -s 1280x720: downscaled for storage efficiency
-        # -segment_time 300: split every 5 minutes
-        display = os.environ.get("DISPLAY", ":99")  # Xvfb display
-        cmd = [
+        window_id = result.stdout.strip().split("\n")[0]
+        
+        # Get window geometry
+        geom = subprocess.run(
+            ["xdotool", "getwindowgeometry", "--shell", window_id],
+            capture_output=True, text=True,
+            env={**os.environ, "DISPLAY": self.display}
+        )
+        # Parse geometry for position + size
+        
+        output_path = tempfile.mktemp(suffix=".mp4")
+        
+        # Record using ffmpeg targeting the window region
+        proc = await asyncio.create_subprocess_exec(
             "ffmpeg",
             "-f", "x11grab",
-            "-r", str(self.fps),
-            "-s", self.resolution,
-            "-i", f"{display}.0",
+            "-r", str(fps),
+            "-video_size", f"{width}x{height}",
+            "-i", f"{self.display}+{x},{y}",
+            "-t", str(duration),
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # minimal CPU usage
-            "-crf", "28",  # reasonable quality
-            "-f", "segment",
-            "-segment_time", str(self.segment_duration),
-            "-reset_timestamps", "1",
-            os.path.join(self.output_dir, "segment_%04d.mp4")
-        ]
+            "-preset", "ultrafast",
+            "-crf", "23",
+            output_path,
+            env={**os.environ, "DISPLAY": self.display},
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        return output_path
+    
+    async def record_screen(self, duration: int, fps: int = 5) -> str:
+        """Record the full Xvfb desktop for N seconds."""
+        output_path = tempfile.mktemp(suffix=".mp4")
         
-        self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
-    def cleanup_old_segments(self):
-        """Remove segments beyond the rolling buffer limit."""
-        segments = sorted(
-            [f for f in os.listdir(self.output_dir) if f.endswith('.mp4')],
-            key=lambda f: os.path.getmtime(os.path.join(self.output_dir, f))
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-f", "x11grab",
+            "-r", str(fps),
+            "-video_size", "1920x1080",
+            "-i", f"{self.display}.0",
+            "-t", str(duration),
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            output_path,
+            env={**os.environ, "DISPLAY": self.display},
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
         )
-        while len(segments) > self.max_segments:
-            oldest = segments.pop(0)
-            os.remove(os.path.join(self.output_dir, oldest))
+        await proc.wait()
+        return output_path
 ```
 
-### Why 2 FPS?
-
-UI actions happen at human speed — clicks, typing, navigation. 2 FPS captures every meaningful state change while using ~1/15th the storage of 30 FPS video. A 5-minute segment at 2 FPS, 720p, CRF 28 is roughly 5-10 MB.
-
-### Privacy Controls
+### Memories AI Client
 
 ```python
-class PrivacyFilter:
-    """Exclude sensitive windows from recording."""
+import httpx
+import os
+
+class MemoriesClient:
+    """Client for Memories AI video analysis API."""
     
-    EXCLUDED_PATTERNS = [
-        "1Password",
-        "KeePass",
-        "Private Browsing",
-        "Incognito",
-    ]
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.environ.get("MEMORIES_AI_API_KEY")
+        self.base_url = "https://api.memories.ai/v1"  # TBD — confirm with Alex
     
-    # Could also blur specific regions, or pause recording
-    # when certain windows are focused
+    async def analyze_video(self, video_path: str, prompt: str,
+                            save: bool = False, tags: list[str] = None) -> dict:
+        """Upload video and get analysis from Memories AI.
+        
+        Args:
+            video_path: Path to mp4 file
+            prompt: Question or focus area for analysis
+            save: Whether to save in Memories AI index (True for remember mode)
+            tags: Optional tags for organizing saved videos
+        
+        Returns:
+            { "answer": str, "confidence": float, ... }
+        """
+        async with httpx.AsyncClient(timeout=120) as client:
+            with open(video_path, "rb") as f:
+                response = await client.post(
+                    f"{self.base_url}/analyze",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    files={"video": (os.path.basename(video_path), f, "video/mp4")},
+                    data={
+                        "prompt": prompt,
+                        "save": str(save).lower(),
+                        "tags": ",".join(tags) if tags else "",
+                    }
+                )
+            response.raise_for_status()
+            return response.json()
+    
+    async def search(self, query: str, limit: int = 3) -> list[dict]:
+        """Search previously saved video analyses."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                f"{self.base_url}/search",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                params={"q": query, "limit": limit}
+            )
+            response.raise_for_status()
+            return response.json()["results"]
 ```
 
-## Memories AI Integration
-
-### Upload Pipeline
+### MCP Tool Handlers
 
 ```python
-from memories import VideoAnalyzer
-
-class MemoriesUploader:
-    """Upload screen recording segments to Memories AI for indexing."""
+# video_record — async (remember mode)
+async def handle_video_record(params: dict) -> dict:
+    target = params["target"]
+    duration = params.get("duration", 30)
+    prompt = params["prompt"]
+    tags = params.get("tags", [])
     
-    def __init__(self, api_key: str):
-        self.analyzer = VideoAnalyzer(api_key=api_key)
+    recording_id = generate_id()
     
-    async def upload_segment(self, segment_path: str):
-        """Upload and index a single segment."""
-        result = await self.analyzer.analyze(
-            video_url=segment_path,  # or upload bytes
-            features=["summary", "search", "detect"],
-            metadata={
-                "source": "screen_recording",
-                "host": "alxdws2",
-                "display": ":0",
-                "recorded_at": extract_timestamp(segment_path)
-            }
-        )
-        return result
-```
-
-### Search Interface
-
-```python
-async def recall(query: str, limit: int = 3) -> list[dict]:
-    """Search screen recording history for procedural knowledge."""
-    
-    # Search via Memories AI
-    results = await analyzer.search(
-        query=query,
-        limit=limit,
-        filters={"source": "screen_recording"}
+    # Start recording in background — don't block
+    asyncio.create_task(
+        _record_and_analyze(recording_id, target, duration, prompt, tags, save=True)
     )
     
-    # For each result, extract step-by-step actions
-    extracted = []
-    for result in results:
-        # Get the relevant video segment
-        segment = result.segment
+    return {
+        "recording_id": recording_id,
+        "status": "recording",
+        "message": f"Recording {duration}s of {target}. Will analyze and report back."
+    }
+
+async def _record_and_analyze(recording_id, target, duration, prompt, tags, save):
+    """Background: record → analyze → wake OpenClaw."""
+    try:
+        # Record
+        if target == "screen":
+            video_path = await recorder.record_screen(duration)
+        else:
+            window_name = target.replace("window:", "")
+            video_path = await recorder.record_window(window_name, duration)
         
-        # Use MiniCPM-o to extract UI actions from the frames
-        frames = extract_key_frames(segment.video_url, segment.start_ms, segment.end_ms)
+        # Analyze via Memories AI
+        result = await memories_client.analyze_video(video_path, prompt, save=save, tags=tags)
         
-        steps = []
-        for i, (frame, next_frame) in enumerate(zip(frames, frames[1:])):
-            action = await describe_action(frame, next_frame)
-            if action:
-                steps.append(action)
+        # Wake OpenClaw with the result
+        message = (
+            f"[video_record] Analysis complete ({recording_id}):\n"
+            f"{result['answer']}\n"
+            f"Tags: {', '.join(tags)}"
+        )
+        subprocess.run([
+            "openclaw", "system", "event",
+            "--text", message,
+            "--mode", "now"
+        ])
         
-        extracted.append({
-            "timestamp": segment.timestamp,
-            "duration_seconds": (segment.end_ms - segment.start_ms) / 1000,
-            "confidence": result.score,
-            "summary": result.summary,
-            "steps": steps,
-            "video_url": segment.video_url,
-            "video_start_ms": segment.start_ms,
-            "video_end_ms": segment.end_ms,
-        })
+        # Cleanup video if not saved
+        if not save:
+            os.unlink(video_path)
+    except Exception as e:
+        subprocess.run([
+            "openclaw", "system", "event",
+            "--text", f"[video_record] Error ({recording_id}): {e}",
+            "--mode", "now"
+        ])
+
+
+# video_understand — sync (ephemeral mode)
+async def handle_video_understand(params: dict) -> dict:
+    target = params["target"]
+    duration = params.get("duration", 10)
+    prompt = params["prompt"]
     
-    return extracted
-
-async def describe_action(frame_before: bytes, frame_after: bytes) -> str | None:
-    """Use VLM to describe what action the user took between two frames."""
-    response = await model.generate(
-        prompt="""Look at these two consecutive screenshots. 
-Describe the single UI action the user performed between them.
-If nothing meaningful changed, respond with NONE.
-Be specific: "Clicked the 'Save' button in the top-right" not "Clicked a button".""",
-        images=[frame_before, frame_after]
-    )
-    if "NONE" in response:
-        return None
-    return response.strip()
+    # Record (blocking)
+    if target == "screen":
+        video_path = await recorder.record_screen(duration)
+    else:
+        window_name = target.replace("window:", "")
+        video_path = await recorder.record_window(window_name, duration)
+    
+    # Analyze via Memories AI (blocking)
+    result = await memories_client.analyze_video(video_path, prompt, save=False)
+    
+    # Cleanup — ephemeral, don't keep
+    os.unlink(video_path)
+    
+    return {
+        "answer": result["answer"],
+        "confidence": result.get("confidence", 0.0),
+        "duration_recorded": duration,
+    }
 ```
 
-## How the Agent Uses Procedural Memory
-
-### Before attempting an unfamiliar task:
+## Data Flow Summary
 
 ```
-Agent thinking: "I need to add Alex's SSH key to GitHub. Let me check if I've 
-seen this done before."
-
-→ memory_recall({ query: "adding SSH key to GitHub" })
-← {
-    results: [{
-      steps: [
-        "Opened browser to github.com/settings/keys",
-        "Clicked 'New SSH key'", 
-        "Typed 'alxdws2' in the Title field",
-        "Pasted key content in the Key field",
-        "Clicked 'Add SSH key'"
-      ],
-      confidence: 0.92
-    }]
-  }
-
-Agent: "Great, I have a playbook. Let me follow these steps, adapting as needed."
+                    ┌──────────────────────────┐
+                    │     OpenClaw Main LLM     │
+                    └──────┬──────────┬─────────┘
+                           │          │
+              video_record │          │ video_understand
+              (async)      │          │ (sync, blocks)
+                           ▼          ▼
+                    ┌──────────────────────────┐
+                    │   openclaw-memoriesai     │
+                    │   daemon                  │
+                    │                           │
+                    │   Screen Recorder         │
+                    │   (ffmpeg + Xvfb)         │
+                    └──────┬──────────┬─────────┘
+                           │          │
+                           ▼          ▼
+                    ┌──────────────────────────┐
+                    │     Memories AI API       │
+                    │                           │
+                    │  - Video analysis         │
+                    │  - Semantic search        │
+                    │  - Temporal understanding │
+                    └──────┬──────────┬─────────┘
+                           │          │
+              System event │          │ Direct tool result
+              (async wake) │          │ (sync return)
+                           ▼          ▼
+                    ┌──────────────────────────┐
+                    │     OpenClaw Main LLM     │
+                    │                           │
+                    │  Remember mode:           │
+                    │  → saves to MEMORY.md     │
+                    │    or runbooks            │
+                    │                           │
+                    │  Understand mode:          │
+                    │  → uses answer to         │
+                    │    continue current task  │
+                    └──────────────────────────┘
 ```
-
-### When the UI doesn't match:
-
-If the recalled steps reference a button that no longer exists (GitHub updated their UI), the agent falls back to visual reasoning with the main LLM. But it still has context from the memory ("I need to find the 'add key' functionality, it used to be a green button at top-right").
-
-## Storage & Costs
-
-| Component | Storage | Cost |
-|-----------|---------|------|
-| Screen recordings (1hr rolling, 2FPS, 720p) | ~60-120 MB | Local disk |
-| Memories AI indexing | Depends on plan | API cost |
-| Local action extraction (MiniCPM-o) | 0 | Local compute |
 
 ## Open Questions
 
-1. **Memories AI API access**: What endpoints are available? Upload format? Search API?
-2. **Real-time vs batch indexing**: Upload segments immediately or batch overnight?
-3. **Cross-device**: If Alex uses multiple machines, can recordings be federated?
-4. **Selective recording**: Should we only record when the agent is active, or always?
-5. **Action extraction quality**: Is MiniCPM-o sufficient for describing UI actions between frames, or do we need a bigger model?
+1. **Memories AI API format**: Need to confirm exact endpoints, auth method, upload format, and response schema. Alex to provide API docs/keys.
+2. **Video duration limits**: What's the max video length Memories AI accepts per call? This affects the `duration` parameter bounds.
+3. **Cost**: What does a typical 10-30s video analysis cost? This affects how aggressively the LLM should use `video_understand`.
+4. **Search API**: For future use — can we search across previously saved `video_record` analyses? This would enable "have I seen this before?" queries without re-recording.
+5. **Latency**: How long does Memories AI take to analyze a 10-30s clip? This directly affects `video_understand` blocking time.

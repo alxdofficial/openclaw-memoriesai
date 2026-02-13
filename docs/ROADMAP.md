@@ -58,30 +58,33 @@
 - [ ] OpenClaw agent learns to register tasks for multi-step work
 - [ ] Test: multi-step deployment with context compaction mid-task
 
-## Phase 4: Procedural Memory (Memories AI)
+## Phase 4: Video Comprehension (Memories AI)
 
-**Goal**: Agent can search past screen recordings for how-to knowledge.
+**Goal**: Agent can record and analyze video clips via Memories AI — both for immediate understanding and for building a library of procedural knowledge.
 
-### 4a: Screen Recording
-- [ ] Continuous recorder daemon (ffmpeg, 2 FPS, segmented)
-- [ ] Rolling buffer + cleanup
-- [ ] Privacy controls (exclude windows)
-- [ ] Start/stop/status management
+### 4a: Screen Recording Module
+- [ ] On-demand video recording (ffmpeg + Xvfb, target window or full screen)
+- [ ] Configurable duration, FPS, resolution
+- [ ] Cleanup of ephemeral recordings
 
 ### 4b: Memories AI Integration
-- [ ] Segment upload pipeline
-- [ ] Semantic search interface
-- [ ] Key frame extraction from search results
+- [ ] API client (upload video + prompt, get analysis)
+- [ ] Auth configuration (API key)
+- [ ] Error handling + retry logic
 
-### 4c: Action Extraction
-- [ ] Frame-pair action description (MiniCPM-o)
-- [ ] Step-by-step procedure generation
-- [ ] Confidence scoring
+### 4c: video_understand (sync mode)
+- [ ] Record → upload → block until response → return as tool result
+- [ ] Ephemeral: video discarded after analysis
+- [ ] Timeout handling for slow API responses
 
-### 4d: Agent Integration
-- [ ] memory_recall tool via MCP
-- [ ] Agent learns to check memory before attempting unfamiliar UIs
-- [ ] Fallback to live visual reasoning when memory doesn't match
+### 4d: video_record (async mode)
+- [ ] Record → upload → return immediately
+- [ ] Background analysis → wake OpenClaw via `system event` when done
+- [ ] Save analysis in Memories AI index with tags
+
+### 4e: video_search
+- [ ] Search previously saved video analyses
+- [ ] Agent checks "have I recorded this before?" before re-learning workflows
 
 ## Phase 5: Visual OS Control
 

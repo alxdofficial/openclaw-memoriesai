@@ -208,17 +208,112 @@ I've clicked the download button in Firefox. Now I need to wait for it to finish
 
 ---
 
-## Tool 5: `memory_recall` *(Phase 2)*
+## Tool 5: `video_record` *(Phase 2 — Memories AI)*
 
-Search the user's screen recording history for procedural knowledge.
+Record a short video clip and send it to Memories AI for analysis. **Async** — returns immediately, analysis delivered later as a system event. Use for recording procedural knowledge worth remembering for future reference.
 
 ### Parameters
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `query` | string | yes | What to search for (e.g., "how to add an SSH key on GitHub") |
-| `limit` | int | no | Max video segments to return. Default: 3 |
-| `recency_bias` | float | no | 0.0-1.0, how much to prefer recent recordings. Default: 0.5 |
+| `target` | string | yes | What to record: `window:<name>` or `screen` |
+| `duration` | int | yes | Seconds to record (5-120) |
+| `prompt` | string | yes | Question or focus area for Memories AI (e.g., "What are the steps to navigate to SSH settings?") |
+| `tags` | string[] | no | Tags for organizing saved analyses (e.g., `["github", "ssh"]`) |
+
+### Returns (immediately)
+
+```json
+{
+  "recording_id": "rec-456",
+  "status": "recording",
+  "message": "Recording 30s of Firefox. Will analyze and report back."
+}
+```
+
+### System event (delivered later when analysis completes)
+
+```
+[video_record] Analysis complete (rec-456):
+Steps to navigate to SSH key settings on GitHub:
+1) Click profile avatar in top-right corner
+2) Click 'Settings' from dropdown menu  
+3) In left sidebar, click 'SSH and GPG keys' under 'Access'
+4) Page shows existing keys and 'New SSH key' button
+Tags: github, ssh
+```
+
+### Example usage by the LLM
+
+```
+# Agent just finished a complex UI navigation and wants to remember it
+→ video_record({
+    target: "window:Firefox",
+    duration: 30,
+    prompt: "What are the steps to add an SSH key on GitHub?",
+    tags: ["github", "ssh", "settings"]
+  })
+← { recording_id: "rec-456", status: "recording", ... }
+
+# Agent continues other work...
+# Later, system event arrives with the analysis
+# Agent saves it to memory/runbooks for future reference
+```
+
+---
+
+## Tool 6: `video_understand` *(Phase 2 — Memories AI)*
+
+Record a short video clip and get immediate analysis from Memories AI. **Sync** — blocks until the analysis is returned. Use when the agent needs to understand something visual that requires more than a single screenshot (progress bars, animations, multi-step sequences). Video is NOT saved (ephemeral).
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `target` | string | yes | What to record: `window:<name>` or `screen` |
+| `duration` | int | yes | Seconds to record (3-60) |
+| `prompt` | string | yes | Question to answer about the video |
+
+### Returns (after recording + analysis)
+
+```json
+{
+  "answer": "A file upload is in progress. The progress bar shows 73% complete. The filename is 'dataset.zip' (420 MB). Upload speed ~2.4 MB/s. Estimated ~45 seconds remaining. No errors visible.",
+  "confidence": 0.94,
+  "duration_recorded": 10
+}
+```
+
+### Example usage by the LLM
+
+```
+# Agent needs to understand a complex visual state mid-task
+→ video_understand({
+    target: "window:Firefox",
+    duration: 10,
+    prompt: "What is happening on this page? Is the upload progressing and what percentage is it at?"
+  })
+← { answer: "Upload at 73%, ~45s remaining...", confidence: 0.94, ... }
+
+# Agent uses this to decide: wait longer, or move on to something else
+```
+
+### Why use this instead of taking screenshots?
+
+A 10-second video at 5 FPS = 50 frames. Sending 50 screenshots to Claude = massive token cost and poor temporal understanding. One Memories AI call handles it natively — understands motion, progress, state transitions.
+
+---
+
+## Tool 7: `video_search` *(Phase 2 — Memories AI)*
+
+Search previously saved video analyses (from `video_record`). Use to check "have I recorded something like this before?" before re-learning a workflow.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `query` | string | yes | What to search for (e.g., "how to add SSH key on GitHub") |
+| `limit` | int | no | Max results. Default: 3 |
 
 ### Returns
 
@@ -226,30 +321,16 @@ Search the user's screen recording history for procedural knowledge.
 {
   "results": [
     {
+      "recording_id": "rec-456",
       "timestamp": "2026-02-10T15:42:00Z",
-      "duration_seconds": 45,
-      "confidence": 0.92,
-      "summary": "User added an SSH key to GitHub",
-      "steps": [
-        "Opened Firefox, navigated to github.com/settings/keys",
-        "Clicked 'New SSH key'",
-        "Pasted key content from clipboard into the Key field",
-        "Set title to 'alxdws2'",
-        "Clicked 'Add SSH key'",
-        "Confirmed with password"
-      ],
-      "video_url": "memories://recordings/2026-02-10/segment-447.mp4",
-      "video_start_ms": 142000,
-      "video_end_ms": 187000
+      "prompt": "What are the steps to add an SSH key on GitHub?",
+      "answer": "1) Click profile avatar, 2) Click Settings, 3) Click SSH and GPG keys...",
+      "tags": ["github", "ssh"],
+      "confidence": 0.92
     }
   ]
 }
 ```
-
-This tool depends on:
-1. The screen recording extension being active
-2. Memories AI having indexed the recordings
-3. Memories AI API credentials being configured
 
 ---
 
@@ -338,11 +419,13 @@ All conditions (`wake_when`), queries (`query`), and reasons (`reason`) are free
 ### 2. Clear lifecycle verbs
 - **`task_register`** → start tracking something
 - **`task_update`** → report progress or ask a question
+- **`task_list`** → what am I working on?
 - **`smart_wait`** → delegate waiting
 - **`wait_update`** → refine a wait (woken too early, adjust criteria)
 - **`wait_cancel`** → stop waiting (satisfied or changed mind)
-- **`task_list`** → what am I working on?
-- **`memory_recall`** → have I seen this before?
+- **`video_record`** → record this for future reference (async)
+- **`video_understand`** → help me understand what's on screen right now (sync)
+- **`video_search`** → have I recorded this before?
 
 ### 3. Everything returns actionable info
 No opaque IDs without context. Every response includes a human-readable `message` field that tells the LLM what just happened and what to expect next.

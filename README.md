@@ -22,8 +22,8 @@ Persistent task tracking that lives outside the LLM's context window. The agent 
 ### ⏳ Smart Wait (`smart_wait`)
 Delegate waiting to a local vision model (MiniCPM-o). The agent says "watch this window, wake me when the download finishes or an error appears." The daemon monitors the screen efficiently using pixel-diff gating and adaptive polling, and injects a wake event directly into the OpenClaw session when the condition is met.
 
-### 🎥 Procedural Memory (`memory_recall`) *(Phase 2)*
-Continuous screen recording indexed by Memories AI. The agent can search "how did the user deploy to production last time?" and get back timestamped video segments with extracted step-by-step actions. Learn from watching, not from scratch.
+### 🎥 Video Comprehension (`video_record`, `video_understand`, `video_search`) *(Phase 2)*
+On-demand video recording + Memories AI analysis. Two modes: **Record & Remember** (async — record a workflow, get analysis later, save for future reference) and **Record & Understand** (sync — record what's on screen, get instant analysis to continue your task). Replaces expensive multi-screenshot LLM calls with a single Memories AI video comprehension call.
 
 ## Architecture
 
@@ -33,8 +33,10 @@ Continuous screen recording indexed by Memories AI. The agent can search "how di
 │  Claude / GPT / any model                   │
 │                                             │
 │  Tools exposed via MCP:                     │
-│  • task_register  • task_update             │
-│  • smart_wait     • memory_recall           │
+│  • task_register  • task_update  • task_list │
+│  • smart_wait  • wait_update  • wait_cancel │
+│  • video_record  • video_understand         │
+│  • video_search                             │
 └──────────────┬──────────────────────────────┘
                │ MCP (stdio or HTTP)
                ▼
@@ -42,8 +44,8 @@ Continuous screen recording indexed by Memories AI. The agent can search "how di
 │         openclaw-memoriesai daemon          │
 │                                             │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │  Task    │  │  Wait    │  │ Procedural│ │
-│  │  Store   │  │  Queue   │  │ Memory    │ │
+│  │  Task    │  │  Wait    │  │  Video    │ │
+│  │  Store   │  │  Queue   │  │  Record   │ │
 │  │ (SQLite) │  │          │  │ (Mem. AI) │ │
 │  └──────────┘  └──────────┘  └───────────┘ │
 │                      │                      │
