@@ -180,9 +180,12 @@ Platform-specific frame grabbing:
 
 | Platform | Method | Notes |
 |----------|--------|-------|
-| X11 | `python-xlib` + XShm or `import -window {id}` | Fast shared-memory capture for specific windows |
-| Wayland | `grim` or PipeWire screen capture | Requires compositor support |
+| X11 (headless) | Xvfb + `python-xlib` / `import -window {id}` | Virtual framebuffer for headless Ubuntu servers |
+| X11 (display) | `python-xlib` + XShm | Fast shared-memory capture on desktop machines |
+| Wayland | `grim` or PipeWire screen capture | Future — requires compositor support |
 | PTY | Direct buffer read via `process` tool | No vision needed — text matching first, vision fallback |
+
+**Note on headless servers**: The primary development target (alxdws2) is a headless Ubuntu server. All X11 screen capture requires Xvfb (X Virtual Framebuffer) to provide a virtual display. GUI applications (browsers, file managers, etc.) run inside this virtual display, and frame capture reads from it. See [SMART-WAIT.md](SMART-WAIT.md#headless-setup-xvfb) for Xvfb configuration.
 
 **PTY fast path**: For terminal targets, the daemon first tries regex/string matching on the terminal buffer. Vision is only used if the criteria is too complex for text matching (e.g., "the progress bar looks complete").
 

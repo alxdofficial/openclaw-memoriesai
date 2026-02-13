@@ -88,16 +88,17 @@ class ScreenRecorder:
         os.makedirs(self.output_dir, exist_ok=True)
         
         # ffmpeg segment recording
-        # -f x11grab: capture X11 display
+        # -f x11grab: capture X11 display (works with Xvfb on headless)
         # -r 2: 2 FPS (sufficient for UI actions, low CPU)
         # -s 1280x720: downscaled for storage efficiency
         # -segment_time 300: split every 5 minutes
+        display = os.environ.get("DISPLAY", ":99")  # Xvfb display
         cmd = [
             "ffmpeg",
             "-f", "x11grab",
             "-r", str(self.fps),
             "-s", self.resolution,
-            "-i", ":0.0",
+            "-i", f"{display}.0",
             "-c:v", "libx264",
             "-preset", "ultrafast",  # minimal CPU usage
             "-crf", "28",  # reasonable quality

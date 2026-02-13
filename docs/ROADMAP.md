@@ -18,7 +18,8 @@
 ### 2a: Infrastructure
 - [ ] Set up Python project structure (MCP server skeleton)
 - [ ] MiniCPM-o deployment (Ollama or llama.cpp)
-- [ ] Screen capture module (X11 window capture)
+- [ ] Xvfb setup (headless Ubuntu server — no physical display)
+- [ ] Screen capture module (X11 window capture via Xvfb)
 - [ ] Pixel-diff gate
 
 ### 2b: Core Wait Loop
@@ -106,7 +107,8 @@
 | MCP Server | Python (`mcp[cli]`) | Best MCP SDK support, rich ML ecosystem |
 | Database | SQLite | Zero-config, single-file, sufficient scale |
 | Vision Model | MiniCPM-o 4.5 via Ollama | Local, free, Gemini-level quality |
-| Screen Capture | ffmpeg + python-xlib | Standard Linux tools |
+| Virtual Display | Xvfb | Headless server — no physical monitor |
+| Screen Capture | ffmpeg + python-xlib | Reads from Xvfb virtual framebuffer |
 | Video Indexing | Memories AI API | Alex's company, advanced video comprehension |
 | Pixel Diff | NumPy | Fast, minimal dependency |
 | Wake Mechanism | File-based (v1) → Gateway API (v2) | Progressive complexity |

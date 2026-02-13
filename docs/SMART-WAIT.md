@@ -65,31 +65,137 @@ vllm serve openbmb/MiniCPM-o-4_5 --port 8090
 
 For Smart Wait, we need very short outputs ("YES: download completed" or "NO") so even CPU inference at 2 tok/s is fine — each evaluation takes <1 second.
 
+## Headless Setup (Xvfb)
+
+The primary development target is a **headless Ubuntu server** (no physical monitor). All GUI-based watch targets (browser windows, desktop apps) run inside Xvfb — a virtual X11 framebuffer.
+
+### Xvfb Configuration
+
+```bash
+# Install
+sudo apt install xvfb
+
+# Start a virtual display (1920x1080, 24-bit color)
+Xvfb :99 -screen 0 1920x1080x24 -ac &
+export DISPLAY=:99
+
+# Or use xvfb-run to wrap a single command
+xvfb-run --server-args="-screen 0 1920x1080x24" firefox
+```
+
+For persistent use, run Xvfb as a systemd service:
+
+```ini
+# /etc/systemd/system/xvfb.service
+[Unit]
+Description=X Virtual Frame Buffer
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now xvfb
+```
+
+**Important**: All processes that need a display (browsers, GUI apps, our frame grabber) must use `DISPLAY=:99`. OpenClaw's headless Chrome already works this way.
+
+### How frame capture works on headless
+
+The frame capture pipeline is identical to a physical display — Xvfb provides a standard X11 server, so `python-xlib`, `xdotool`, `import`, etc. all work normally. The only difference is there's no physical monitor rendering the pixels.
+
+```
+Xvfb (:99) ← virtual framebuffer in RAM
+  │
+  ├── Firefox (running inside Xvfb)
+  ├── File Manager (running inside Xvfb)
+  └── Any GUI app
+  │
+  ▼
+python-xlib reads pixels from Xvfb
+  → same API as physical X11 display
+  → no performance difference
+```
+
+### Window management on headless
+
+To find and manage windows in Xvfb:
+
+```bash
+export DISPLAY=:99
+
+# List all windows
+xdotool search --name ""
+
+# Find Firefox window
+xdotool search --name "Firefox"
+
+# Get window geometry
+xdotool getwindowgeometry <window_id>
+
+# Take a screenshot of a specific window
+import -window <window_id> screenshot.png
+
+# Take a screenshot of the entire virtual desktop
+import -window root screenshot.png
+```
+
 ## Frame Capture Pipeline
 
 ### Step 1: Raw Frame Grabbing
 
 ```python
-# X11 — fast shared memory capture
+import os
 import Xlib.display
 import Xlib.X
 
+# Ensure we're using the Xvfb display
+DISPLAY = os.environ.get("DISPLAY", ":99")
+
 def capture_window_x11(window_id: int) -> bytes:
-    """Capture a window using X11 SHM extension. ~5ms per frame."""
-    display = Xlib.display.Display()
+    """Capture a window from Xvfb using X11. ~5ms per frame."""
+    display = Xlib.display.Display(DISPLAY)
     window = display.create_resource_object('window', window_id)
     geom = window.get_geometry()
     raw = window.get_image(0, 0, geom.width, geom.height, Xlib.X.ZPixmap, 0xffffffff)
     return raw.data
 
+def capture_full_screen() -> bytes:
+    """Capture the entire Xvfb virtual desktop."""
+    display = Xlib.display.Display(DISPLAY)
+    root = display.screen().root
+    geom = root.get_geometry()
+    raw = root.get_image(0, 0, geom.width, geom.height, Xlib.X.ZPixmap, 0xffffffff)
+    return raw.data
+
 # Fallback: ImageMagick import (slower, ~50ms)
 import subprocess
 def capture_window_import(window_id: int, output_path: str):
-    subprocess.run(["import", "-window", hex(window_id), output_path])
+    subprocess.run(
+        ["import", "-window", hex(window_id), output_path],
+        env={**os.environ, "DISPLAY": DISPLAY}
+    )
 
-# PTY: just read the buffer
+def find_window_by_name(name: str) -> int | None:
+    """Find a window ID by title substring using xdotool."""
+    result = subprocess.run(
+        ["xdotool", "search", "--name", name],
+        capture_output=True, text=True,
+        env={**os.environ, "DISPLAY": DISPLAY}
+    )
+    if result.stdout.strip():
+        return int(result.stdout.strip().split("\n")[0])
+    return None
+
+# PTY: just read the buffer — no display needed
 def capture_pty(session_id: str) -> str:
-    """Read terminal buffer — no vision needed."""
+    """Read terminal buffer — no vision needed, no Xvfb needed."""
     # Use OpenClaw's process tool or direct PTY read
     ...
 ```
