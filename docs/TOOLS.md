@@ -250,3 +250,119 @@ This tool depends on:
 1. The screen recording extension being active
 2. Memories AI having indexed the recordings
 3. Memories AI API credentials being configured
+
+---
+
+## Tool 6: `wait_update`
+
+Resume or modify an existing wait job. Use after being woken — if the condition wasn't fully met, send the job back to waiting with updated criteria or a longer timeout.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `wait_id` | string | yes | The wait job to update |
+| `wake_when` | string | no | Updated condition (replaces the original) |
+| `timeout` | int | no | New timeout in seconds (resets the clock) |
+| `message` | string | no | Note to attach (logged in job history, e.g., "Got woken but page still loading, extending wait") |
+
+### Returns
+
+```json
+{
+  "wait_id": "wait-789",
+  "status": "watching",
+  "message": "Resumed. Watching for: page fully loaded and data table visible. New timeout: 60s."
+}
+```
+
+### Example usage by the LLM
+
+```
+# Agent got woken: "smart_wait resolved: Page started loading"
+# But it checks the screenshot and the data table hasn't rendered yet.
+
+→ wait_update({
+    wait_id: "wait-789",
+    wake_when: "Data table is fully rendered with rows visible, not just a loading spinner",
+    timeout: 60,
+    message: "Page loaded but table still rendering — refining condition"
+  })
+
+# Agent goes back to sleep. Woken again when the table appears.
+```
+
+---
+
+## Tool 7: `wait_cancel`
+
+Cancel an active wait job. Use when the wait is no longer needed — the agent found another way, the task was abandoned, or the agent is satisfied and doesn't need to wait anymore.
+
+### Parameters
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `wait_id` | string | yes | The wait job to cancel |
+| `reason` | string | no | Why it's being cancelled (logged in job history) |
+
+### Returns
+
+```json
+{
+  "wait_id": "wait-789",
+  "status": "cancelled",
+  "message": "Wait cancelled. Reason: Task completed via alternative approach."
+}
+```
+
+### Example usage by the LLM
+
+```
+# Agent was waiting for a download, but the user said "never mind, I found it elsewhere"
+
+→ wait_cancel({
+    wait_id: "wait-789",
+    reason: "User provided the file directly, download no longer needed"
+  })
+```
+
+---
+
+## Tool Design Principles
+
+The tools are designed so the main LLM **wants** to use them and can use them intuitively:
+
+### 1. Natural language everywhere
+All conditions (`wake_when`), queries (`query`), and reasons (`reason`) are free-form natural language. No regex, no structured conditions. The LLM writes what it would say to a human: "wake me when the download finishes or an error pops up."
+
+### 2. Clear lifecycle verbs
+- **`task_register`** → start tracking something
+- **`task_update`** → report progress or ask a question
+- **`smart_wait`** → delegate waiting
+- **`wait_update`** → refine a wait (woken too early, adjust criteria)
+- **`wait_cancel`** → stop waiting (satisfied or changed mind)
+- **`task_list`** → what am I working on?
+- **`memory_recall`** → have I seen this before?
+
+### 3. Everything returns actionable info
+No opaque IDs without context. Every response includes a human-readable `message` field that tells the LLM what just happened and what to expect next.
+
+### 4. Forgiving defaults
+- `timeout` defaults to 300s (not infinity — never hang forever)
+- `task_update` without `status` keeps the task active
+- `wait_cancel` without `reason` still works (reason is optional context)
+- Queries return useful answers even if the task history is sparse
+
+### 5. Cross-tool linking
+- `smart_wait` accepts `task_id` — resolution auto-posts to the task
+- `wait_update` preserves the task link
+- The LLM doesn't have to manually coordinate between tools
+
+### 6. The LLM should think of these tools like delegation
+The system prompt framing matters. These tools should feel like:
+- "I'm starting a complex task → let me write it down (task_register)"
+- "Step done → jot it in my notes (task_update)"
+- "This will take a while → hand it to my assistant to watch (smart_wait)"
+- "My assistant woke me but it's not ready → send them back (wait_update)"
+- "Never mind, I don't need to wait anymore (wait_cancel)"
+- "What was I doing again? (task_update with query)"
