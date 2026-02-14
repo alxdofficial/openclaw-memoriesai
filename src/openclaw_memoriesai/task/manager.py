@@ -80,8 +80,9 @@ async def update_task(task_id: str, message: str = None, query: str = None, stat
             await _append_msg(conn, task_id, "system", f"Status changed: {old} → {status}", "lifecycle", now)
             debug.log_task(task_id, f"STATUS {old} → {status}")
 
-        # Mark a plan step as done
+        # Mark a plan step as done (handle string from MCP)
         if step_done is not None:
+            step_done = int(step_done)
             plan = json.loads(task["plan"])
             if 0 <= step_done < len(plan):
                 meta = json.loads(task["metadata"])
