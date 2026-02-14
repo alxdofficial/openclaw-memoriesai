@@ -50,8 +50,11 @@ class WaitEngine:
         self.jobs[job.id] = job
         log.info(f"Added wait job {job.id}: target={job.target_type}:{job.target_id}, criteria={job.criteria!r}")
         self._wake_event.set()
+        # Start the loop if not already running
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._run_loop())
+        else:
+            log.debug("Loop already running, new job will be picked up")
 
     def cancel_job(self, job_id: str, reason: str = "cancelled") -> bool:
         if job_id in self.jobs:
@@ -63,6 +66,10 @@ class WaitEngine:
         return False
 
     async def _run_loop(self):
+        if hasattr(self, '_loop_running') and self._loop_running:
+            log.debug("Loop already running, skipping duplicate start")
+            return
+        self._loop_running = True
         log.info("Wait engine loop started")
         while self.jobs:
             now = time.time()
@@ -131,6 +138,7 @@ class WaitEngine:
 
             next_job.next_check_at = time.time() + next_job.poller.interval
 
+        self._loop_running = False
         log.info("Wait engine loop ended (no active jobs)")
 
     def _capture(self, job: WaitJob):
