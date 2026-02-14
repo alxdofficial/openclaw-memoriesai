@@ -1,0 +1,164 @@
+<mxfile host="app.diagrams.net" modified="2026-02-14T08:35:00.000Z" agent="openclaw-memoriesai" version="24.0.0" type="device">
+  <diagram id="mcp-flow" name="MCP Tool Call Flow">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="MCP Tool Call Flow — How Agent Invokes memoriesai" style="text;html=1;fontSize=18;fontStyle=1;align=center;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="250" y="20" width="600" height="35" as="geometry"/>
+        </mxCell>
+
+        <!-- Sequence diagram style - vertical lanes -->
+        <!-- Lane headers -->
+        <mxCell id="lane1" value="&lt;b&gt;LLM (Claude)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="140" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane2" value="&lt;b&gt;OpenClaw&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="260" y="70" width="140" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane3" value="&lt;b&gt;mcporter&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="470" y="70" width="140" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane4" value="&lt;b&gt;MCP Proxy&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot; style=&quot;font-size:9px&quot;&gt;server.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="680" y="70" width="140" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="lane5" value="&lt;b&gt;Daemon&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot; style=&quot;font-size:9px&quot;&gt;:18790&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="70" width="140" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Vertical lifelines -->
+        <mxCell id="life1" style="endArrow=none;strokeColor=#9673a6;strokeWidth=2;dashed=1;dashPattern=4 4;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="120" y="110" as="sourcePoint"/><mxPoint x="120" y="650" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="life2" style="endArrow=none;strokeColor=#d6b656;strokeWidth=2;dashed=1;dashPattern=4 4;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="330" y="110" as="sourcePoint"/><mxPoint x="330" y="650" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="life3" style="endArrow=none;strokeColor=#b85450;strokeWidth=2;dashed=1;dashPattern=4 4;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="540" y="110" as="sourcePoint"/><mxPoint x="540" y="650" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="life4" style="endArrow=none;strokeColor=#b85450;strokeWidth=2;dashed=1;dashPattern=4 4;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="750" y="110" as="sourcePoint"/><mxPoint x="750" y="650" as="targetPoint"/></mxGeometry>
+        </mxCell>
+        <mxCell id="life5" style="endArrow=none;strokeColor=#82b366;strokeWidth=2;dashed=1;dashPattern=4 4;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="970" y="110" as="sourcePoint"/><mxPoint x="970" y="650" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- Step 1: LLM decides to use tool -->
+        <mxCell id="s1" value="1. Decides to call&lt;br&gt;memoriesai.smart_wait" style="text;html=1;fontSize=10;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="130" width="160" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Step 2: LLM emits tool_use to OpenClaw -->
+        <mxCell id="m1" value="tool_use: exec" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="150" y="175" width="160" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a1" style="endArrow=block;endFill=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="120" y="190" as="sourcePoint"/><mxPoint x="330" y="190" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- Step 3: OpenClaw runs mcporter call -->
+        <mxCell id="s3" value="2. exec: mcporter call&lt;br&gt;memoriesai.smart_wait ..." style="text;html=1;fontSize=10;align=center;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="250" y="200" width="160" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Step 4: mcporter spawns MCP server -->
+        <mxCell id="m2" value="spawn stdio" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="370" y="245" width="140" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" style="endArrow=block;endFill=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="330" y="260" as="sourcePoint"/><mxPoint x="540" y="260" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- Step 5: mcporter sends JSON-RPC to proxy -->
+        <mxCell id="m3" value="JSON-RPC call_tool" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="560" y="275" width="160" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3" style="endArrow=block;endFill=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="540" y="290" as="sourcePoint"/><mxPoint x="750" y="290" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- Step 6: Proxy forwards to daemon -->
+        <mxCell id="m4" value="POST /smart_wait {json}" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="770" y="305" width="180" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a4" style="endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="750" y="320" as="sourcePoint"/><mxPoint x="970" y="320" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- Key normalization note -->
+        <mxCell id="norm-note" value="&lt;font color=&quot;#cc0000&quot;&gt;⚠ Key normalizer strips&lt;br&gt;trailing &quot;:&quot; from keys&lt;br&gt;(mcporter :=  artifact)&lt;/font&gt;" style="text;html=1;fontSize=9;align=center;fillColor=#fff;strokeColor=#cc0000;rounded=1;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="300" width="160" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Step 7: Daemon processes + responds -->
+        <mxCell id="s7" value="3. Daemon adds job to&lt;br&gt;WaitEngine queue" style="text;html=1;fontSize=10;align=center;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="340" width="150" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- Step 8: Response flows back -->
+        <mxCell id="m5" value="{job_id, status: pending}" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="770" y="395" width="180" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a5" style="endArrow=block;endFill=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="970" y="410" as="sourcePoint"/><mxPoint x="750" y="410" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <mxCell id="m6" value="TextContent(json)" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="560" y="425" width="160" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a6" style="endArrow=block;endFill=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="750" y="440" as="sourcePoint"/><mxPoint x="540" y="440" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <mxCell id="m7" value="stdout result" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="370" y="455" width="140" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a7" style="endArrow=block;endFill=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="540" y="470" as="sourcePoint"/><mxPoint x="330" y="470" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- Proxy dies -->
+        <mxCell id="die" value="&lt;font color=&quot;#b85450&quot;&gt;✕ proxy + mcporter exit&lt;/font&gt;" style="text;html=1;fontSize=9;align=center;" vertex="1" parent="1">
+          <mxGeometry x="500" y="475" width="200" height="20" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="m8" value="tool_result → LLM" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
+          <mxGeometry x="150" y="485" width="160" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a8" style="endArrow=block;endFill=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="330" y="500" as="sourcePoint"/><mxPoint x="120" y="500" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <!-- LATER: Wake event -->
+        <mxCell id="later" value="⏳ ... seconds/minutes later ..." style="text;html=1;fontSize=11;fontStyle=3;align=center;fontColor=#cc0000;" vertex="1" parent="1">
+          <mxGeometry x="350" y="525" width="400" height="20" as="geometry"/>
+        </mxCell>
+
+        <!-- Daemon sends wake -->
+        <mxCell id="s-wake" value="4. Condition met!&lt;br&gt;Wait resolved." style="text;html=1;fontSize=10;align=center;fillColor=#d5e8d4;strokeColor=#82b366;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="900" y="555" width="150" height="40" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="m9" value="&lt;font color=&quot;#cc0000&quot;&gt;&lt;b&gt;openclaw system event --mode now&lt;/b&gt;&lt;/font&gt;" style="text;html=1;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="350" y="595" width="600" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a9" style="endArrow=block;endFill=1;strokeColor=#cc0000;strokeWidth=3;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="970" y="610" as="sourcePoint"/><mxPoint x="330" y="610" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <mxCell id="m10" value="system event → triggers turn" style="text;html=1;fontSize=9;fontColor=#cc0000;align=center;" vertex="1" parent="1">
+          <mxGeometry x="150" y="615" width="160" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="a10" style="endArrow=block;endFill=1;strokeColor=#cc0000;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry"><mxPoint x="330" y="630" as="sourcePoint"/><mxPoint x="120" y="630" as="targetPoint"/></mxGeometry>
+        </mxCell>
+
+        <mxCell id="s-resume" value="5. Agent wakes,&lt;br&gt;sees result, continues" style="text;html=1;fontSize=10;align=center;fillColor=#e1d5e7;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="640" width="180" height="40" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

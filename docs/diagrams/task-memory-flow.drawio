@@ -1,0 +1,156 @@
+<mxfile host="app.diagrams.net" modified="2026-02-14T08:35:00.000Z" agent="openclaw-memoriesai" version="24.0.0" type="device">
+  <diagram id="task-memory-flow" name="Task Memory Flow">
+    <mxGraphModel dx="1422" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="Task Memory — Lifecycle &amp; Recovery Flow" style="text;html=1;fontSize=20;fontStyle=1;align=center;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="350" y="20" width="500" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════ HAPPY PATH (left column) ═══════════ -->
+        <mxCell id="col1-label" value="Normal Lifecycle" style="text;html=1;fontSize=14;fontStyle=5;align=center;fillColor=none;strokeColor=none;fontColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="120" y="70" width="260" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="register" value="&lt;b&gt;task_register&lt;/b&gt;&lt;br&gt;name, plan=[&quot;Step1&quot;,&quot;Step2&quot;,...]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="110" width="300" height="55" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sys-msg1" value="💬 system: &quot;Task registered: Deploy app\nPlan:\n  1. Build image\n  2. Push registry\n  3. Update k8s&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#ccc;fontSize=10;align=left;spacingLeft=10;fontFamily=monospace;" vertex="1" parent="1">
+          <mxGeometry x="100" y="185" width="300" height="75" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" style="strokeWidth=1;strokeColor=#82b366;" edge="1" parent="1" source="register" target="sys-msg1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="update1" value="&lt;b&gt;task_update&lt;/b&gt;&lt;br&gt;message=&quot;Image built&quot;, step_done=0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="280" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="sys-msg1" target="update1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="thread1" value="💬 agent: &quot;Image built&quot;&lt;br&gt;💬 system: &quot;✓ Step 1 complete: Build image&quot;&lt;br&gt;&lt;font color=&quot;#82b366&quot;&gt;&lt;b&gt;progress: 33%&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#ccc;fontSize=10;align=left;spacingLeft=10;fontFamily=monospace;" vertex="1" parent="1">
+          <mxGeometry x="100" y="350" width="300" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" style="strokeWidth=1;strokeColor=#82b366;" edge="1" parent="1" source="update1" target="thread1"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- smart_wait integration -->
+        <mxCell id="wait-call" value="&lt;b&gt;smart_wait&lt;/b&gt;&lt;br&gt;wake_when=&quot;push completed&quot;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="435" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" style="strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="thread1" target="wait-call"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="wait-resolve" value="💬 wait: &quot;Resolved: push completed (45s)&quot;&lt;br&gt;&lt;font color=&quot;#d79b00&quot;&gt;(auto-posted by wait engine)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=10;fontFamily=monospace;" vertex="1" parent="1">
+          <mxGeometry x="100" y="505" width="300" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" style="strokeWidth=1;strokeColor=#d6b656;dashed=1;" edge="1" parent="1" source="wait-call" target="wait-resolve"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="update2" value="&lt;b&gt;task_update&lt;/b&gt;&lt;br&gt;step_done=1, step_done=2, status=completed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="100" y="580" width="300" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" style="strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="wait-resolve" target="update2"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="done" value="&lt;b&gt;✅ DONE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Task thread persists in SQLite&lt;br&gt;for future reference&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="130" y="660" width="240" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" style="strokeWidth=2;strokeColor=#82b366;" edge="1" parent="1" source="update2" target="done"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- ═══════════ RECOVERY PATH (middle) ═══════════ -->
+        <mxCell id="col2-label" value="Recovery After Compaction" style="text;html=1;fontSize=14;fontStyle=5;align=center;fillColor=none;strokeColor=none;fontColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="530" y="70" width="300" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="compaction" value="⚡ &lt;b&gt;SESSION COMPACTION&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Context window full — old messages&lt;br&gt;summarized and dropped. Agent loses&lt;br&gt;awareness of in-progress task.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="110" width="310" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="stuck-detect" value="&lt;b&gt;Stuck Detection&lt;/b&gt; (daemon background loop)&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;No task update for 5 min?&lt;br&gt;→ system event: &quot;Task may be stuck&quot;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="230" width="310" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-compact" style="strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="compaction" target="stuck-detect"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="wake-agent" value="🔴 &lt;b&gt;Agent woken&lt;/b&gt; via system event&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;&quot;Task 'Deploy app' may be stuck.&lt;br&gt;Last update: 5m ago. Use task_thread&lt;br&gt;to check status.&quot;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="340" width="310" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-stuck" style="strokeWidth=2;strokeColor=#d79b00;" edge="1" parent="1" source="stuck-detect" target="wake-agent"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="task-thread" value="&lt;b&gt;task_thread&lt;/b&gt;(task_id)&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Returns FULL message history:&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="460" width="310" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-thread" style="strokeWidth=2;strokeColor=#b85450;" edge="1" parent="1" source="wake-agent" target="task-thread"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="thread-content" value="[system] Task registered: Deploy app&lt;br&gt;[agent] Image built successfully&lt;br&gt;[system] ✓ Step 1 complete: Build image&lt;br&gt;[wait] Resolved: push completed (45s)&lt;br&gt;[system] ✓ Step 2 complete: Push registry&lt;br&gt;&lt;br&gt;&lt;b&gt;Progress: 67% — current: Update k8s&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#6c8ebf;fontSize=10;align=left;spacingLeft=10;fontFamily=monospace;" vertex="1" parent="1">
+          <mxGeometry x="520" y="530" width="310" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-content" style="strokeWidth=1;strokeColor=#6c8ebf;" edge="1" parent="1" source="task-thread" target="thread-content"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="resume" value="&lt;b&gt;Agent resumes from step 3&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Full context recovered — knows exactly&lt;br&gt;what was done and what's left&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="680" width="270" height="65" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-resume" style="strokeWidth=2;strokeColor=#6c8ebf;" edge="1" parent="1" source="thread-content" target="resume"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- ═══════════ STUCK PATH (right) ═══════════ -->
+        <mxCell id="col3-label" value="Stuck Detection Detail" style="text;html=1;fontSize=14;fontStyle=5;align=center;fillColor=none;strokeColor=none;fontColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="960" y="70" width="260" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="stuck-loop" value="&lt;b&gt;Every 60 seconds&lt;/b&gt;&lt;br&gt;Daemon scans active tasks" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="950" y="110" width="240" height="50" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="stuck-check" value="updated_at &gt; 5min ago?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;fontStyle=1;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="985" y="200" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="es1" style="strokeWidth=2;strokeColor=#d79b00;" edge="1" parent="1" source="stuck-loop" target="stuck-check"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="ok" value="OK — skip" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="215" width="80" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="es2" value="No" style="strokeWidth=1;strokeColor=#999;fontColor=#999;" edge="1" parent="1" source="stuck-check" target="ok"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="dedup" value="Already alerted&lt;br&gt;for this task?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="990" y="320" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="es3" value="Yes" style="strokeWidth=2;strokeColor=#d79b00;fontStyle=1;" edge="1" parent="1" source="stuck-check" target="dedup"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="skip-dup" value="Skip (dedup)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="335" width="80" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="es4" value="Yes" style="strokeWidth=1;strokeColor=#999;fontColor=#999;" edge="1" parent="1" source="dedup" target="skip-dup"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="alert" value="&lt;b&gt;Post stuck message&lt;/b&gt;&lt;br&gt;to task thread +&lt;br&gt;&lt;b&gt;system event wake&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="985" y="430" width="180" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="es5" value="No" style="strokeWidth=2;strokeColor=#d79b00;fontStyle=1;" edge="1" parent="1" source="dedup" target="alert"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- Connect stuck detail to main recovery -->
+        <mxCell id="es6" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1;strokeColor=#b85450;dashed=1;" edge="1" parent="1" source="alert" target="wake-agent">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="460"/>
+              <mxPoint x="900" y="380"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ═══════════ DB ═══════════ -->
+        <mxCell id="db" value="&lt;b&gt;SQLite&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;tasks table&lt;br&gt;task_messages table&lt;br&gt;(id, role, content,&lt;br&gt;msg_type, created_at)&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;shadow=1;size=12;" vertex="1" parent="1">
+          <mxGeometry x="120" y="780" width="200" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="db-link1" style="strokeWidth=1;strokeColor=#9673a6;dashed=1;" edge="1" parent="1" source="done" target="db"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="db-link2" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=1;strokeColor=#9673a6;dashed=1;" edge="1" parent="1" source="task-thread" target="db">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="470" y="485"/>
+              <mxPoint x="470" y="835"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="db-link2-label" value="reads" style="edgeLabel;html=1;fontSize=10;fontColor=#9673a6;" vertex="1" connectable="0" parent="db-link2">
+          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
