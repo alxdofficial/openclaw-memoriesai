@@ -64,7 +64,7 @@ async def update_task(task_id: str, message: str = None, query: str = None, stat
 
 
 async def _query_task(conn, task_id: str, query: str) -> dict:
-    """Answer a query about a task using its message history."""
+    """Answer a query about a task using its message history, with optional AI distillation."""
     task_row = await conn.execute_fetchall("SELECT * FROM tasks WHERE id = ?", (task_id,))
     task = dict(task_row[0])
     msgs = await conn.execute_fetchall(
@@ -73,18 +73,74 @@ async def _query_task(conn, task_id: str, query: str) -> dict:
     )
     plan = json.loads(task["plan"])
 
-    # Build a simple summary from messages
     history = "\n".join(f"[{dict(m)['role']}] {dict(m)['content']}" for m in msgs)
-    summary = f"Task: {task['name']}\nStatus: {task['status']}\nPlan: {json.dumps(plan)}\n\nHistory:\n{history}"
+
+    # Try AI distillation if we have enough history
+    distilled = None
+    if len(msgs) > 3:
+        distilled = await _distill_task(task["name"], plan, history, query)
+
+    summary = distilled or f"Task: {task['name']}\nStatus: {task['status']}\nPlan: {json.dumps(plan)}\n\nHistory:\n{history}"
+
+    # Infer plan progress from messages
+    progress = _infer_plan_progress(plan, history)
 
     return {
         "task_id": task_id,
         "status": task["status"],
         "summary": summary,
         "plan": plan,
+        "plan_progress": progress,
         "message_count": len(msgs),
         "last_update": task["updated_at"],
     }
+
+
+async def _distill_task(name: str, plan: list[str], history: str, query: str) -> str | None:
+    """Use local vision model (text mode) to distill task state."""
+    try:
+        from ..vision import evaluate_condition
+        prompt = f"""You are a task memory system. Summarize the current state of this task concisely.
+
+Task: {name}
+Plan: {json.dumps(plan)}
+Query: {query}
+
+Message history:
+{history}
+
+Answer the query in 2-3 sentences. Focus on: what's done, what's next, any blockers."""
+
+        # Use vision model in text-only mode (no images)
+        result = await evaluate_condition(prompt, [])
+        return result if result else None
+    except Exception as e:
+        log.warning(f"Distillation failed: {e}")
+        return None
+
+
+def _infer_plan_progress(plan: list[str], history: str) -> dict:
+    """Heuristically infer which plan steps are done from message history."""
+    history_lower = history.lower()
+    completed = []
+    current = None
+
+    for i, step in enumerate(plan):
+        step_lower = step.lower()
+        # Extract key words from the step
+        words = [w for w in step_lower.split() if len(w) > 3]
+        # Check if any key words appear in "done"/"completed" context
+        step_mentioned = any(w in history_lower for w in words[:3])
+        done_indicators = ["done", "completed", "finished", "✓", "checked"]
+        step_done = step_mentioned and any(d in history_lower for d in done_indicators)
+
+        if step_done:
+            completed.append(i)
+        elif current is None and not step_done:
+            current = i
+
+    remaining = [i for i in range(len(plan)) if i not in completed and i != current]
+    return {"completed": completed, "current": current, "remaining": remaining}
 
 
 async def list_tasks(status: str = "active", limit: int = 10) -> dict:

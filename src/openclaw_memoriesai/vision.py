@@ -19,13 +19,14 @@ async def evaluate_condition(
     payload = {
         "model": model,
         "prompt": prompt,
-        "images": encoded_images,
         "stream": False,
         "options": {
-            "num_predict": 100,  # short responses only
+            "num_predict": 200,  # short responses
             "temperature": 0.1,
         },
     }
+    if encoded_images:
+        payload["images"] = encoded_images
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         resp = await client.post(f"{config.OLLAMA_URL}/api/generate", json=payload)
