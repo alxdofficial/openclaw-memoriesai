@@ -24,6 +24,7 @@ class WaitJob:
     timeout: int
     task_id: str | None = None
     poll_interval: float = 2.0
+    match_patterns: list[str] = field(default_factory=list)    # agent-provided regex patterns for text fast path
     status: str = "watching"
     result_message: str | None = None
     # runtime state (not persisted)
@@ -114,11 +115,11 @@ class WaitEngine:
             thumb = frame_to_thumbnail(frame)
             next_job.context.add_frame(jpeg, thumb, now)
 
-            # PTY fast path
-            if next_job.target_type == "pty":
-                pty_match = self._try_pty_match(next_job)
-                if pty_match:
-                    await self._resolve_job(next_job, pty_match)
+            # Text fast path — agent-provided regex patterns
+            if next_job.match_patterns:
+                text_match = await self._try_text_match(next_job)
+                if text_match:
+                    await self._resolve_job(next_job, text_match)
                     continue
 
             # Vision evaluation
@@ -169,15 +170,30 @@ class WaitEngine:
             return capture_screen()
         return None
 
-    def _try_pty_match(self, job: WaitJob) -> str | None:
-        """Try regex matching on terminal output before vision."""
-        from ..capture.pty import read_pty_buffer, try_text_match
-        output = read_pty_buffer(job.target_id)
-        if output:
-            match = try_text_match(output, job.criteria)
-            if match:
-                log.info(f"Job {job.id}: PTY fast path matched: {match}")
-                return match
+    async def _try_text_match(self, job: WaitJob) -> str | None:
+        """Try agent-provided regex patterns against terminal text before vision.
+        
+        The agent knows what command it launched — it provides regex patterns
+        for expected success/failure signatures. Matches in <1ms.
+        Falls through to full MiniCPM vision if no patterns match.
+        """
+        from ..capture.pty import read_pty_buffer, try_regex_match
+
+        # Get terminal text (for PTY targets, read buffer)
+        if job.target_type == "pty":
+            output = read_pty_buffer(job.target_id)
+        else:
+            # For screen/window targets, can't easily get text — fall through to vision
+            return None
+
+        if not output:
+            return None
+
+        regex_result = try_regex_match(output, job.match_patterns)
+        if regex_result:
+            log.info(f"Job {job.id}: regex fast path: {regex_result}")
+            return regex_result
+
         return None
 
     def _parse_verdict(self, response: str) -> tuple[str, str]:

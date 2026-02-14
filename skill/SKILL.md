@@ -31,10 +31,14 @@ curl -s -X POST http://127.0.0.1:18790/<tool> -H 'Content-Type: application/json
 ### Smart Wait
 ```bash
 # Wait for screen condition (vision-evaluated)
-mcporter call memoriesai.smart_wait target=screen wake_when="npm install finished" timeout:=120
+mcporter call memoriesai.smart_wait target=screen wake_when="page finished loading" timeout:=120
 
-# Wait for PTY output (regex fast-path, faster for terminal)
-mcporter call memoriesai.smart_wait target=pty wake_when="build completed" timeout:=60
+# Wait for PTY with regex fast-path — YOU provide the patterns since you know what you launched
+mcporter call memoriesai.smart_wait target=pty wake_when="npm install finished" timeout:=60 'match_patterns=["added \\d+ packages", "npm error", "npm ERR"]'
+
+# match_patterns are regex strings matched against terminal output in <1ms
+# If no pattern matches, falls back to MiniCPM vision (2-5s)
+# Always include both success AND failure patterns so it resolves either way
 
 # Check active waits
 mcporter call memoriesai.wait_status
@@ -42,6 +46,13 @@ mcporter call memoriesai.wait_status
 # Cancel a wait
 mcporter call memoriesai.wait_cancel job_id=<id>
 ```
+
+**match_patterns tips:** You know what command you launched — pass regex for its output signatures:
+- `npm install` → `["added \\d+ packages", "npm ERR"]`
+- `pip install` → `["Successfully installed", "ERROR:"]`
+- `git push` → `["Everything up-to-date", "->", "rejected"]`
+- `make` → `["Built target", "Error \\d+", "make.*Error"]`
+- `docker build` → `["Successfully built", "ERROR", "failed to"]`
 
 When resolved/timed out, the daemon injects a system event to wake you automatically.
 

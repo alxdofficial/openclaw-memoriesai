@@ -55,6 +55,7 @@ async def handle_smart_wait(request: web.Request) -> web.Response:
         timeout=args.get("timeout", config.DEFAULT_TIMEOUT),
         task_id=args.get("task_id"),
         poll_interval=args.get("poll_interval", config.DEFAULT_POLL_INTERVAL),
+        match_patterns=args.get("match_patterns", []),
     )
 
     # Persist to DB

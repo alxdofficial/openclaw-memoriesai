@@ -28,6 +28,7 @@ TOOLS = [
                 "timeout": {"type": "integer", "description": "Seconds before giving up. Default: 300", "default": 300},
                 "task_id": {"type": "string", "description": "Link this wait to a task (auto-posts update on resolution)"},
                 "poll_interval": {"type": "number", "description": "Base polling interval in seconds. Default: 2.0", "default": 2.0},
+                "match_patterns": {"type": "array", "items": {"type": "string"}, "description": "Regex patterns to fast-match against terminal output (<1ms). You know what command you launched — pass patterns for its success/failure signatures. E.g., ['added \\\\d+ packages', 'npm error'] for npm install. Only works with pty targets."},
             },
             "required": ["target", "wake_when"],
         },
