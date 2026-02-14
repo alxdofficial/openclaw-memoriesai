@@ -143,6 +143,25 @@ async def handle_task_update(request: web.Request) -> web.Response:
     result = await task_mgr.update_task(
         task_id=args["task_id"], message=args.get("message"),
         query=args.get("query"), status=args.get("status"),
+        step_done=args.get("step_done"),
+    )
+    return web.json_response(result)
+
+
+async def handle_task_thread(request: web.Request) -> web.Response:
+    args = await request.json()
+    result = await task_mgr.get_thread(args["task_id"], limit=args.get("limit", 50))
+    return web.json_response(result)
+
+
+async def handle_task_post(request: web.Request) -> web.Response:
+    """Direct message post to a task thread."""
+    args = await request.json()
+    result = await task_mgr.post_message(
+        task_id=args["task_id"],
+        role=args.get("role", "agent"),
+        content=args["content"],
+        msg_type=args.get("msg_type", "text"),
     )
     return web.json_response(result)
 
@@ -303,12 +322,40 @@ def create_app() -> web.Application:
     app.router.add_post("/wait_cancel", handle_wait_cancel)
     app.router.add_post("/task_register", handle_task_register)
     app.router.add_post("/task_update", handle_task_update)
+    app.router.add_post("/task_thread", handle_task_thread)
+    app.router.add_post("/task_post", handle_task_post)
     app.router.add_post("/task_list", handle_task_list)
     app.router.add_get("/health", handle_health)
     app.router.add_post("/desktop_look", handle_desktop_look)
     app.router.add_post("/desktop_action", handle_desktop_action)
     app.router.add_post("/video_record", handle_video_record)
     return app
+
+
+async def stuck_detection_loop():
+    """Background loop that checks for stuck tasks and wakes OpenClaw."""
+    import subprocess
+    debug.log("DAEMON", "Stuck detection loop started (checking every 60s)")
+    while True:
+        await asyncio.sleep(task_mgr.STUCK_CHECK_INTERVAL)
+        try:
+            alerts = await task_mgr.check_stuck_tasks()
+            for alert in alerts:
+                msg = (
+                    f"[task_stuck] Task {alert['task_id']} ({alert['name']}) appears stuck: "
+                    f"{alert['reason']}. Last activity: {alert['last_message']}"
+                )
+                debug.log_openclaw_event("stuck_alert", msg)
+                try:
+                    subprocess.run(
+                        ["/home/alex/.npm-global/bin/openclaw", "system", "event",
+                         "--text", msg, "--mode", "now"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                except Exception as e:
+                    debug.log("ERROR", f"Failed to inject stuck alert: {e}")
+        except Exception as e:
+            debug.log("ERROR", f"Stuck detection error: {e}")
 
 
 def main():
@@ -321,6 +368,21 @@ def main():
     debug.log("DAEMON", f"Data dir: {config.DATA_DIR}")
     log.info(f"Starting memoriesai daemon on {DAEMON_HOST}:{DAEMON_PORT}")
     app = create_app()
+
+    # Start stuck detection as a background task
+    async def on_startup(app):
+        app['stuck_detector'] = asyncio.create_task(stuck_detection_loop())
+
+    async def on_cleanup(app):
+        app['stuck_detector'].cancel()
+        try:
+            await app['stuck_detector']
+        except asyncio.CancelledError:
+            pass
+
+    app.on_startup.append(on_startup)
+    app.on_cleanup.append(on_cleanup)
+
     web.run_app(app, host=DAEMON_HOST, port=DAEMON_PORT, print=lambda msg: log.info(msg))
 
 

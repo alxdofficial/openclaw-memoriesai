@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS task_messages (
     task_id TEXT NOT NULL REFERENCES tasks(id),
     role TEXT NOT NULL,
     content TEXT NOT NULL,
+    msg_type TEXT NOT NULL DEFAULT 'text',
     created_at TEXT NOT NULL
 );
 
@@ -36,6 +37,14 @@ CREATE TABLE IF NOT EXISTS wait_jobs (
     created_at TEXT NOT NULL,
     resolved_at TEXT
 );
+
+-- msg_type column migration (safe to run repeatedly)
+-- Adds msg_type if not present
+"""
+
+MIGRATION = """
+-- Add msg_type column if missing
+ALTER TABLE task_messages ADD COLUMN msg_type TEXT NOT NULL DEFAULT 'text';
 """
 
 async def get_db() -> aiosqlite.Connection:
@@ -43,6 +52,15 @@ async def get_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(str(config.DB_PATH))
     db.row_factory = aiosqlite.Row
     await db.executescript(SCHEMA)
+    # Safe migration
+    try:
+        await db.execute("SELECT msg_type FROM task_messages LIMIT 1")
+    except Exception:
+        try:
+            await db.execute("ALTER TABLE task_messages ADD COLUMN msg_type TEXT NOT NULL DEFAULT 'text'")
+            await db.commit()
+        except Exception:
+            pass
     return db
 
 def new_id() -> str:

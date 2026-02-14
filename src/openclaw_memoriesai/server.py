@@ -83,25 +83,38 @@ TOOLS = [
     ),
     Tool(
         name="task_update",
-        description="Report progress on a task or query its current state.",
+        description="Report progress on a task: post a message, mark a step done, change status, or query state. Use this throughout your work to narrate what you're doing.",
         inputSchema={
             "type": "object",
             "properties": {
                 "task_id": {"type": "string", "description": "The task to update/query"},
-                "message": {"type": "string", "description": "Progress update"},
-                "query": {"type": "string", "description": "Question about the task"},
+                "message": {"type": "string", "description": "Progress update (added to task thread as agent message)"},
+                "step_done": {"type": "integer", "description": "Mark a plan step as complete (0-indexed)"},
+                "query": {"type": "string", "description": "Ask a question about the task (AI-answered from thread history)"},
                 "status": {"type": "string", "enum": ["active", "paused", "completed", "failed"], "description": "Set task status"},
             },
             "required": ["task_id"],
         },
     ),
     Tool(
-        name="task_list",
-        description="List active (or all) tasks.",
+        name="task_thread",
+        description="Get the full chat thread for a task — all messages, progress, plan status. Use after context compaction to recall where you are.",
         inputSchema={
             "type": "object",
             "properties": {
-                "status": {"type": "string", "default": "active"},
+                "task_id": {"type": "string", "description": "The task to read"},
+                "limit": {"type": "integer", "description": "Max messages to return", "default": 50},
+            },
+            "required": ["task_id"],
+        },
+    ),
+    Tool(
+        name="task_list",
+        description="List active (or all) tasks with progress summaries.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "default": "active", "description": "Filter: active, completed, failed, paused, all"},
                 "limit": {"type": "integer", "default": 10},
             },
         },
@@ -171,6 +184,7 @@ ROUTE_MAP = {
     "wait_cancel": ("POST", "/wait_cancel"),
     "task_register": ("POST", "/task_register"),
     "task_update": ("POST", "/task_update"),
+    "task_thread": ("POST", "/task_thread"),
     "task_list": ("POST", "/task_list"),
     "health_check": ("GET", "/health"),
     "desktop_action": ("POST", "/desktop_action"),
