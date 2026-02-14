@@ -13,19 +13,20 @@ async def evaluate_condition(
     prompt: str,
     images: list[bytes],
     model: str = None,
+    job_id: str = None,
 ) -> str:
     """Send prompt + images to Ollama vision model, return raw text response."""
     model = model or config.VISION_MODEL
     encoded_images = [base64.b64encode(img).decode() for img in images]
 
-    debug.log_vision_request(prompt, len(images), [len(img) for img in images])
+    debug.log_vision_request(prompt, len(images), [len(img) for img in images], job_id=job_id)
 
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
         "options": {
-            "num_predict": 200,  # short responses
+            "num_predict": 400,  # allow descriptive responses
             "temperature": 0.1,
         },
     }
@@ -40,7 +41,7 @@ async def evaluate_condition(
         response_text = data.get("response", "").strip()
         elapsed_ms = (time.time() - start) * 1000
 
-        debug.log_vision_response(response_text, elapsed_ms)
+        debug.log_vision_response(response_text, elapsed_ms, job_id=job_id)
         log.debug(f"Vision response ({data.get('total_duration', 0)/1e9:.1f}s): {response_text}")
         return response_text
 

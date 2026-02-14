@@ -45,15 +45,12 @@ class JobContext:
             for v in self.verdicts
         ) or "None yet (first evaluation)."
 
-        text = f"""Look at the screenshot carefully. Read all visible text.
+        text = f"""Look at the screenshot. Read all visible text.
 
-CONDITION TO CHECK: {criteria}
+CONDITION: {criteria}
 
-Is this condition met in the screenshot? Read the text on screen word by word before answering.
-Respond with exactly one line starting with YES, NO, or PARTIAL:
-- YES: <what you see that confirms it>
-- NO: <what you see instead>
-- PARTIAL: <signs of progress>"""
+Describe what you see, then on the final line write your verdict.
+The verdict line must start with YES, NO, or PARTIAL followed by a colon and your reasoning. Only write ONE verdict line. Example: "YES: the build output shows success" or "NO: the page is still loading"."""
 
         # Thumbnails for history + full res for current
         images: list[bytes] = []

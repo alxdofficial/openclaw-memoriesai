@@ -124,7 +124,7 @@ class WaitEngine:
             # Vision evaluation
             try:
                 prompt, images = next_job.context.build_prompt(next_job.criteria)
-                response = await evaluate_condition(prompt, images)
+                response = await evaluate_condition(prompt, images, job_id=next_job.id)
                 verdict, desc = self._parse_verdict(response)
                 next_job.context.add_verdict(verdict, desc, now)
                 log.info(f"Job {next_job.id}: {verdict} — {desc}")
@@ -181,16 +181,37 @@ class WaitEngine:
         return None
 
     def _parse_verdict(self, response: str) -> tuple[str, str]:
-        """Parse YES/NO/PARTIAL from model response."""
-        line = response.strip().split("\n")[0]
-        upper = line.upper()
-        if upper.startswith("YES"):
-            return ("resolved", line[4:].strip() if len(line) > 4 else "Condition met")
-        elif upper.startswith("PARTIAL"):
-            return ("partial", line[8:].strip() if len(line) > 8 else "Partial progress")
-        else:
-            desc = line[3:].strip() if upper.startswith("NO") and len(line) > 3 else line
-            return ("watching", desc or "Condition not yet met")
+        """Parse YES/NO/PARTIAL from model response.
+        
+        Scans all lines for verdict patterns. Takes the FIRST match
+        (ignores echoed template lines like '<evidence...>').
+        """
+        lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
+        if not lines:
+            return ("watching", "Empty response")
+
+        for line in lines:
+            upper = line.upper()
+            # Skip lines that look like template echoes
+            if "<" in line and ">" in line and ("evidence" in line.lower() or "what you see" in line.lower()):
+                continue
+            
+            if upper.startswith("YES:") or upper.startswith("YES "):
+                detail = line[4:].strip()
+                return ("resolved", detail or "Condition met")
+            elif upper == "YES":
+                return ("resolved", "Condition met")
+            elif upper.startswith("PARTIAL:") or upper.startswith("PARTIAL "):
+                detail = line[8:].strip()
+                return ("partial", detail or "Partial progress")
+            elif upper.startswith("NO:") or upper.startswith("NO "):
+                detail = line[3:].strip()
+                return ("watching", detail or "Condition not yet met")
+            elif upper == "NO":
+                return ("watching", "Condition not yet met")
+
+        # No clear verdict — default to watching with full response
+        return ("watching", response.strip()[:500])
 
     async def _resolve_job(self, job: WaitJob, description: str):
         """Condition met — wake OpenClaw and update linked task."""

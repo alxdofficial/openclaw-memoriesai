@@ -115,18 +115,25 @@ def log(category: str, message: str, data: dict = None):
         _log_file.write(file_line + "\n")
 
 
-def log_vision_request(prompt: str, num_images: int, image_sizes: list[int] = None):
+def log_vision_request(prompt: str, num_images: int, image_sizes: list[int] = None, job_id: str = None):
     """Log a vision model request."""
     sizes = [f"{s//1024}KB" for s in (image_sizes or [])]
-    log("VISION", f"→ Sending to MiniCPM-o ({num_images} image{'s' if num_images != 1 else ''}, {', '.join(sizes) if sizes else 'no images'})")
-    # Truncate prompt for display
-    display_prompt = prompt[:500] + "..." if len(prompt) > 500 else prompt
-    log("VISION", f"  Prompt: {display_prompt}")
+    tag = f"[{job_id}] " if job_id else ""
+    log("VISION", f"{tag}→ Sending to MiniCPM-o ({num_images} image{'s' if num_images != 1 else ''}, {', '.join(sizes) if sizes else 'no images'})")
+    # Show full prompt (indent continuation lines)
+    for i, line in enumerate(prompt.strip().split("\n")):
+        prefix = "  Prompt: " if i == 0 else "          "
+        log("VISION", f"{tag}{prefix}{line}")
 
 
-def log_vision_response(response: str, duration_ms: float):
+def log_vision_response(response: str, duration_ms: float, job_id: str = None):
     """Log a vision model response."""
-    log("VISION", f"← Response ({duration_ms:.0f}ms): {response}")
+    tag = f"[{job_id}] " if job_id else ""
+    # Show full response (indent continuation lines)
+    lines = response.strip().split("\n")
+    for i, line in enumerate(lines):
+        prefix = f"← Response ({duration_ms:.0f}ms): " if i == 0 else "  " + " " * 20
+        log("VISION", f"{tag}{prefix}{line}")
 
 
 def log_wait_event(job_id: str, event: str, detail: str = ""):
