@@ -103,7 +103,7 @@
 
         <!-- Performance notes -->
         <mxCell id="perf" value="&lt;b&gt;Performance&lt;/b&gt;&lt;br&gt;• Screen capture: ~5ms&lt;br&gt;• Pixel diff: ~2ms&lt;br&gt;• Vision eval: 2-5s (GPU)&lt;br&gt;• PTY regex: &lt;1ms (bypasses all of this)" style="text;html=1;fontSize=10;align=left;fillColor=#ffe6cc;strokeColor=#d79b00;rounded=1;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
-          <mxGeometry x="880" y="90" width="240" height="90" as="geometry"/>
+          <mxGeometry x="40" y="240" width="240" height="90" as="geometry"/>
         </mxCell>
 
       </root>

@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net" modified="2026-02-14T08:35:00.000Z" agent="openclaw-memoriesai" version="24.0.0" type="device">
   <diagram id="smart-wait-flow" name="Smart Wait Flow">
-    <mxGraphModel dx="1422" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+    <mxGraphModel dx="1422" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
@@ -99,14 +99,14 @@
         <mxCell id="pty-fallback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeWidth=1;strokeColor=#999;dashed=1;" edge="1" parent="1" source="pty-match" target="capture">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="285" y="590"/>
-              <mxPoint x="750" y="590"/>
-              <mxPoint x="750" y="510"/>
+              <mxPoint x="160" y="640"/>
+              <mxPoint x="160" y="430"/>
+              <mxPoint x="910" y="430"/>
             </Array>
           </mxGeometry>
         </mxCell>
         <mxCell id="pty-fallback-label" value="No → vision fallback" style="edgeLabel;html=1;fontSize=10;fontColor=#999;" vertex="1" connectable="0" parent="pty-fallback">
-          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+          <mxGeometry x="0.3" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
         </mxCell>
 
         <!-- PTY match -> resolved -->
