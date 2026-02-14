@@ -7,7 +7,9 @@ from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
 from . import config, db
+import time
 from .wait.engine import WaitEngine, WaitJob
+from .wait.poller import AdaptivePoller
 from .task import manager as task_mgr
 from .vision import check_ollama_health
 
@@ -61,6 +63,20 @@ TOOLS = [
             "properties": {
                 "wait_id": {"type": "string", "description": "Specific wait job to check (optional — omit for all)"},
             },
+        },
+    ),
+    Tool(
+        name="wait_update",
+        description="Resume or refine an existing wait job. Use after being woken too early — update the condition or extend the timeout.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "wait_id": {"type": "string", "description": "The wait job to update"},
+                "wake_when": {"type": "string", "description": "Updated condition (replaces original)"},
+                "timeout": {"type": "integer", "description": "New timeout in seconds (resets clock)"},
+                "message": {"type": "string", "description": "Note to attach (logged in job history)"},
+            },
+            "required": ["wait_id"],
         },
     ),
     Tool(
@@ -143,6 +159,8 @@ async def call_tool(name: str, arguments: dict):
             return await _handle_smart_wait(arguments)
         elif name == "wait_status":
             return await _handle_wait_status(arguments)
+        elif name == "wait_update":
+            return await _handle_wait_update(arguments)
         elif name == "wait_cancel":
             return await _handle_wait_cancel(arguments)
         elif name == "task_register":
@@ -231,6 +249,31 @@ async def _handle_wait_status(args: dict):
             "criteria": job.criteria, "elapsed_seconds": round(elapsed),
         })
     return [TextContent(type="text", text=json.dumps({"active_jobs": jobs, "count": len(jobs)}))]
+
+
+async def _handle_wait_update(args: dict):
+    wait_id = args["wait_id"]
+    if wait_id not in wait_engine.jobs:
+        return [TextContent(type="text", text=json.dumps({"error": f"Wait job {wait_id} not found"}))]
+
+    job = wait_engine.jobs[wait_id]
+    if args.get("wake_when"):
+        job.criteria = args["wake_when"]
+    if args.get("timeout"):
+        job.timeout = args["timeout"]
+        job.context.started_at = time.time()  # reset clock
+    if args.get("message"):
+        log.info(f"Wait update note for {wait_id}: {args['message']}")
+    # Reset diff gate and poller for fresh evaluation
+    job.diff_gate.reset()
+    job.poller = AdaptivePoller(job.poll_interval)
+    job.next_check_at = 0  # check immediately
+
+    return [TextContent(type="text", text=json.dumps({
+        "wait_id": wait_id,
+        "status": "watching",
+        "message": f"Resumed. Watching for: {job.criteria}. Timeout: {job.timeout}s.",
+    }))]
 
 
 async def _handle_wait_cancel(args: dict):

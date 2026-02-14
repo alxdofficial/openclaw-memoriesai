@@ -167,7 +167,13 @@ class WaitEngine:
 
     def _try_pty_match(self, job: WaitJob) -> str | None:
         """Try regex matching on terminal output before vision."""
-        # TODO: Read PTY buffer via OpenClaw process tool
+        from ..capture.pty import read_pty_buffer, try_text_match
+        output = read_pty_buffer(job.target_id)
+        if output:
+            match = try_text_match(output, job.criteria)
+            if match:
+                log.info(f"Job {job.id}: PTY fast path matched: {match}")
+                return match
         return None
 
     def _parse_verdict(self, response: str) -> tuple[str, str]:
