@@ -45,23 +45,15 @@ class JobContext:
             for v in self.verdicts
         ) or "None yet (first evaluation)."
 
-        text = f"""You are monitoring a screen for a specific condition.
+        text = f"""Look at the screenshot carefully. Read all visible text.
 
-CONDITION: {criteria}
-MONITORING DURATION: {_format_duration(elapsed)}
-TIME SINCE LAST SCREEN CHANGE: {_format_duration(since_change)}
+CONDITION TO CHECK: {criteria}
 
-PREVIOUS OBSERVATIONS (oldest first):
-{verdict_lines}
-
-Frame history: {len(self.frames)} frames attached (oldest → newest).
-The last image is the current frame at full resolution.
-
-Has the condition been met?
-Respond with exactly one line:
-- YES: <brief description>
-- NO: <current state>
-- PARTIAL: <progress toward condition>"""
+Is this condition met in the screenshot? Read the text on screen word by word before answering.
+Respond with exactly one line starting with YES, NO, or PARTIAL:
+- YES: <what you see that confirms it>
+- NO: <what you see instead>
+- PARTIAL: <signs of progress>"""
 
         # Thumbnails for history + full res for current
         images: list[bytes] = []
