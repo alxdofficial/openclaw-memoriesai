@@ -24,10 +24,19 @@ DAEMON_PORT = 18790
 wait_engine = WaitEngine()
 
 
+async def _parse_body(request: web.Request) -> dict:
+    """Parse JSON body, normalizing keys that have trailing colons (mcporter :=  syntax artifact)."""
+    if not request.can_read_body:
+        return {}
+    raw = await request.json()
+    # mcporter sends key:=value as {"key:": value} — strip trailing colons
+    return {k.rstrip(":"): v for k, v in raw.items()} if isinstance(raw, dict) else raw
+
+
 # ─── HTTP handlers ──────────────────────────────────────────────
 
 async def handle_smart_wait(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     target_str = args["target"]
     if ":" in target_str:
         target_type, target_id = target_str.split(":", 1)
@@ -70,7 +79,7 @@ async def handle_smart_wait(request: web.Request) -> web.Response:
 
 
 async def handle_wait_status(request: web.Request) -> web.Response:
-    args = await request.json() if request.can_read_body else {}
+    args = await _parse_body(request)
     wait_id = args.get("wait_id")
     import time
     if wait_id:
@@ -100,7 +109,7 @@ async def handle_wait_status(request: web.Request) -> web.Response:
 
 
 async def handle_wait_update(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     wait_id = args["wait_id"]
     if wait_id not in wait_engine.jobs:
         return web.json_response({"error": f"Wait job {wait_id} not found"}, status=404)
@@ -125,7 +134,7 @@ async def handle_wait_update(request: web.Request) -> web.Response:
 
 
 async def handle_wait_cancel(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     success = wait_engine.cancel_job(args["wait_id"], args.get("reason", "cancelled by agent"))
     if success:
         return web.json_response({"wait_id": args["wait_id"], "status": "cancelled"})
@@ -133,13 +142,13 @@ async def handle_wait_cancel(request: web.Request) -> web.Response:
 
 
 async def handle_task_register(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     result = await task_mgr.register_task(name=args["name"], plan=args["plan"], metadata=args.get("metadata"))
     return web.json_response(result)
 
 
 async def handle_task_update(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     result = await task_mgr.update_task(
         task_id=args["task_id"], message=args.get("message"),
         query=args.get("query"), status=args.get("status"),
@@ -149,14 +158,14 @@ async def handle_task_update(request: web.Request) -> web.Response:
 
 
 async def handle_task_thread(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     result = await task_mgr.get_thread(args["task_id"], limit=args.get("limit", 50))
     return web.json_response(result)
 
 
 async def handle_task_post(request: web.Request) -> web.Response:
     """Direct message post to a task thread."""
-    args = await request.json()
+    args = await _parse_body(request)
     result = await task_mgr.post_message(
         task_id=args["task_id"],
         role=args.get("role", "agent"),
@@ -167,7 +176,7 @@ async def handle_task_post(request: web.Request) -> web.Response:
 
 
 async def handle_task_list(request: web.Request) -> web.Response:
-    args = await request.json() if request.can_read_body else {}
+    args = await _parse_body(request)
     result = await task_mgr.list_tasks(status=args.get("status", "active"), limit=args.get("limit", 10))
     return web.json_response(result)
 
@@ -184,7 +193,7 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 async def handle_desktop_look(request: web.Request) -> web.Response:
-    args = await request.json() if request.can_read_body else {}
+    args = await _parse_body(request)
     from .capture.screen import capture_screen, frame_to_jpeg
     if args.get("window_name"):
         from .desktop import control as desktop
@@ -206,7 +215,7 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
 
 
 async def handle_desktop_action(request: web.Request) -> web.Response:
-    args = await request.json()
+    args = await _parse_body(request)
     from .desktop import control as desktop
     action = args["action"]
     result = {}
@@ -274,7 +283,7 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
 
 
 async def handle_video_record(request: web.Request) -> web.Response:
-    args = await request.json() if request.can_read_body else {}
+    args = await _parse_body(request)
     from .video.recorder import record_screen
     from .desktop.control import find_window
     import os

@@ -212,6 +212,16 @@ print(f'Written: {config_path}')
 "
 ok "mcporter config updated"
 
+# Install OpenClaw skill (SKILL.md)
+SKILL_DIR="$OC_WORKSPACE/skills/memoriesai"
+mkdir -p "$SKILL_DIR"
+if [ -f "$REPO_DIR/skill/SKILL.md" ]; then
+    cp "$REPO_DIR/skill/SKILL.md" "$SKILL_DIR/SKILL.md"
+    ok "OpenClaw skill installed: $SKILL_DIR/SKILL.md"
+else
+    warn "skill/SKILL.md not found in repo — skill not installed"
+fi
+
 # ─── Verify ────────────────────────────────────────────────────
 
 info "Running health check..."
