@@ -6,9 +6,10 @@ can submit jobs and query state without losing the async event loop.
 import asyncio
 import json
 import logging
+import os
 from aiohttp import web
 
-from . import config, db
+from . import config, db, debug
 from .wait.engine import WaitEngine, WaitJob
 from .wait.poller import AdaptivePoller
 from .task import manager as task_mgr
@@ -278,8 +279,24 @@ async def handle_video_record(request: web.Request) -> web.Response:
 
 # ─── App setup ──────────────────────────────────────────────────
 
+@web.middleware
+async def debug_middleware(request: web.Request, handler):
+    """Log all HTTP requests when debug is enabled."""
+    import time as _time
+    start = _time.time()
+    try:
+        response = await handler(request)
+        elapsed = (_time.time() - start) * 1000
+        debug.log_http(request.method, request.path, response.status, elapsed)
+        return response
+    except Exception as e:
+        elapsed = (_time.time() - start) * 1000
+        debug.log_http(request.method, request.path, 500, elapsed)
+        raise
+
+
 def create_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[debug_middleware])
     app.router.add_post("/smart_wait", handle_smart_wait)
     app.router.add_post("/wait_status", handle_wait_status)
     app.router.add_post("/wait_update", handle_wait_update)
@@ -295,7 +312,13 @@ def create_app() -> web.Application:
 
 
 def main():
+    import sys as _sys
+    enable_debug = "--debug" in _sys.argv or os.environ.get("MEMORIESAI_DEBUG", "0") in ("1", "true", "yes")
     config.ensure_data_dir()
+    debug.init(enabled=enable_debug)
+    debug.log("DAEMON", f"Starting memoriesai daemon on {DAEMON_HOST}:{DAEMON_PORT}")
+    debug.log("DAEMON", f"Display: {config.DISPLAY}, Model: {config.VISION_MODEL}")
+    debug.log("DAEMON", f"Data dir: {config.DATA_DIR}")
     log.info(f"Starting memoriesai daemon on {DAEMON_HOST}:{DAEMON_PORT}")
     app = create_app()
     web.run_app(app, host=DAEMON_HOST, port=DAEMON_PORT, print=lambda msg: log.info(msg))

@@ -5,7 +5,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 
-from .. import config
+from .. import config, debug
 from ..capture.screen import capture_window, capture_screen, find_window_by_name, frame_to_jpeg, frame_to_thumbnail
 from ..capture.diff import PixelDiffGate
 from ..vision import evaluate_condition
@@ -49,6 +49,7 @@ class WaitEngine:
     def add_job(self, job: WaitJob):
         self.jobs[job.id] = job
         log.info(f"Added wait job {job.id}: target={job.target_type}:{job.target_id}, criteria={job.criteria!r}")
+        debug.log_wait_event(job.id, "CREATED", f"target={job.target_type}:{job.target_id}, criteria={job.criteria!r}, timeout={job.timeout}s")
         self._wake_event.set()
         # Start the loop if not already running
         if self._task is None or self._task.done():
@@ -103,8 +104,10 @@ class WaitEngine:
             if not next_job.diff_gate.should_evaluate(frame):
                 next_job.poller.on_no_change()
                 next_job.next_check_at = now + next_job.poller.interval
+                debug.log_diff_gate(next_job.id, False, next_job.diff_gate.last_diff_pct)
                 log.debug(f"Job {next_job.id}: no change, next in {next_job.poller.interval:.1f}s")
                 continue
+            debug.log_diff_gate(next_job.id, True, next_job.diff_gate.last_diff_pct)
 
             # Add frame to context
             jpeg = frame_to_jpeg(frame)
@@ -125,6 +128,7 @@ class WaitEngine:
                 verdict, desc = self._parse_verdict(response)
                 next_job.context.add_verdict(verdict, desc, now)
                 log.info(f"Job {next_job.id}: {verdict} — {desc}")
+                debug.log_wait_event(next_job.id, f"VERDICT: {verdict.upper()}", desc)
 
                 if verdict == "resolved":
                     await self._resolve_job(next_job, desc)
@@ -194,6 +198,7 @@ class WaitEngine:
         job.result_message = description
         del self.jobs[job.id]
         log.info(f"Job {job.id} RESOLVED: {description}")
+        debug.log_wait_event(job.id, "✅ RESOLVED", description)
 
         # Auto-post to linked task
         if job.task_id:
@@ -220,6 +225,7 @@ class WaitEngine:
         job.result_message = f"Timeout after {job.timeout}s.{last_desc}"
         del self.jobs[job.id]
         log.info(f"Job {job.id} TIMEOUT: {job.result_message}")
+        debug.log_wait_event(job.id, "⏰ TIMEOUT", job.result_message)
 
         if job.task_id:
             try:
@@ -244,7 +250,9 @@ class WaitEngine:
             )
             if result.returncode == 0:
                 log.info(f"System event injected: {message[:80]}...")
+                debug.log_openclaw_event("system_event", message, success=True)
             else:
                 log.error(f"System event failed: {result.stderr}")
+                debug.log_openclaw_event("system_event", f"FAILED: {result.stderr}", success=False)
         except Exception as e:
             log.error(f"System event injection error: {e}")

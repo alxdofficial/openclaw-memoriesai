@@ -1,8 +1,10 @@
 """Vision model client via Ollama API."""
 import base64
+import time
 import httpx
 import logging
 from . import config
+from . import debug
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +18,8 @@ async def evaluate_condition(
     model = model or config.VISION_MODEL
     encoded_images = [base64.b64encode(img).decode() for img in images]
 
+    debug.log_vision_request(prompt, len(images), [len(img) for img in images])
+
     payload = {
         "model": model,
         "prompt": prompt,
@@ -28,11 +32,15 @@ async def evaluate_condition(
     if encoded_images:
         payload["images"] = encoded_images
 
+    start = time.time()
     async with httpx.AsyncClient(timeout=180.0) as client:
         resp = await client.post(f"{config.OLLAMA_URL}/api/generate", json=payload)
         resp.raise_for_status()
         data = resp.json()
         response_text = data.get("response", "").strip()
+        elapsed_ms = (time.time() - start) * 1000
+
+        debug.log_vision_response(response_text, elapsed_ms)
         log.debug(f"Vision response ({data.get('total_duration', 0)/1e9:.1f}s): {response_text}")
         return response_text
 

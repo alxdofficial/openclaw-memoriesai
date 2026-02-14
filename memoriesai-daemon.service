@@ -7,6 +7,7 @@ Type=simple
 User=alex
 Environment=DISPLAY=:99
 Environment=PYTHONPATH=/home/alex/openclaw-memoriesai/src
+Environment=MEMORIESAI_DEBUG=1
 ExecStart=/home/alex/openclaw-memoriesai/.venv/bin/python3 -m openclaw_memoriesai.daemon
 Restart=on-failure
 RestartSec=5
