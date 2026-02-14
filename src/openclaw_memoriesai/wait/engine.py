@@ -239,7 +239,7 @@ class WaitEngine:
         """Inject a system event into OpenClaw to wake the agent."""
         try:
             result = subprocess.run(
-                ["openclaw", "system", "event", "--text", message, "--mode", "now"],
+                ["/home/alex/.npm-global/bin/openclaw", "system", "event", "--text", message, "--mode", "now"],
                 capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
