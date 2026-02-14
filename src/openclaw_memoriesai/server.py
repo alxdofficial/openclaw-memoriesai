@@ -11,7 +11,7 @@ import time
 from .wait.engine import WaitEngine, WaitJob
 from .wait.poller import AdaptivePoller
 from .task import manager as task_mgr
-from .vision import check_ollama_health
+from .vision import check_ollama_health, evaluate_condition
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -142,6 +142,64 @@ TOOLS = [
         description="Check if the memoriesai daemon, Ollama, and vision model are healthy.",
         inputSchema={"type": "object", "properties": {}},
     ),
+    Tool(
+        name="desktop_action",
+        description="Control the desktop: click, type, press keys, manage windows. For automating native GUI applications.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["click", "double_click", "type", "press_key", "mouse_move",
+                             "drag", "screenshot", "list_windows", "find_window",
+                             "focus_window", "resize_window", "move_window", "close_window",
+                             "get_mouse_position"],
+                    "description": "Action to perform"
+                },
+                "x": {"type": "integer", "description": "X coordinate"},
+                "y": {"type": "integer", "description": "Y coordinate"},
+                "x2": {"type": "integer", "description": "End X for drag"},
+                "y2": {"type": "integer", "description": "End Y for drag"},
+                "text": {"type": "string", "description": "Text to type or key to press"},
+                "button": {"type": "integer", "description": "Mouse button (1=left, 2=middle, 3=right)", "default": 1},
+                "window_id": {"type": "integer", "description": "X11 window ID"},
+                "window_name": {"type": "string", "description": "Window name/title to search for"},
+                "width": {"type": "integer", "description": "Window width for resize"},
+                "height": {"type": "integer", "description": "Window height for resize"},
+            },
+            "required": ["action"],
+        },
+    ),
+    Tool(
+        name="video_record",
+        description="Record a short video clip of the screen or a window. Returns the file path. Use for capturing procedural knowledge or debugging visual issues.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "duration": {"type": "integer", "description": "Seconds to record (5-120)", "default": 10},
+                "target": {"type": "string", "description": "What to record: 'screen' or 'window:<name>'", "default": "screen"},
+                "fps": {"type": "integer", "description": "Frames per second", "default": 5},
+            },
+        },
+    ),
+    Tool(
+        name="desktop_look",
+        description="Take a screenshot and describe what's on the desktop using vision. Use to understand current GUI state before acting.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "What to look for or describe (e.g., 'what buttons are visible?', 'where is the save button?')",
+                    "default": "Describe everything visible on the screen."
+                },
+                "window_name": {
+                    "type": "string",
+                    "description": "Focus on a specific window (optional)"
+                },
+            },
+        },
+    ),
 ]
 
 
@@ -171,6 +229,12 @@ async def call_tool(name: str, arguments: dict):
             return await _handle_task_list(arguments)
         elif name == "health_check":
             return await _handle_health_check(arguments)
+        elif name == "video_record":
+            return await _handle_video_record(arguments)
+        elif name == "desktop_action":
+            return await _handle_desktop_action(arguments)
+        elif name == "desktop_look":
+            return await _handle_desktop_look(arguments)
         else:
             return [TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))]
     except Exception as e:
@@ -319,6 +383,155 @@ async def _handle_health_check(args: dict):
         "active_wait_jobs": active_waits,
         "data_dir": str(config.DATA_DIR),
         "display": config.DISPLAY,
+    }))]
+
+
+async def _handle_video_record(args: dict):
+    from .video.recorder import record_screen
+    from .desktop.control import find_window
+
+    target = args.get("target", "screen")
+    duration = min(max(args.get("duration", 10), 1), 120)
+    fps = args.get("fps", 5)
+    window_id = None
+
+    if target.startswith("window:"):
+        name = target[7:]
+        window_id = find_window(name)
+        if not window_id:
+            return [TextContent(type="text", text=json.dumps({"error": f"Window '{name}' not found"}))]
+
+    path = record_screen(duration=duration, fps=fps, window_id=window_id)
+    if path:
+        import os
+        size_mb = os.path.getsize(path) / 1024 / 1024
+        return [TextContent(type="text", text=json.dumps({
+            "ok": True,
+            "path": path,
+            "duration": duration,
+            "fps": fps,
+            "size_mb": round(size_mb, 2),
+        }))]
+    return [TextContent(type="text", text=json.dumps({"error": "Recording failed. Is ffmpeg installed?"}))]
+
+
+async def _handle_desktop_action(args: dict):
+    from .desktop import control as desktop
+    action = args["action"]
+    result = {}
+
+    if action == "click":
+        x, y = args.get("x"), args.get("y")
+        btn = args.get("button", 1)
+        if x is not None and y is not None:
+            ok = desktop.mouse_click_at(x, y, btn)
+            result = {"ok": ok, "action": "click", "x": x, "y": y, "button": btn}
+        else:
+            ok = desktop.mouse_click(btn)
+            result = {"ok": ok, "action": "click", "button": btn}
+
+    elif action == "double_click":
+        ok = desktop.mouse_double_click(args.get("x"), args.get("y"))
+        result = {"ok": ok, "action": "double_click"}
+
+    elif action == "type":
+        ok = desktop.type_text(args.get("text", ""))
+        result = {"ok": ok, "action": "type", "text": args.get("text", "")[:50]}
+
+    elif action == "press_key":
+        ok = desktop.press_key(args.get("text", "Return"))
+        result = {"ok": ok, "action": "press_key", "key": args.get("text")}
+
+    elif action == "mouse_move":
+        ok = desktop.mouse_move(args["x"], args["y"])
+        result = {"ok": ok, "action": "mouse_move", "x": args["x"], "y": args["y"]}
+
+    elif action == "drag":
+        ok = desktop.mouse_drag(args["x"], args["y"], args["x2"], args["y2"], args.get("button", 1))
+        result = {"ok": ok, "action": "drag"}
+
+    elif action == "screenshot":
+        path = desktop.take_screenshot()
+        result = {"ok": path is not None, "path": path}
+
+    elif action == "list_windows":
+        windows = desktop.list_windows()
+        result = {"windows": windows, "count": len(windows)}
+
+    elif action == "find_window":
+        wid = desktop.find_window(args.get("window_name", ""))
+        if wid:
+            info = desktop.get_window_info(wid)
+            result = {"found": True, "window": info}
+        else:
+            result = {"found": False, "window_name": args.get("window_name")}
+
+    elif action == "focus_window":
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
+        if wid:
+            ok = desktop.focus_window(wid)
+            result = {"ok": ok, "window_id": wid}
+        else:
+            result = {"ok": False, "error": "Window not found"}
+
+    elif action == "resize_window":
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
+        if wid:
+            ok = desktop.resize_window(wid, args["width"], args["height"])
+            result = {"ok": ok, "window_id": wid}
+        else:
+            result = {"ok": False, "error": "Window not found"}
+
+    elif action == "move_window":
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
+        if wid:
+            ok = desktop.move_window(wid, args["x"], args["y"])
+            result = {"ok": ok, "window_id": wid}
+        else:
+            result = {"ok": False, "error": "Window not found"}
+
+    elif action == "close_window":
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
+        if wid:
+            ok = desktop.close_window(wid)
+            result = {"ok": ok, "window_id": wid}
+        else:
+            result = {"ok": False, "error": "Window not found"}
+
+    elif action == "get_mouse_position":
+        pos = desktop.get_mouse_position()
+        result = {"x": pos[0], "y": pos[1]} if pos else {"error": "Failed to get position"}
+
+    else:
+        result = {"error": f"Unknown action: {action}"}
+
+    return [TextContent(type="text", text=json.dumps(result))]
+
+
+async def _handle_desktop_look(args: dict):
+    """Screenshot + vision analysis of the desktop."""
+    from .capture.screen import capture_screen, frame_to_jpeg
+
+    # Focus specific window if requested
+    if args.get("window_name"):
+        from .desktop import control as desktop
+        wid = desktop.find_window(args["window_name"])
+        if wid:
+            desktop.focus_window(wid)
+            import asyncio
+            await asyncio.sleep(0.3)  # let it render
+
+    frame = capture_screen()
+    if frame is None:
+        return [TextContent(type="text", text=json.dumps({"error": "Failed to capture screen"}))]
+
+    jpeg = frame_to_jpeg(frame)
+    prompt = args.get("prompt", "Describe everything visible on the screen.")
+
+    response = await evaluate_condition(prompt, [jpeg])
+    return [TextContent(type="text", text=json.dumps({
+        "description": response,
+        "screen_size": {"width": frame.shape[1], "height": frame.shape[0]},
     }))]
 
 

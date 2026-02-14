@@ -1,68 +1,139 @@
 # openclaw-memoriesai
 
-An extension suite for [OpenClaw](https://github.com/openclaw/openclaw) that gives AI agents persistent task memory, smart visual waiting, and procedural recall from screen recordings.
+MCP server giving OpenClaw (or any MCP client) persistent task memory, smart visual waiting, desktop control, and screen recording.
 
-## The Problem
+## Features
 
-Current AI agents (including OpenClaw) have three fundamental limitations when performing long, multi-step tasks on a computer:
+### Smart Wait (Vision-based)
+Delegate waiting to a local vision model. Monitor screens, windows, or terminals — get woken when a condition is met.
+- **MiniCPM-o 4.5** backbone via Ollama (1.6s warm inference on RTX 3070)
+- **Pixel-diff gate** skips evaluation when screen hasn't changed
+- **Adaptive polling** — speeds up when getting close, slows down on static
+- **PTY fast path** — regex matching for terminal output (skips vision for CLI)
+- **Job context windows** — rolling frame history for temporal reasoning
 
-1. **Amnesia across runs** — When a task spans multiple agent turns (because the context window fills up, the run times out, or the agent needs to wait), all progress tracking is lost. The agent has to re-derive where it was.
+### Task Memory
+Persistent task tracking across context boundaries. Never lose track of multi-step work.
+- Register tasks with plans, report progress, query state
+- **AI distillation** — MiniCPM-o summarizes task history on query
+- **Plan progress inference** — heuristic tracking of completed/current/remaining steps
+- Auto-updates from smart_wait resolutions
 
-2. **Dumb waiting** — When the agent kicks off something slow (a download, a build, a deployment), it either burns tokens polling screenshots in a loop, uses hardcoded timeouts, or loses track entirely. There's no way to say "wake me when this finishes."
+### Desktop Control
+Native GUI automation via xdotool.
+- Mouse: click, double-click, drag, move
+- Keyboard: type text, press key combinations
+- Windows: list, find, focus, resize, move, close
+- Vision: screenshot + AI description of current state
 
-3. **No learning from observation** — Every time the agent encounters an unfamiliar UI, it figures it out from scratch using expensive vision model calls. It can't say "I've seen my user do this before" and replay those steps.
+### Screen Recording
+Capture video clips via ffmpeg for debugging or procedural memory.
 
-## The Solution
+## Tools (11 MCP tools)
 
-Three tools, one daemon:
+| Tool | Description |
+|------|-------------|
+| `smart_wait` | Monitor screen/window/terminal, wake on condition |
+| `wait_status` | Check active wait jobs |
+| `wait_update` | Refine a wait condition after early wake |
+| `wait_cancel` | Cancel a wait job |
+| `task_register` | Start tracking a multi-step task |
+| `task_update` | Report progress or query task state |
+| `task_list` | List active/completed tasks |
+| `health_check` | System diagnostics |
+| `desktop_action` | Click, type, manage windows |
+| `desktop_look` | Screenshot + vision analysis |
+| `video_record` | Record screen clips |
 
-### 🧠 Task Memory (`task_register`, `task_update`)
-Persistent task tracking that lives outside the LLM's context window. The agent registers a task with a plan, reports progress as it goes, and can query "what have I done? what's next?" at any point — even after context compaction wipes the conversation history.
+## Setup
 
-### ⏳ Smart Wait (`smart_wait`)
-Delegate waiting to a local vision model (MiniCPM-o). The agent says "watch this window, wake me when the download finishes or an error appears." The daemon monitors the screen efficiently using pixel-diff gating and adaptive polling, and injects a wake event directly into the OpenClaw session when the condition is met.
+### Prerequisites
+- Python 3.11+
+- Ollama with `minicpm-v` model
+- Xvfb (headless) or X11 display
+- xdotool
+- ffmpeg (for video recording)
 
-### 🎥 Video Comprehension (`video_record`, `video_understand`, `video_search`) *(Phase 2)*
-On-demand video recording + Memories AI analysis. Two modes: **Record & Remember** (async — record a workflow, get analysis later, save for future reference) and **Record & Understand** (sync — record what's on screen, get instant analysis to continue your task). Replaces expensive multi-screenshot LLM calls with a single Memories AI video comprehension call.
+### Install
+
+```bash
+# Clone
+git clone https://github.com/alxdofficial/openclaw-memoriesai.git
+cd openclaw-memoriesai
+
+# Create venv and install
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+
+# Install Ollama + model
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull minicpm-v
+
+# Install xdotool
+sudo apt install xdotool
+```
+
+### Configure with OpenClaw (mcporter)
+
+Create `config/mcporter.json` in your OpenClaw workspace:
+
+```json
+{
+  "mcpServers": {
+    "memoriesai": {
+      "command": "/path/to/openclaw-memoriesai/.venv/bin/python3",
+      "args": ["-m", "openclaw_memoriesai.server"],
+      "cwd": "/path/to/openclaw-memoriesai",
+      "env": {
+        "DISPLAY": ":99",
+        "PYTHONPATH": "/path/to/openclaw-memoriesai/src"
+      }
+    }
+  }
+}
+```
+
+### Test
+
+```bash
+# Run tests
+DISPLAY=:99 .venv/bin/python3 -m pytest tests/ -v
+
+# Call tools via mcporter
+mcporter call memoriesai.health_check
+mcporter call memoriesai.task_register name="Test" plan='["step1","step2"]'
+mcporter call memoriesai.desktop_look prompt="What's on screen?"
+mcporter call memoriesai.video_record duration=5
+```
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│              OpenClaw (Main LLM)            │
-│  Claude / GPT / any model                   │
-│                                             │
-│  Tools exposed via MCP:                     │
-│  • task_register  • task_update  • task_list │
-│  • smart_wait  • wait_update  • wait_cancel │
-│  • video_record  • video_understand         │
-│  • video_search                             │
-└──────────────┬──────────────────────────────┘
-               │ MCP (stdio or HTTP)
-               ▼
-┌─────────────────────────────────────────────┐
-│         openclaw-memoriesai daemon          │
-│                                             │
-│  ┌──────────┐  ┌──────────┐  ┌───────────┐ │
-│  │  Task    │  │  Wait    │  │  Video    │ │
-│  │  Store   │  │  Queue   │  │  Record   │ │
-│  │ (SQLite) │  │          │  │ (Mem. AI) │ │
-│  └──────────┘  └──────────┘  └───────────┘ │
-│                      │                      │
-│              ┌───────▼────────┐             │
-│              │  MiniCPM-o 4.5 │             │
-│              │  (local VLM)   │             │
-│              └────────────────┘             │
-└─────────────────────────────────────────────┘
+OpenClaw Gateway
+  │ MCP (stdio)
+  ▼
+openclaw-memoriesai daemon
+  ├── MCP Server (mcp[cli])
+  ├── Wait Manager (async event loop)
+  │   ├── Frame Capture (python-xlib / Xvfb)
+  │   ├── Pixel-Diff Gate (numpy)
+  │   ├── PTY Fast Path (regex)
+  │   └── MiniCPM-o Evaluation (Ollama)
+  ├── Task Manager (SQLite)
+  │   └── AI Distillation (MiniCPM-o)
+  ├── Desktop Control (xdotool)
+  ├── Video Recorder (ffmpeg)
+  └── Wake Dispatch (openclaw system event)
 ```
 
-## Status
+## Hardware
 
-**Phase 1** (current): Architecture & spec  
-**Phase 2**: Smart Wait daemon + Task Memory  
-**Phase 3**: Procedural Memory via Memories AI  
-
-See [docs/](docs/) for detailed specifications.
+| Component | Requirement |
+|-----------|-------------|
+| GPU | NVIDIA RTX 3060+ recommended (8GB VRAM) |
+| RAM | 8GB minimum (5GB model + 3GB system) |
+| CPU | Any modern x86_64 works for CPU-only (slower) |
+| Disk | ~6GB for model + recordings |
 
 ## License
 

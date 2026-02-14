@@ -189,17 +189,30 @@ class WaitEngine:
             return ("watching", desc or "Condition not yet met")
 
     async def _resolve_job(self, job: WaitJob, description: str):
-        """Condition met — wake OpenClaw."""
+        """Condition met — wake OpenClaw and update linked task."""
         job.status = "resolved"
         job.result_message = description
         del self.jobs[job.id]
         log.info(f"Job {job.id} RESOLVED: {description}")
+
+        # Auto-post to linked task
+        if job.task_id:
+            try:
+                from ..task import manager
+                await manager.update_task(
+                    job.task_id,
+                    message=f"[smart_wait] Wait completed: {description}"
+                )
+                log.info(f"Auto-posted resolution to task {job.task_id}")
+            except Exception as e:
+                log.warning(f"Failed to update task {job.task_id}: {e}")
+
         await self._inject_system_event(
             f"[smart_wait resolved] Job {job.id}: {job.criteria} → {description}"
         )
 
     async def _timeout_job(self, job: WaitJob):
-        """Timeout — report last observation."""
+        """Timeout — report last observation and update linked task."""
         last_desc = ""
         if job.context.verdicts:
             last_desc = f" Last observation: {job.context.verdicts[-1].description}"
@@ -207,6 +220,17 @@ class WaitEngine:
         job.result_message = f"Timeout after {job.timeout}s.{last_desc}"
         del self.jobs[job.id]
         log.info(f"Job {job.id} TIMEOUT: {job.result_message}")
+
+        if job.task_id:
+            try:
+                from ..task import manager
+                await manager.update_task(
+                    job.task_id,
+                    message=f"[smart_wait] Wait timed out: {job.result_message}"
+                )
+            except Exception as e:
+                log.warning(f"Failed to update task {job.task_id}: {e}")
+
         await self._inject_system_event(
             f"[smart_wait timeout] Job {job.id}: {job.criteria} — {job.result_message}"
         )

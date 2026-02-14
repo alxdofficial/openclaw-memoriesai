@@ -106,5 +106,44 @@ async def test_task_lifecycle():
     os.remove(config.DB_PATH)
 
 
+def test_desktop_control():
+    """Desktop control via xdotool should work."""
+    from src.openclaw_memoriesai.desktop import control as d
+
+    # Mouse
+    ok = d.mouse_move(100, 100)
+    assert ok
+    pos = d.get_mouse_position()
+    assert pos == (100, 100)
+
+    # Key press (won't error even without a focused window)
+    ok = d.press_key("ctrl+a")
+    assert ok
+
+
+def test_video_recorder():
+    """Screen recording via ffmpeg should produce a file."""
+    from src.openclaw_memoriesai.video.recorder import record_screen
+    import os
+
+    path = record_screen(duration=2, fps=2)
+    assert path is not None
+    assert os.path.exists(path)
+    assert os.path.getsize(path) > 0
+    os.remove(path)
+
+
+def test_plan_progress_inference():
+    """Plan progress should track completed steps from history."""
+    from src.openclaw_memoriesai.task.manager import _infer_plan_progress
+
+    plan = ["Build image", "Push to registry", "Deploy", "Verify"]
+    history = "[agent] Build image done\n[agent] Push completed successfully"
+
+    progress = _infer_plan_progress(plan, history)
+    assert 0 in progress["completed"]  # Build
+    assert 1 in progress["completed"]  # Push
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

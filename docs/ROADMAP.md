@@ -40,22 +40,22 @@
 - [ ] Text pattern matching
 - [ ] Vision fallback for complex criteria
 
-## Phase 3: Task Memory
+## Phase 3: Task Memory ← MOSTLY DONE
 
 **Goal**: Agent can register tasks, report progress, and query state across context boundaries.
 
 ### 3a: Task CRUD
-- [ ] SQLite schema + migrations
-- [ ] task_register, task_update, task_list, task_complete tools
-- [ ] Message history append + retrieval
+- [x] SQLite schema + migrations
+- [x] task_register, task_update, task_list tools
+- [x] Message history append + retrieval
 
 ### 3b: Distillation
-- [ ] Running summary generation (MiniCPM-o)
-- [ ] On-demand query answering
-- [ ] Plan progress heuristic tracking
+- [x] Running summary generation (MiniCPM-o)
+- [x] On-demand query answering
+- [x] Plan progress heuristic tracking
 
 ### 3c: Integration
-- [ ] Link smart_wait to tasks (auto-post on resolution)
+- [x] Link smart_wait to tasks (auto-post on resolution)
 - [ ] OpenClaw agent learns to register tasks for multi-step work
 - [ ] Test: multi-step deployment with context compaction mid-task
 
@@ -63,10 +63,10 @@
 
 **Goal**: Agent can record and analyze video clips via Memories AI — both for immediate understanding and for building a library of procedural knowledge.
 
-### 4a: Screen Recording Module
-- [ ] On-demand video recording (ffmpeg + Xvfb, target window or full screen)
-- [ ] Configurable duration, FPS, resolution
-- [ ] Cleanup of ephemeral recordings
+### 4a: Screen Recording Module ← DONE
+- [x] On-demand video recording (ffmpeg + Xvfb, target window or full screen)
+- [x] Configurable duration, FPS, resolution
+- [x] Cleanup of ephemeral recordings
 
 ### 4b: Memories AI Integration
 - [ ] API client (upload video + prompt, get analysis)
@@ -87,13 +87,13 @@
 - [ ] Search previously saved video analyses
 - [ ] Agent checks "have I recorded this before?" before re-learning workflows
 
-## Phase 5: Visual OS Control
+## Phase 5: Visual OS Control ← DONE
 
 **Goal**: Agent can interact with native desktop applications, not just browser and CLI.
 
-- [ ] xdotool integration for mouse/keyboard
-- [ ] Window management (focus, resize, move)
-- [ ] Desktop screenshot → action pipeline
+- [x] xdotool integration for mouse/keyboard
+- [x] Window management (focus, resize, move, close, list)
+- [x] Desktop screenshot → action pipeline (`desktop_look`)
 - [ ] Combine with procedural memory for efficient UI navigation
 
 ## Future Ideas

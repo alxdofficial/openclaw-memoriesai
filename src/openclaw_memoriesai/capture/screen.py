@@ -13,7 +13,12 @@ def _get_display():
     global _display
     if _display is None:
         import Xlib.display
-        _display = Xlib.display.Display(config.DISPLAY)
+        try:
+            _display = Xlib.display.Display(config.DISPLAY)
+        except Exception:
+            # Reset and retry
+            _display = None
+            raise
     return _display
 
 
