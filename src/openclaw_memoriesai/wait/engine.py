@@ -33,6 +33,7 @@ class WaitJob:
     diff_gate: PixelDiffGate = field(default_factory=PixelDiffGate)
     next_check_at: float = 0.0
     _resolved_window_id: int | None = None
+    _last_vision_at: float = 0.0  # timestamp of last vision evaluation
 
     def __post_init__(self):
         if self.poller is None:
@@ -103,12 +104,19 @@ class WaitEngine:
 
             # Pixel-diff gate
             if not next_job.diff_gate.should_evaluate(frame):
-                next_job.poller.on_no_change()
-                next_job.next_check_at = now + next_job.poller.interval
-                debug.log_diff_gate(next_job.id, False, next_job.diff_gate.last_diff_pct)
-                log.debug(f"Job {next_job.id}: no change, next in {next_job.poller.interval:.1f}s")
-                continue
-            debug.log_diff_gate(next_job.id, True, next_job.diff_gate.last_diff_pct)
+                # Force re-eval if static for too long (catches subtle changes diff misses)
+                since_last_vision = now - next_job._last_vision_at if next_job._last_vision_at else now - next_job.context.started_at
+                if since_last_vision >= config.MAX_STATIC_SECONDS:
+                    debug.log_wait_event(next_job.id, "FORCE RE-EVAL", f"static for {since_last_vision:.0f}s (>{config.MAX_STATIC_SECONDS}s), forcing vision check")
+                    # Fall through to vision evaluation below
+                else:
+                    next_job.poller.on_no_change()
+                    next_job.next_check_at = now + next_job.poller.interval
+                    debug.log_diff_gate(next_job.id, False, next_job.diff_gate.last_diff_pct)
+                    log.debug(f"Job {next_job.id}: no change, next in {next_job.poller.interval:.1f}s")
+                    continue
+            else:
+                debug.log_diff_gate(next_job.id, True, next_job.diff_gate.last_diff_pct)
 
             # Add frame to context
             jpeg = frame_to_jpeg(frame)
@@ -124,6 +132,7 @@ class WaitEngine:
 
             # Vision evaluation
             try:
+                next_job._last_vision_at = time.time()
                 prompt, images = next_job.context.build_prompt(next_job.criteria)
                 response = await evaluate_condition(prompt, images, job_id=next_job.id)
                 verdict, desc = self._parse_verdict(response)

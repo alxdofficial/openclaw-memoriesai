@@ -22,6 +22,7 @@ MIN_POLL_INTERVAL = 0.5
 MAX_POLL_INTERVAL = 15.0
 DEFAULT_TIMEOUT = 300  # seconds
 PIXEL_DIFF_THRESHOLD = 0.01  # 1% of pixels must change
+MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
 FRAME_MAX_DIM = 1920  # send full resolution — small models miss text at lower res
 FRAME_JPEG_QUALITY = 80
 THUMBNAIL_MAX_DIM = 360
