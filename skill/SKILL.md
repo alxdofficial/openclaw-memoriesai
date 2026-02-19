@@ -109,8 +109,27 @@ task_update(task_id=<id>, message="I can see the Export dialog is open. Format i
 **Clicking a button:**
 ```
 task_log_action(task_id=<id>, action_type="gui", summary="Clicking the Export button to open render dialog", status="started")
-gui_do(instruction="click the Export button", task_id=<id>)
+desktop_action(action="click", x=847, y=523, task_id=<id>)
 task_update(task_id=<id>, message="Export button clicked. Render dialog appeared with codec options.")
+```
+
+**Typing into a text field — ALWAYS click first, then type:**
+```
+task_log_action(task_id=<id>, action_type="gui", summary="Entering filename in the Save dialog", status="started")
+desktop_action(action="click", x=640, y=400, task_id=<id>)   # click the input field
+desktop_action(action="type", text="my_project_v2", task_id=<id>)   # type the text
+desktop_action(action="press_key", text="Return", task_id=<id>)    # confirm
+task_update(task_id=<id>, message="Typed filename and pressed Enter. Dialog closed.")
+```
+
+**Key combos (select all, copy, paste, undo):**
+```
+desktop_action(action="press_key", text="ctrl+a", task_id=<id>)   # select all
+desktop_action(action="press_key", text="ctrl+c", task_id=<id>)   # copy
+desktop_action(action="press_key", text="ctrl+v", task_id=<id>)   # paste
+desktop_action(action="press_key", text="ctrl+z", task_id=<id>)   # undo
+desktop_action(action="press_key", text="Tab", task_id=<id>)       # tab
+desktop_action(action="press_key", text="Escape", task_id=<id>)    # escape
 ```
 
 **Shell command:**

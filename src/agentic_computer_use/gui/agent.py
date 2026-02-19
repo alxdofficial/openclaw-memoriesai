@@ -247,13 +247,27 @@ def _infer_action(instruction: str) -> str:
 
 def _extract_text(instruction: str) -> str:
     """Extract text to type from instruction like 'type hello in the search box'."""
-    # Try quoted text first
+    # Quoted text has highest priority — type "foo bar" or type 'foo bar'
     m = re.search(r'["\'](.+?)["\']', instruction)
     if m:
         return m.group(1)
 
-    # Try "type X in ..." pattern
-    m = re.search(r'type\s+(.+?)\s+(?:in|into|on)', instruction, re.IGNORECASE)
+    # "type X in/into/on ..." — stop at the preposition
+    m = re.search(r'\btype\s+(.+?)\s+(?:in|into|on|the)\b', instruction, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+
+    # "enter X", "input X", "write X" — with optional trailing "in ..." clause
+    for verb in ("enter", "input", "write"):
+        m = re.search(
+            rf'\b{verb}\s+(.+?)(?:\s+(?:in|into|on|the)\b|$)',
+            instruction, re.IGNORECASE,
+        )
+        if m:
+            return m.group(1).strip()
+
+    # Fallback: everything after "type " when nothing else matched
+    m = re.search(r'\btype\s+(.+)$', instruction, re.IGNORECASE)
     if m:
         return m.group(1).strip()
 
