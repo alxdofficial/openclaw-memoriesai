@@ -3,8 +3,8 @@
 
 const App = (() => {
   const API_BASE = "";
-  const POLL_TASKS_MS = 3000;
-  const POLL_DETAIL_MS = 2000;
+  const POLL_TASKS_MS = 1000;
+  const POLL_DETAIL_MS = 500;
 
   let _selectedTaskId = null;
   let _taskPollTimer = null;
@@ -126,11 +126,6 @@ const App = (() => {
     const data = await apiFetch(`/api/tasks?status=${filter}&limit=100`);
     if (data && data.tasks) {
       TaskList.setTasks(data.tasks);
-
-      // If selected task is in the list, also refresh detail
-      if (_selectedTaskId) {
-        pollSelectedTask();
-      }
     }
   }
 

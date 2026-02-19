@@ -55,6 +55,7 @@ async def execute_gui_action(
     instruction: str,
     task_id: str = None,
     window_name: str = None,
+    display: str = None,
 ) -> dict:
     """Execute a GUI action from NL or explicit coordinates.
 
@@ -62,9 +63,9 @@ async def execute_gui_action(
     """
     # Focus target window if specified
     if window_name:
-        wid = desktop.find_window(window_name)
+        wid = desktop.find_window(window_name, display=display)
         if wid:
-            desktop.focus_window(wid)
+            desktop.focus_window(wid, display=display)
             await asyncio.sleep(0.3)
         else:
             return {"ok": False, "error": f"Window '{window_name}' not found"}
@@ -73,16 +74,22 @@ async def execute_gui_action(
     explicit = _parse_explicit_coords(instruction)
     if explicit:
         action_type, x, y = explicit
+        # Auto-focus window at target coordinates if no window was pre-focused
+        if not window_name:
+            wid = desktop.find_window_at(x, y, display=display)
+            if wid:
+                desktop.focus_window(wid, display=display)
+                await asyncio.sleep(0.15)
         if action_type == "click":
-            ok = desktop.mouse_click_at(x, y)
+            ok = desktop.mouse_click_at(x, y, display=display)
             return {"ok": ok, "action": "click", "x": x, "y": y, "grounded": False}
         elif action_type == "type":
-            desktop.mouse_click_at(x, y)
+            desktop.mouse_click_at(x, y, display=display)
             await asyncio.sleep(0.1)
             # Extract text from instruction
             m = re.search(r'["\'](.+?)["\']', instruction)
             text = m.group(1) if m else ""
-            ok = desktop.type_text(text)
+            ok = desktop.type_text(text, display=display)
             return {"ok": ok, "action": "type", "x": x, "y": y, "text": text, "grounded": False}
 
     # NL instruction — need grounding
@@ -90,14 +97,13 @@ async def execute_gui_action(
 
     # Capture screenshot for grounding
     if window_name:
-        wid = desktop.find_window(window_name)
+        wid = desktop.find_window(window_name, display=display)
         if wid:
-            from ..capture.screen import capture_window
-            frame = capture_window(wid)
+            frame = capture_window(wid, display=display)
         else:
-            frame = capture_screen()
+            frame = capture_screen(display=display)
     else:
-        frame = capture_screen()
+        frame = capture_screen(display=display)
 
     if frame is None:
         return {"ok": False, "error": "Failed to capture screen for grounding"}
@@ -121,22 +127,22 @@ async def execute_gui_action(
     x, y = grounding.x, grounding.y
 
     if action == "click":
-        ok = desktop.mouse_click_at(x, y)
+        ok = desktop.mouse_click_at(x, y, display=display)
     elif action == "double_click":
-        ok = desktop.mouse_double_click(x, y)
+        ok = desktop.mouse_double_click(x, y, display=display)
     elif action == "type":
-        desktop.mouse_click_at(x, y)
+        desktop.mouse_click_at(x, y, display=display)
         await asyncio.sleep(0.1)
         text = _extract_text(instruction)
-        ok = desktop.type_text(text) if text else False
+        ok = desktop.type_text(text, display=display) if text else False
     elif action == "right_click":
-        ok = desktop.mouse_click_at(x, y, button=3)
+        ok = desktop.mouse_click_at(x, y, button=3, display=display)
     else:
-        ok = desktop.mouse_click_at(x, y)
+        ok = desktop.mouse_click_at(x, y, display=display)
 
     # Capture "after" screenshot
     await asyncio.sleep(0.15)
-    after_frame = capture_screen()
+    after_frame = capture_screen(display=display)
 
     # Log action to task if linked
     if task_id:
@@ -185,20 +191,21 @@ async def execute_gui_action(
 async def find_gui_element(
     description: str,
     window_name: str = None,
+    display: str = None,
 ) -> dict:
     """Locate a UI element without acting on it."""
     backend = _get_backend()
 
     if window_name:
-        wid = desktop.find_window(window_name)
+        wid = desktop.find_window(window_name, display=display)
         if wid:
-            desktop.focus_window(wid)
+            desktop.focus_window(wid, display=display)
             await asyncio.sleep(0.2)
-            frame = capture_window(wid)
+            frame = capture_window(wid, display=display)
         else:
             return {"found": False, "error": f"Window '{window_name}' not found"}
     else:
-        frame = capture_screen()
+        frame = capture_screen(display=display)
 
     if frame is None:
         return {"found": False, "error": "Failed to capture screen"}

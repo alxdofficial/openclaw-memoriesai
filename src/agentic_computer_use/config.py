@@ -9,6 +9,8 @@ SCREENSHOTS_DIR = DATA_DIR / "screenshots"
 
 # Display
 DISPLAY = os.environ.get("DISPLAY", ":99")
+DEFAULT_TASK_DISPLAY_WIDTH = int(os.environ.get("ACU_TASK_DISPLAY_WIDTH", "1280"))
+DEFAULT_TASK_DISPLAY_HEIGHT = int(os.environ.get("ACU_TASK_DISPLAY_HEIGHT", "720"))
 
 # Vision backend selection
 VISION_BACKEND = os.environ.get("ACU_VISION_BACKEND", "ollama")  # ollama|vllm|claude|passthrough

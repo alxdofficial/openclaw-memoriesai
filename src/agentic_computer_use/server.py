@@ -351,7 +351,12 @@ async def call_tool(name: str, arguments: dict):
 
             data = resp.json()
             if "image_b64" in data:
-                return [ImageContent(type="image", data=data["image_b64"], mimeType=data.get("mime_type", "image/jpeg"))]
+                sz = data.get("screen_size", {})
+                meta = f"Display: {sz.get('width','?')}×{sz.get('height','?')}px. Coordinates in your next click/action must use these pixel dimensions exactly."
+                return [
+                    ImageContent(type="image", data=data["image_b64"], mimeType=data.get("mime_type", "image/jpeg")),
+                    TextContent(type="text", text=meta),
+                ]
             return [TextContent(type="text", text=json.dumps(data))]
     except httpx.ConnectError:
         return [TextContent(type="text", text=json.dumps({

@@ -512,6 +512,14 @@ async def delete_task(task_id: str) -> dict:
             release_display(task_id)
         except Exception:
             pass
+        try:
+            import shutil
+            from .. import config
+            rec_dir = config.DATA_DIR / "recordings" / task_id
+            if rec_dir.exists():
+                shutil.rmtree(rec_dir)
+        except Exception:
+            pass
         debug.log_task(task_id, "DELETED", "hard delete")
         return {"ok": True, "task_id": task_id}
     finally:

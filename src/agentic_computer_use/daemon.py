@@ -16,6 +16,7 @@ from . import config, db, debug
 from .wait.engine import WaitEngine, WaitJob
 from .wait.poller import AdaptivePoller
 from .task import manager as task_mgr
+from .capture import frame_recorder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -204,6 +205,11 @@ async def handle_wait_cancel(request: web.Request) -> web.Response:
 async def handle_task_register(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     result = await task_mgr.register_task(name=args["name"], plan=args["plan"], metadata=args.get("metadata"))
+    # Auto-start frame recording for this task
+    task_id = result.get("task_id")
+    if task_id:
+        display = await _resolve_task_display(task_id)
+        frame_recorder.start(task_id, display)
     return web.json_response(result)
 
 
@@ -280,11 +286,14 @@ async def handle_api_task_status(request: web.Request) -> web.Response:
     if not status:
         return web.json_response({"error": "status is required"}, status=400)
     result = await task_mgr.update_task(task_id=task_id, status=status)
+    if status in ("completed", "cancelled", "failed"):
+        frame_recorder.stop(task_id)
     return web.json_response(result)
 
 
 async def handle_api_task_delete(request: web.Request) -> web.Response:
     task_id = request.match_info["task_id"]
+    frame_recorder.stop(task_id)
     result = await task_mgr.delete_task(task_id)
     if result.get("ok"):
         return web.json_response(result)
@@ -466,6 +475,50 @@ async def handle_api_waits(request: web.Request) -> web.Response:
 
 async def handle_api_health(request: web.Request) -> web.Response:
     return await handle_health(request)
+
+
+async def handle_api_task_frames(request: web.Request) -> web.Response:
+    """List recorded frame indices for a task."""
+    task_id = request.match_info["task_id"]
+    frames = frame_recorder.list_frames(task_id)
+    return web.json_response({"task_id": task_id, "frames": frames, "count": len(frames)})
+
+
+async def handle_api_task_frame(request: web.Request) -> web.Response:
+    """Return a single recorded JPEG frame by index."""
+    task_id = request.match_info["task_id"]
+    frame_n = int(request.match_info["frame_n"])
+    data = frame_recorder.get_frame(task_id, frame_n)
+    if data is None:
+        return web.Response(status=404, text="Frame not found")
+    return web.Response(body=data, content_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+async def handle_api_task_snapshot(request: web.Request) -> web.Response:
+    """Single JPEG frame for a task's display (for polling-based screen viewer)."""
+    from .capture.screen import capture_screen, frame_to_jpeg
+    task_id = request.match_info["task_id"]
+    display = await _resolve_task_display(task_id)
+    frame = capture_screen(display=display)
+    jpeg = frame_to_jpeg(frame, max_dim=1280, quality=60) if frame is not None else _get_no_signal_jpeg()
+    return web.Response(
+        body=jpeg,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "no-cache, no-store"},
+    )
+
+
+async def handle_api_snapshot(request: web.Request) -> web.Response:
+    """Single JPEG frame of the global display."""
+    from .capture.screen import capture_screen, frame_to_jpeg
+    frame = capture_screen()
+    jpeg = frame_to_jpeg(frame, max_dim=1280, quality=60) if frame is not None else _get_no_signal_jpeg()
+    return web.Response(
+        body=jpeg,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "no-cache, no-store"},
+    )
 
 
 async def handle_api_screen_stream(request: web.Request) -> web.StreamResponse:
@@ -851,6 +904,10 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks/{task_id}/messages", handle_api_task_messages)
     app.router.add_get("/api/tasks/{task_id}/items/{ordinal}", handle_api_task_item)
     app.router.add_get("/api/tasks/{task_id}/screen", handle_api_task_screen)
+    app.router.add_get("/api/tasks/{task_id}/snapshot", handle_api_task_snapshot)
+    app.router.add_get("/api/tasks/{task_id}/frames", handle_api_task_frames)
+    app.router.add_get("/api/tasks/{task_id}/frames/{frame_n}", handle_api_task_frame)
+    app.router.add_get("/api/snapshot", handle_api_snapshot)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)
     app.router.add_get("/api/screen", handle_api_screen_stream)

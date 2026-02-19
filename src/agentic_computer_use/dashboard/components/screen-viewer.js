@@ -1,11 +1,13 @@
-/* screen-viewer.js — Live MJPEG screen viewer per task */
+/* screen-viewer.js — Polled JPEG screen viewer per task */
 "use strict";
 
 const ScreenViewer = (() => {
   let _img = null;
   let _placeholder = null;
   let _currentTaskId = null;
-  let _streamActive = false;
+  let _pollTimer = null;
+  let _prevBlobUrl = null;
+  let _fetching = false;
 
   // Recording state
   let _recordBtn = null;
@@ -13,53 +15,69 @@ const ScreenViewer = (() => {
   let _recording = false;
   let _recordStart = 0;
 
-  // Stream timeout state
-  let _streamTimeout = null;
+  const POLL_MS = 500;
+
+  // Replay state
+  let _replayBtn = null;
+  let _replayBar = null;
+  let _replayMode = false;
+  let _replayFrames = [];
+  let _replayIndex = 0;
 
   function init(imgElement, placeholderElement) {
     _img = imgElement;
     _placeholder = placeholderElement;
-
-    if (_img) {
-      _img.addEventListener("load", () => {
-        if (_streamTimeout) { clearTimeout(_streamTimeout); _streamTimeout = null; }
-        _img.classList.add("active");
-        _streamActive = true;
-      });
-      _img.addEventListener("error", () => {
-        _img.classList.remove("active");
-        _streamActive = false;
-        if (_placeholder) _placeholder.textContent = "Display unavailable";
-      });
-    }
   }
 
   function initRecordControls(containerEl) {
     if (!containerEl) return;
+
     _recordBtn = document.createElement("button");
     _recordBtn.className = "record-btn";
     _recordBtn.textContent = "Record";
     _recordBtn.addEventListener("click", _onRecordClick);
     containerEl.appendChild(_recordBtn);
+
+    // Replay button
+    _replayBtn = document.createElement("button");
+    _replayBtn.className = "record-btn";
+    _replayBtn.textContent = "Replay";
+    _replayBtn.addEventListener("click", _onReplayClick);
+    containerEl.appendChild(_replayBtn);
+
+    // Replay scrubber (hidden until replay mode)
+    _replayBar = document.createElement("div");
+    _replayBar.className = "replay-bar hidden";
+    _replayBar.innerHTML = `
+      <button class="replay-nav" id="replay-prev">‹</button>
+      <input type="range" id="replay-slider" min="0" value="0" step="1">
+      <button class="replay-nav" id="replay-next">›</button>
+      <span id="replay-label" class="replay-label">0 / 0</span>
+      <button class="replay-nav" id="replay-close">✕ Live</button>
+    `;
+    containerEl.appendChild(_replayBar);
+
+    _replayBar.querySelector("#replay-slider").addEventListener("input", (e) => {
+      _replayIndex = parseInt(e.target.value);
+      _showReplayFrame(_replayIndex);
+      _updateReplayLabel();
+    });
+    _replayBar.querySelector("#replay-prev").addEventListener("click", () => _stepReplay(-1));
+    _replayBar.querySelector("#replay-next").addEventListener("click", () => _stepReplay(1));
+    _replayBar.querySelector("#replay-close").addEventListener("click", _exitReplay);
   }
 
   async function _onRecordClick() {
     if (!_currentTaskId) return;
     _recordBtn.disabled = true;
-
     if (_recording) {
-      // Stop
-      const data = await App.apiPost(`/api/tasks/${encodeURIComponent(_currentTaskId)}/record/stop`);
+      await App.apiPost(`/api/tasks/${encodeURIComponent(_currentTaskId)}/record/stop`);
       _setIdle();
-      _recordBtn.disabled = false;
     } else {
-      // Start
       const data = await App.apiPost(`/api/tasks/${encodeURIComponent(_currentTaskId)}/record/start`);
-      if (data && data.ok) {
-        _setRecording();
-      }
-      _recordBtn.disabled = false;
+      if (data && data.ok) _setRecording();
     }
+    _recordBtn.disabled = false;
   }
 
   function _setRecording() {
@@ -103,55 +121,149 @@ const ScreenViewer = (() => {
     }
   }
 
-  function showTask(taskId) {
-    _currentTaskId = taskId;
+  async function _onReplayClick() {
+    if (!_currentTaskId) return;
+    const resp = await fetch(`/api/tasks/${encodeURIComponent(_currentTaskId)}/frames`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.frames || data.frames.length === 0) {
+      alert("No recorded frames yet for this task.");
+      return;
+    }
+    _replayFrames = data.frames;
+    _replayIndex = _replayFrames.length - 1;
+    _enterReplay();
+  }
 
-    // Update recording button state for new task
+  function _enterReplay() {
+    _replayMode = true;
+    _stopPoll();
+    if (_replayBar) _replayBar.classList.remove("hidden");
+    if (_replayBtn) _replayBtn.classList.add("active");
+    const slider = _replayBar && _replayBar.querySelector("#replay-slider");
+    if (slider) {
+      slider.max = _replayFrames.length - 1;
+      slider.value = _replayIndex;
+    }
+    _updateReplayLabel();
+    _showReplayFrame(_replayIndex);
+  }
+
+  function _exitReplay() {
+    _replayMode = false;
+    if (_replayBar) _replayBar.classList.add("hidden");
+    if (_replayBtn) _replayBtn.classList.remove("active");
+    if (_currentTaskId) {
+      _fetchFrame();
+      _pollTimer = setInterval(_fetchFrame, POLL_MS);
+    }
+  }
+
+  function _stepReplay(delta) {
+    _replayIndex = Math.max(0, Math.min(_replayFrames.length - 1, _replayIndex + delta));
+    const slider = _replayBar && _replayBar.querySelector("#replay-slider");
+    if (slider) slider.value = _replayIndex;
+    _showReplayFrame(_replayIndex);
+    _updateReplayLabel();
+  }
+
+  async function _showReplayFrame(idx) {
+    if (!_currentTaskId || !_replayFrames[idx] === undefined) return;
+    const frameN = _replayFrames[idx];
+    const url = `/api/tasks/${encodeURIComponent(_currentTaskId)}/frames/${frameN}`;
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return;
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      if (_img) { _img.src = blobUrl; _img.classList.add("active"); }
+      if (_prevBlobUrl) URL.revokeObjectURL(_prevBlobUrl);
+      _prevBlobUrl = blobUrl;
+    } catch (e) { /* ignore */ }
+  }
+
+  function _updateReplayLabel() {
+    const label = _replayBar && _replayBar.querySelector("#replay-label");
+    if (label) label.textContent = `${_replayIndex + 1} / ${_replayFrames.length}`;
+  }
+
+  function _snapshotUrl(taskId) {
+    return taskId
+      ? `/api/tasks/${encodeURIComponent(taskId)}/snapshot`
+      : `/api/snapshot`;
+  }
+
+  async function _fetchFrame() {
+    if (_fetching) return; // skip if previous fetch still in flight
+    _fetching = true;
+    const taskId = _currentTaskId;
+    try {
+      const resp = await fetch(_snapshotUrl(taskId));
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Swap via offscreen Image to avoid flicker
+      const tmp = new Image();
+      tmp.onload = () => {
+        if (_currentTaskId !== taskId) {
+          // Task changed while loading — discard
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        if (_img) {
+          _img.src = blobUrl;
+          _img.classList.add("active");
+        }
+        if (_placeholder) _placeholder.textContent = "";
+        if (_prevBlobUrl) URL.revokeObjectURL(_prevBlobUrl);
+        _prevBlobUrl = blobUrl;
+      };
+      tmp.onerror = () => URL.revokeObjectURL(blobUrl);
+      tmp.src = blobUrl;
+    } catch (e) {
+      if (_placeholder) _placeholder.textContent = "Display unavailable";
+      if (_img) _img.classList.remove("active");
+    } finally {
+      _fetching = false;
+    }
+  }
+
+  function showTask(taskId) {
+    _stopPoll();
+    if (_replayMode) _exitReplay();
+    _currentTaskId = taskId;
     _setIdle();
     if (taskId && _recordBtn) _checkRecordStatus(taskId);
 
     if (!_img) return;
-
-    // Optimistically show the img and reset stream state
-    _streamActive = false;
     _img.classList.remove("active");
-    if (_placeholder) _placeholder.textContent = "Loading stream…";
+    if (_placeholder) _placeholder.textContent = "Loading…";
 
-    if (taskId) {
-      _img.src = `/api/tasks/${encodeURIComponent(taskId)}/screen`;
-    } else {
-      _img.src = "/api/screen";
+    if (taskId !== null && taskId !== undefined) {
+      _fetchFrame();
+      _pollTimer = setInterval(_fetchFrame, POLL_MS);
     }
-
-    // 5-second timeout: show "Display unavailable" if no frame arrives
-    if (_streamTimeout) clearTimeout(_streamTimeout);
-    _streamTimeout = setTimeout(() => {
-      _streamTimeout = null;
-      if (!_streamActive && _placeholder) {
-        _placeholder.textContent = "Display unavailable";
-      }
-    }, 5000);
   }
 
   function showFullScreen() {
-    _currentTaskId = null;
-    _setIdle();
-    if (!_img) return;
-    _img.src = "/api/screen";
+    showTask(null);
+  }
+
+  function _stopPoll() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   }
 
   function stop() {
+    _stopPoll();
     _currentTaskId = null;
-    _streamActive = false;
     _setIdle();
-    if (_img) {
-      _img.src = "";
-      _img.classList.remove("active");
-    }
+    if (_prevBlobUrl) { URL.revokeObjectURL(_prevBlobUrl); _prevBlobUrl = null; }
+    if (_img) { _img.src = ""; _img.classList.remove("active"); }
   }
 
   function isActive() {
-    return _streamActive;
+    return _img && _img.classList.contains("active");
   }
 
   return { init, initRecordControls, showTask, showFullScreen, stop, isActive };

@@ -273,6 +273,47 @@ html, body {
   margin-left: 2px;
 }
 
+.record-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.replay-bar.hidden { display: none; }
+
+.replay-bar input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.replay-nav {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 12px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.replay-nav:hover { border-color: var(--accent); color: var(--accent); }
+
+.replay-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 /* ─── Screen viewer ───────────────────────── */
 #screen-section h3,
 #tree-section h3 {

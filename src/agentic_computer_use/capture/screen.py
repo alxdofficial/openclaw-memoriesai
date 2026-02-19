@@ -5,30 +5,17 @@ import io
 import numpy as np
 from PIL import Image
 from .. import config
-
-# Cache the display connection
-_display = None
-
-def _get_display():
-    global _display
-    if _display is None:
-        import Xlib.display
-        try:
-            _display = Xlib.display.Display(config.DISPLAY)
-        except Exception:
-            # Reset and retry
-            _display = None
-            raise
-    return _display
+from ..display.manager import get_xlib_display
 
 
-def find_window_by_name(name: str) -> int | None:
+def find_window_by_name(name: str, display: str = None) -> int | None:
     """Find an X11 window ID by title substring using xdotool."""
+    display = display or config.DISPLAY
     try:
         result = subprocess.run(
             ["xdotool", "search", "--name", name],
             capture_output=True, text=True, timeout=5,
-            env={**os.environ, "DISPLAY": config.DISPLAY}
+            env={**os.environ, "DISPLAY": display}
         )
         if result.stdout.strip():
             return int(result.stdout.strip().split("\n")[0])
@@ -54,21 +41,23 @@ def _x11_capture(window) -> np.ndarray | None:
         return None
 
 
-def capture_window(window_id: int) -> np.ndarray | None:
+def capture_window(window_id: int, display: str = None) -> np.ndarray | None:
     """Capture a window as numpy array via X11."""
+    display = display or config.DISPLAY
     try:
-        display = _get_display()
-        window = display.create_resource_object('window', window_id)
+        xdisplay = get_xlib_display(display)
+        window = xdisplay.create_resource_object('window', window_id)
         return _x11_capture(window)
     except Exception:
         return None
 
 
-def capture_screen() -> np.ndarray | None:
+def capture_screen(display: str = None) -> np.ndarray | None:
     """Capture the full virtual desktop via X11."""
+    display = display or config.DISPLAY
     try:
-        display = _get_display()
-        root = display.screen().root
+        xdisplay = get_xlib_display(display)
+        root = xdisplay.screen().root
         return _x11_capture(root)
     except Exception:
         return None

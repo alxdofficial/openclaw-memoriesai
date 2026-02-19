@@ -82,8 +82,10 @@ ok "Python package installed"
 
 MISSING_PKGS=()
 command -v xdotool &>/dev/null || MISSING_PKGS+=("xdotool")
-command -v ffmpeg &>/dev/null || MISSING_PKGS+=("ffmpeg")
+command -v ffmpeg &>/dev/null  || MISSING_PKGS+=("ffmpeg")
 command -v fluxbox &>/dev/null || MISSING_PKGS+=("fluxbox")
+command -v Xvfb &>/dev/null    || MISSING_PKGS+=("xvfb")
+command -v scrot &>/dev/null   || MISSING_PKGS+=("scrot")
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     info "Installing system packages: ${MISSING_PKGS[*]}"
