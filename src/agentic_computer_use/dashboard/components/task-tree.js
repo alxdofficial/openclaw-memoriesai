@@ -1,4 +1,4 @@
-/* task-tree.js — Collapsible hierarchical task viewer */
+/* task-tree.js — Collapsible hierarchical task viewer with unified activity panel */
 "use strict";
 
 const TaskTree = (() => {
@@ -7,6 +7,8 @@ const TaskTree = (() => {
   let _expandedItems = new Set();
   let _expandedActions = new Set();
   let _autoExpanded = false;
+  let _verbose = false;
+  let _messages = [];
 
   function init(container) {
     _container = container;
@@ -14,6 +16,7 @@ const TaskTree = (() => {
 
   function setTask(data) {
     const isNewTask = !_taskData || _taskData.task_id !== data.task_id;
+    const prevScroll = isNewTask ? 0 : (_container ? _container.scrollTop : 0);
     _taskData = data;
 
     if (isNewTask) {
@@ -28,10 +31,17 @@ const TaskTree = (() => {
     }
 
     render();
+    if (_container) _container.scrollTop = prevScroll;
+  }
+
+  function setMessages(messages) {
+    _messages = messages || [];
+    render();
   }
 
   function clear() {
     _taskData = null;
+    _messages = [];
     _expandedItems.clear();
     _expandedActions.clear();
     _autoExpanded = false;
@@ -80,7 +90,10 @@ const TaskTree = (() => {
           <div class="progress-fill" style="width:${d.progress_pct || 0}%"></div>
         </div>
         <span style="color:var(--text-dim);font-size:11px">${d.progress_pct || 0}%</span>
-        <span class="task-controls">${controls}</span>
+        <span class="task-controls">
+          ${controls}
+          <button class="task-ctrl-btn verbose-btn" id="verbose-toggle">${_verbose ? "Verbose ▲" : "Verbose ▼"}</button>
+        </span>
       </div>
     `;
 
@@ -123,9 +136,20 @@ const TaskTree = (() => {
             html += _renderStructuredData("Output", act.output_data, act.action_type);
           }
           if (act.logs && act.logs.length > 0) {
-            html += `<div class="detail-label">Logs</div>`;
-            for (const log of act.logs) {
-              html += `<pre>[${log.log_type}] ${_esc(log.content)}</pre>`;
+            const visibleLogs = _verbose
+              ? act.logs
+              : act.logs.filter(l => l.log_type !== "verdict");
+            const hiddenCount = act.logs.length - visibleLogs.length;
+
+            if (visibleLogs.length > 0) {
+              html += `<div class="detail-label">Logs</div>`;
+              for (const entry of visibleLogs) {
+                const isVerdict = entry.log_type === "verdict";
+                html += `<div class="action-log-entry${isVerdict ? " log-verdict" : ""}">${_esc(entry.content)}</div>`;
+              }
+            }
+            if (!_verbose && hiddenCount > 0) {
+              html += `<div class="action-log-hidden">(${hiddenCount} vision check${hiddenCount !== 1 ? "s" : ""} — enable Verbose to expand)</div>`;
             }
           }
           if (!act.input_data && !act.output_data && (!act.logs || act.logs.length === 0)) {
@@ -139,7 +163,34 @@ const TaskTree = (() => {
       html += `</div></div>`;
     }
 
+    // Messages section at the bottom of the activity panel
+    if (_messages && _messages.length > 0) {
+      html += `<div class="task-messages">`;
+      html += `<div class="task-messages-header">Messages</div>`;
+      for (const msg of _messages) {
+        const info = _classifyMsg(msg);
+        html += `<div class="msg-entry ${info.css}">`;
+        html += `<div class="msg-header">`;
+        html += `<span class="msg-direction">${_esc(info.dir)}</span>`;
+        html += `<span class="msg-time">${_formatTime(msg.created_at)}</span>`;
+        html += `</div>`;
+        html += `<div class="msg-content">${_esc(msg.content)}</div>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+
     _container.innerHTML = html;
+
+    // Bind verbose toggle
+    const verboseBtn = _container.querySelector("#verbose-toggle");
+    if (verboseBtn) {
+      verboseBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _verbose = !_verbose;
+        render();
+      });
+    }
 
     // Bind click handlers
     _container.querySelectorAll(".tree-item-row").forEach(row => {
@@ -181,6 +232,7 @@ const TaskTree = (() => {
 
     // Task control buttons
     _container.querySelectorAll(".task-ctrl-btn").forEach(btn => {
+      if (btn.id === "verbose-toggle") return; // already bound above
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         const newStatus = btn.dataset.action;
@@ -189,6 +241,35 @@ const TaskTree = (() => {
         }
       });
     });
+  }
+
+  const MSG_DIR_MAP = {
+    "text:agent":       { css: "msg-agent",     dir: "LLM \u2192 task" },
+    "progress:agent":   { css: "msg-agent",     dir: "LLM \u2192 task" },
+    "text:user":        { css: "msg-user",      dir: "User \u2192 LLM" },
+    "wait:*":           { css: "msg-wait",      dir: "SmartWait \u2192 task" },
+    "lifecycle:*":      { css: "msg-lifecycle", dir: "System \u2192 task" },
+    "progress:system":  { css: "msg-progress",  dir: "System \u2192 task" },
+    "plan:*":           { css: "msg-plan",      dir: "LLM \u2192 plan" },
+    "stuck:*":          { css: "msg-error",     dir: "System \u2192 alert" },
+  };
+
+  function _classifyMsg(msg) {
+    const key1 = `${msg.msg_type}:${msg.role}`;
+    if (MSG_DIR_MAP[key1]) return MSG_DIR_MAP[key1];
+    const key2 = `${msg.msg_type}:*`;
+    if (MSG_DIR_MAP[key2]) return MSG_DIR_MAP[key2];
+    return { css: "msg-lifecycle", dir: "System \u2192 task" };
+  }
+
+  function _formatTime(isoStr) {
+    if (!isoStr) return "";
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch {
+      return "";
+    }
   }
 
   let _onExpandItem = null;
@@ -312,5 +393,5 @@ const TaskTree = (() => {
     document.body.appendChild(overlay);
   }
 
-  return { init, setTask, clear, render, onExpandItem, onStatusChange, updateItemActions };
+  return { init, setTask, setMessages, clear, render, onExpandItem, onStatusChange, updateItemActions };
 })();

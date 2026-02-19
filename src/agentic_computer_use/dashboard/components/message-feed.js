@@ -57,6 +57,8 @@ const MessageFeed = (() => {
   function render() {
     if (!_container) return;
 
+    const atBottom = _container.scrollHeight - _container.scrollTop - _container.clientHeight < 60;
+
     let html = "";
     for (const msg of _messages) {
       const info = _classify(msg);
@@ -71,8 +73,8 @@ const MessageFeed = (() => {
 
     _container.innerHTML = html;
 
-    // Auto-scroll to bottom
-    _container.scrollTop = _container.scrollHeight;
+    // Only scroll to bottom if user was already near the bottom
+    if (atBottom) _container.scrollTop = _container.scrollHeight;
   }
 
   return { init, setMessages, clear, render };

@@ -572,21 +572,50 @@ html, body {
   color: #fff;
 }
 
-/* ─── Message feed ───────────────────────── */
-#message-section h3 {
-  font-size: 11px;
+/* ─── Task messages (unified in activity panel) ─── */
+.task-messages {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px 4px;
+}
+
+.task-messages-header {
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--text-dim);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
-#message-feed {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-alt);
-  max-height: 300px;
-  overflow-y: auto;
+/* ─── Action log entries ─────────────────── */
+.action-log-entry {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 2px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.action-log-entry.log-verdict {
+  border-left: 2px solid var(--border);
+  padding-left: 6px;
+  margin-left: 2px;
+}
+
+.action-log-hidden {
+  font-size: 10px;
+  color: var(--gray);
+  font-style: italic;
+  padding: 2px 0;
+}
+
+/* ─── Verbose toggle button ──────────────── */
+.verbose-btn {
+  color: var(--text-dim);
+  border-color: rgba(139,148,158,0.3);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .msg-entry {

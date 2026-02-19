@@ -4,6 +4,7 @@ Runs as a background HTTP server so the MCP server (spawned per-call by mcporter
 can submit jobs and query state without losing the async event loop.
 """
 import asyncio
+import io
 import json
 import logging
 import os
@@ -394,6 +395,28 @@ async def handle_api_recording(request: web.Request) -> web.Response:
 MJPEG_FPS = 2
 MJPEG_BOUNDARY = b"frame"
 
+_NO_SIGNAL_JPEG: bytes | None = None
+
+
+def _make_no_signal_jpeg() -> bytes:
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (640, 360), color=(20, 20, 20))
+    d = ImageDraw.Draw(img)
+    d.text((240, 170), "display not available", fill=(100, 100, 100))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=50)
+    return buf.getvalue()
+
+
+def _get_no_signal_jpeg() -> bytes:
+    global _NO_SIGNAL_JPEG
+    if _NO_SIGNAL_JPEG is None:
+        try:
+            _NO_SIGNAL_JPEG = _make_no_signal_jpeg()
+        except Exception:
+            _NO_SIGNAL_JPEG = b""
+    return _NO_SIGNAL_JPEG
+
 
 async def handle_dashboard_index(request: web.Request) -> web.Response:
     index_path = DASHBOARD_DIR / "index.html"
@@ -469,8 +492,8 @@ async def _mjpeg_stream(request, capture_fn, jpeg_fn):
     try:
         while True:
             frame = capture_fn()
-            if frame is not None:
-                jpeg = jpeg_fn(frame, max_dim=1280, quality=60)
+            jpeg = jpeg_fn(frame, max_dim=1280, quality=60) if frame is not None else _get_no_signal_jpeg()
+            if jpeg:
                 await response.write(
                     b"--" + MJPEG_BOUNDARY + b"\r\n"
                     b"Content-Type: image/jpeg\r\n"
@@ -487,6 +510,7 @@ async def _mjpeg_stream(request, capture_fn, jpeg_fn):
 
 async def handle_desktop_look(request: web.Request) -> web.Response:
     args = await _parse_body(request)
+    import base64
     from .capture.screen import capture_screen, frame_to_jpeg
 
     task_id = args.get("task_id")
@@ -502,11 +526,9 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
     if frame is None:
         return web.json_response({"error": "Failed to capture screen"}, status=500)
     jpeg = frame_to_jpeg(frame)
-    from .vision import evaluate_condition
-    prompt = args.get("prompt", "Describe everything visible on the screen.")
-    response = await evaluate_condition(prompt, [jpeg])
     return web.json_response({
-        "description": response,
+        "image_b64": base64.b64encode(jpeg).decode(),
+        "mime_type": "image/jpeg",
         "screen_size": {"width": frame.shape[1], "height": frame.shape[0]},
     })
 

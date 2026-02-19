@@ -23,7 +23,6 @@ const App = (() => {
     TaskTree.init(taskTreeEl);
     ScreenViewer.init(screenImg, screenPlaceholder);
     ScreenViewer.initRecordControls(document.getElementById("record-controls"));
-    MessageFeed.init(document.getElementById("message-feed"));
 
     // Wire up tree expand callback → fetches action details
     TaskTree.onExpandItem((taskId, ordinal) => {
@@ -135,7 +134,7 @@ const App = (() => {
     if (!_selectedTaskId) return;
     const data = await apiFetch(`/api/tasks/${encodeURIComponent(_selectedTaskId)}/messages?limit=50`);
     if (data && data.messages) {
-      MessageFeed.setMessages(data.messages);
+      TaskTree.setMessages(data.messages);
     }
   }
 
@@ -154,7 +153,6 @@ const App = (() => {
     document.getElementById("empty-state").classList.add("hidden");
     document.getElementById("screen-section").classList.remove("hidden");
     document.getElementById("tree-section").classList.remove("hidden");
-    document.getElementById("message-section").classList.remove("hidden");
 
     // Start screen stream
     ScreenViewer.showTask(taskId);

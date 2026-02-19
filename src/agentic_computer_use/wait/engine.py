@@ -12,6 +12,7 @@ from ..capture.screen import capture_window, capture_screen, find_window_by_name
 from ..capture.diff import PixelDiffGate
 from ..screenshots import save_screenshot_from_jpeg
 from ..vision import evaluate_condition
+from ..task import manager as task_mgr
 from .context import JobContext
 from .poller import AdaptivePoller
 
@@ -26,6 +27,7 @@ class WaitJob:
     criteria: str
     timeout: int
     task_id: str | None = None
+    display: str | None = None
     poll_interval: float = 2.0
     status: str = "watching"
     result_message: str | None = None
@@ -150,6 +152,8 @@ class WaitEngine:
                 next_job.context.add_verdict(verdict, desc, now)
                 log.info(f"Job {next_job.id}: {verdict} — {desc}")
                 debug.log_wait_event(next_job.id, f"VERDICT: {verdict.upper()}", desc)
+                if next_job.task_id:
+                    asyncio.ensure_future(task_mgr.log_wait_verdict(next_job.task_id, next_job.id, verdict, desc))
 
                 if verdict == "resolved":
                     next_job._partial_streak = 0
@@ -181,7 +185,7 @@ class WaitEngine:
     def _capture(self, job: WaitJob):
         """Capture frame based on target type."""
         if job.target_type == "screen":
-            return capture_screen()
+            return capture_screen(display=job.display)
         elif job.target_type == "window":
             # Resolve window name to ID on first capture
             if job._resolved_window_id is None:
@@ -189,19 +193,16 @@ class WaitEngine:
                     wid = int(job.target_id)
                     job._resolved_window_id = wid
                 except ValueError:
-                    wid = find_window_by_name(job.target_id)
+                    wid = find_window_by_name(job.target_id, display=job.display)
                     if wid:
                         job._resolved_window_id = wid
                         log.info(f"Job {job.id}: resolved window '{job.target_id}' → {wid}")
                     else:
                         log.warning(f"Job {job.id}: window '{job.target_id}' not found")
                         return None
-            return capture_window(job._resolved_window_id)
+            return capture_window(job._resolved_window_id, display=job.display)
         elif job.target_type == "pty":
-            # PTY target currently captures the visible desktop region.
-            # If the terminal is in its own window, prefer target=window:<id|name>
-            # for cleaner model inputs.
-            return capture_screen()
+            return capture_screen(display=job.display)
         return None
 
     def _parse_verdict(self, response: str) -> tuple[str, str]:

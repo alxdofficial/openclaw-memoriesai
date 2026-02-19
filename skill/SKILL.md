@@ -63,6 +63,8 @@ Always narrate your reasoning and actions into the task history. This is **requi
 
 - **Before starting a plan item** — what you intend to do and why
 - **After completing an action** — what happened, what you observed
+- **After every `desktop_look`** — describe what you see and what you will do next (**mandatory**)
+- **After every `desktop_action` or `gui_do`** — narrate what you did and its result (**mandatory**)
 - **When making a decision** — why you chose one approach over another
 - **When encountering an error** — what went wrong, your recovery plan
 - **When a user message is task-relevant** — summarize it into the task context
@@ -110,7 +112,7 @@ Only do this when the message is clearly task-related. General conversation or u
 
 ### Desktop Control
 - `desktop_action` — raw xdotool: click, type, press_key, window management
-- `desktop_look` — screenshot + vision description
+- `desktop_look` — returns a screenshot **image** directly to you. Use this to observe the current screen state before deciding your next action. You interpret the image yourself — no local vision model is involved.
 - `video_record` — record screen/window clip
 
 ### System
@@ -118,6 +120,18 @@ Only do this when the message is clearly task-related. General conversation or u
 - `memory_search`, `memory_read`, `memory_append` — workspace memory files
 
 ## Examples
+
+### Using desktop_look — observe, describe, act
+```
+→ desktop_look(task_id=<id>)
+  # You receive an image — look at it carefully
+→ task_update(task_id=<id>, message="Screen shows DaVinci Resolve with the timeline open. The Export button is visible in the top-right toolbar. I'll click it now.")
+→ gui_do(instruction="click the Export button", task_id=<id>)
+→ task_update(task_id=<id>, message="Clicked Export. A render dialog appeared with format options.")
+→ desktop_look(task_id=<id>)
+  # Observe the dialog
+→ task_update(task_id=<id>, message="Export dialog shows H.264 selected. Output path is ~/Desktop/output.mp4. Setting 4K resolution before confirming.")
+```
 
 ### Multi-step video export with GUI
 ```

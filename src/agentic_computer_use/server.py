@@ -5,7 +5,7 @@ import logging
 import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import Tool, TextContent, ImageContent
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -235,12 +235,12 @@ TOOLS = [
     # ── Vision & Recording ─────────────────────────────────────
     Tool(
         name="desktop_look",
-        description="Take a screenshot and describe what's on the desktop using vision.",
+        description="Take a screenshot and return it directly to you as an image. Use this to observe the current screen state before deciding your next action. You interpret the image yourself — no local vision model is involved.",
         inputSchema={
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "default": "Describe everything visible on the screen."},
-                "window_name": {"type": "string"},
+                "task_id": {"type": "string", "description": "Task ID — targets the task's virtual display"},
+                "window_name": {"type": "string", "description": "Focus this window before capturing (optional)"},
             },
         },
     ),
@@ -350,6 +350,8 @@ async def call_tool(name: str, arguments: dict):
                 resp = await client.post(f"{DAEMON_URL}{path}", json=arguments)
 
             data = resp.json()
+            if "image_b64" in data:
+                return [ImageContent(type="image", data=data["image_b64"], mimeType=data.get("mime_type", "image/jpeg"))]
             return [TextContent(type="text", text=json.dumps(data))]
     except httpx.ConnectError:
         return [TextContent(type="text", text=json.dumps({

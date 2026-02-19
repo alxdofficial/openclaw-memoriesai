@@ -487,6 +487,27 @@ async def on_wait_finished(task_id: str, wait_id: str, state: str, detail: str,
         await conn.close()
 
 
+async def log_wait_verdict(task_id: str, wait_id: str, verdict: str, description: str) -> None:
+    """Append a vision poll result to the wait action's logs."""
+    conn = await db.get_db()
+    try:
+        rows = await conn.execute_fetchall(
+            "SELECT id FROM actions WHERE task_id = ? AND action_type = 'wait' "
+            "AND json_extract(input_data, '$.wait_id') = ?",
+            (task_id, wait_id)
+        )
+        if not rows:
+            return
+        action_id = dict(rows[0])["id"]
+        await conn.execute(
+            "INSERT INTO action_logs (id, action_id, log_type, content, created_at) VALUES (?,?,?,?,?)",
+            (db.new_id(), action_id, "verdict", f"[{verdict}] {description}", db.now_iso())
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
 async def get_task_display(task_id: str) -> str | None:
     """Return the display string from a task's metadata, or None."""
     conn = await db.get_db()
