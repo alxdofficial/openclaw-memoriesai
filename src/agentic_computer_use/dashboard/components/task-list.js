@@ -6,10 +6,12 @@ const TaskList = (() => {
   let _tasks = [];
   let _selectedId = null;
   let _onSelect = null;
+  let _onDelete = null;
 
-  function init(container, onSelect) {
+  function init(container, onSelect, onDelete) {
     _container = container;
     _onSelect = onSelect;
+    _onDelete = onDelete;
   }
 
   function setTasks(tasks) {
@@ -42,20 +44,30 @@ const TaskList = (() => {
       const statusIcon = _statusIcon(task.status);
 
       li.innerHTML = `
-        <span class="task-name">${statusIcon} ${_esc(task.name)}</span>
-        <div class="task-meta">
-          <span class="badge badge-${task.status}">${task.status}</span>
-          <span>${task.progress_pct || 0}%</span>
-        </div>
-        <div class="progress-bar">
-          <div class="progress-fill" style="width:${task.progress_pct || 0}%"></div>
+        <div class="task-list-row">
+          <div class="task-list-info">
+            <span class="task-name">${statusIcon} ${_esc(task.name)}</span>
+            <div class="task-meta">
+              <span class="badge badge-${task.status}">${task.status}</span>
+              <span>${task.progress_pct || 0}%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" style="width:${task.progress_pct || 0}%"></div>
+            </div>
+          </div>
+          <button class="task-delete-btn" title="Delete task" data-task-id="${_esc(task.task_id)}">&times;</button>
         </div>
       `;
 
-      li.addEventListener("click", () => {
+      li.querySelector(".task-list-info").addEventListener("click", () => {
         _selectedId = task.task_id;
         render();
         if (_onSelect) _onSelect(task.task_id);
+      });
+
+      li.querySelector(".task-delete-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (_onDelete) _onDelete(task.task_id, task.name);
       });
 
       _container.appendChild(li);

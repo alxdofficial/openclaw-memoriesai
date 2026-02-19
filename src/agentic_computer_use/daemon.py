@@ -283,6 +283,14 @@ async def handle_api_task_status(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_api_task_delete(request: web.Request) -> web.Response:
+    task_id = request.match_info["task_id"]
+    result = await task_mgr.delete_task(task_id)
+    if result.get("ok"):
+        return web.json_response(result)
+    return web.json_response(result, status=404)
+
+
 async def handle_api_task_messages(request: web.Request) -> web.Response:
     task_id = request.match_info["task_id"]
     limit = int(request.query.get("limit", 50))
@@ -526,6 +534,11 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
     if frame is None:
         return web.json_response({"error": "Failed to capture screen"}, status=500)
     jpeg = frame_to_jpeg(frame)
+    if task_id:
+        asyncio.ensure_future(task_mgr.append_tool_log(
+            task_id, "tool_call",
+            f"desktop_look: screenshot captured ({frame.shape[1]}x{frame.shape[0]})"
+        ))
     return web.json_response({
         "image_b64": base64.b64encode(jpeg).decode(),
         "mime_type": "image/jpeg",
@@ -602,6 +615,11 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
     else:
         result = {"error": f"Unknown action: {action}"}
 
+    if task_id and "error" not in result:
+        asyncio.ensure_future(task_mgr.append_tool_log(
+            task_id, "tool_call",
+            f"desktop_action: {action} → {result}"
+        ))
     return web.json_response(result)
 
 
@@ -829,6 +847,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks", handle_api_tasks)
     app.router.add_get("/api/tasks/{task_id}", handle_api_task_detail)
     app.router.add_post("/api/tasks/{task_id}/status", handle_api_task_status)
+    app.router.add_delete("/api/tasks/{task_id}", handle_api_task_delete)
     app.router.add_get("/api/tasks/{task_id}/messages", handle_api_task_messages)
     app.router.add_get("/api/tasks/{task_id}/items/{ordinal}", handle_api_task_item)
     app.router.add_get("/api/tasks/{task_id}/screen", handle_api_task_screen)

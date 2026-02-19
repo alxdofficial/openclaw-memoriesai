@@ -8,7 +8,6 @@ const TaskTree = (() => {
   let _expandedActions = new Set();
   let _autoExpanded = false;
   let _verbose = false;
-  let _messages = [];
 
   function init(container) {
     _container = container;
@@ -34,14 +33,8 @@ const TaskTree = (() => {
     if (_container) _container.scrollTop = prevScroll;
   }
 
-  function setMessages(messages) {
-    _messages = messages || [];
-    render();
-  }
-
   function clear() {
     _taskData = null;
-    _messages = [];
     _expandedItems.clear();
     _expandedActions.clear();
     _autoExpanded = false;
@@ -163,23 +156,6 @@ const TaskTree = (() => {
       html += `</div></div>`;
     }
 
-    // Messages section at the bottom of the activity panel
-    if (_messages && _messages.length > 0) {
-      html += `<div class="task-messages">`;
-      html += `<div class="task-messages-header">Messages</div>`;
-      for (const msg of _messages) {
-        const info = _classifyMsg(msg);
-        html += `<div class="msg-entry ${info.css}">`;
-        html += `<div class="msg-header">`;
-        html += `<span class="msg-direction">${_esc(info.dir)}</span>`;
-        html += `<span class="msg-time">${_formatTime(msg.created_at)}</span>`;
-        html += `</div>`;
-        html += `<div class="msg-content">${_esc(msg.content)}</div>`;
-        html += `</div>`;
-      }
-      html += `</div>`;
-    }
-
     _container.innerHTML = html;
 
     // Bind verbose toggle
@@ -241,35 +217,6 @@ const TaskTree = (() => {
         }
       });
     });
-  }
-
-  const MSG_DIR_MAP = {
-    "text:agent":       { css: "msg-agent",     dir: "LLM \u2192 task" },
-    "progress:agent":   { css: "msg-agent",     dir: "LLM \u2192 task" },
-    "text:user":        { css: "msg-user",      dir: "User \u2192 LLM" },
-    "wait:*":           { css: "msg-wait",      dir: "SmartWait \u2192 task" },
-    "lifecycle:*":      { css: "msg-lifecycle", dir: "System \u2192 task" },
-    "progress:system":  { css: "msg-progress",  dir: "System \u2192 task" },
-    "plan:*":           { css: "msg-plan",      dir: "LLM \u2192 plan" },
-    "stuck:*":          { css: "msg-error",     dir: "System \u2192 alert" },
-  };
-
-  function _classifyMsg(msg) {
-    const key1 = `${msg.msg_type}:${msg.role}`;
-    if (MSG_DIR_MAP[key1]) return MSG_DIR_MAP[key1];
-    const key2 = `${msg.msg_type}:*`;
-    if (MSG_DIR_MAP[key2]) return MSG_DIR_MAP[key2];
-    return { css: "msg-lifecycle", dir: "System \u2192 task" };
-  }
-
-  function _formatTime(isoStr) {
-    if (!isoStr) return "";
-    try {
-      const d = new Date(isoStr);
-      return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    } catch {
-      return "";
-    }
   }
 
   let _onExpandItem = null;
@@ -393,5 +340,5 @@ const TaskTree = (() => {
     document.body.appendChild(overlay);
   }
 
-  return { init, setTask, setMessages, clear, render, onExpandItem, onStatusChange, updateItemActions };
+  return { init, setTask, clear, render, onExpandItem, onStatusChange, updateItemActions };
 })();

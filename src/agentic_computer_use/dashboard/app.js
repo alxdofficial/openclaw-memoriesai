@@ -19,7 +19,7 @@ const App = (() => {
     const screenPlaceholder = document.getElementById("screen-placeholder");
     const filterEl = document.getElementById("task-filter");
 
-    TaskList.init(taskListEl, onTaskSelected);
+    TaskList.init(taskListEl, onTaskSelected, onTaskDelete);
     TaskTree.init(taskTreeEl);
     ScreenViewer.init(screenImg, screenPlaceholder);
     ScreenViewer.initRecordControls(document.getElementById("record-controls"));
@@ -89,6 +89,18 @@ const App = (() => {
     }
   }
 
+  async function apiDelete(path) {
+    try {
+      const resp = await fetch(API_BASE + path, { method: "DELETE" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      setConnected(true);
+      return await resp.json();
+    } catch (err) {
+      console.error(`API DELETE error: ${path}`, err);
+      return null;
+    }
+  }
+
   function setConnected(state) {
     if (_connected === state) return;
     _connected = state;
@@ -111,7 +123,7 @@ const App = (() => {
 
   async function pollTasks() {
     const filter = document.getElementById("task-filter").value;
-    const data = await apiFetch(`/api/tasks?status=${filter}&limit=50`);
+    const data = await apiFetch(`/api/tasks?status=${filter}&limit=100`);
     if (data && data.tasks) {
       TaskList.setTasks(data.tasks);
 
@@ -127,14 +139,6 @@ const App = (() => {
     const data = await apiFetch(`/api/tasks/${encodeURIComponent(_selectedTaskId)}?detail=focused`);
     if (data && !data.error) {
       TaskTree.setTask(data);
-    }
-  }
-
-  async function pollMessages() {
-    if (!_selectedTaskId) return;
-    const data = await apiFetch(`/api/tasks/${encodeURIComponent(_selectedTaskId)}/messages?limit=50`);
-    if (data && data.messages) {
-      TaskTree.setMessages(data.messages);
     }
   }
 
@@ -157,16 +161,30 @@ const App = (() => {
     // Start screen stream
     ScreenViewer.showTask(taskId);
 
-    // Fetch full detail + messages immediately
+    // Fetch full detail immediately
     pollSelectedTask();
-    pollMessages();
 
-    // Start detail polling (task tree + messages every 2s)
+    // Start detail polling (task tree every 2s)
     if (_detailPollTimer) clearInterval(_detailPollTimer);
-    _detailPollTimer = setInterval(() => {
-      pollSelectedTask();
-      pollMessages();
-    }, POLL_DETAIL_MS);
+    _detailPollTimer = setInterval(pollSelectedTask, POLL_DETAIL_MS);
+  }
+
+  // ─── Delete ───────────────────────────────
+  async function onTaskDelete(taskId, taskName) {
+    if (!confirm(`Delete task "${taskName}"?\n\nThis cannot be undone.`)) return;
+    const result = await apiDelete(`/api/tasks/${encodeURIComponent(taskId)}`);
+    if (result && result.ok) {
+      if (_selectedTaskId === taskId) {
+        _selectedTaskId = null;
+        if (_detailPollTimer) { clearInterval(_detailPollTimer); _detailPollTimer = null; }
+        TaskTree.clear();
+        ScreenViewer.stop();
+        document.getElementById("empty-state").classList.remove("hidden");
+        document.getElementById("screen-section").classList.add("hidden");
+        document.getElementById("tree-section").classList.add("hidden");
+      }
+      pollTasks();
+    }
   }
 
   return { init, apiPost };

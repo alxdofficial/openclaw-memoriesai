@@ -101,7 +101,6 @@ html, body {
 }
 
 #task-list li {
-  padding: 10px 12px;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
@@ -114,7 +113,46 @@ html, body {
 #task-list li.selected {
   background: var(--bg);
   border-left: 3px solid var(--blue);
+}
+
+#task-list li.selected .task-list-row {
   padding-left: 9px;
+}
+
+.task-list-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 6px 10px 12px;
+}
+
+.task-list-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+#task-list li:hover .task-delete-btn {
+  opacity: 1;
+}
+
+.task-delete-btn:hover {
+  color: var(--red);
+  background: rgba(248,81,73,0.15);
 }
 
 .task-name {

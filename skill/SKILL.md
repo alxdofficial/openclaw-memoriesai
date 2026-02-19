@@ -55,38 +55,66 @@ For any multi-step or long-running work:
 8. task_update(status="completed") → close task
 ```
 
-## Narrating your work
+## Narrating your work — MANDATORY
 
-Always narrate your reasoning and actions into the task history. This is **required** — it makes your thought process visible to the human and creates a recovery trail for task resumption.
+Narration is **not optional**. Every action must be announced before it happens and reported after it completes. The dashboard shows the human exactly what you're doing in real time, but only if you narrate.
 
-### When to narrate
+### The required workflow — follow this exactly
 
-- **Before starting a plan item** — what you intend to do and why
-- **After completing an action** — what happened, what you observed
-- **After every `desktop_look`** — describe what you see and what you will do next (**mandatory**)
-- **After every `desktop_action` or `gui_do`** — narrate what you did and its result (**mandatory**)
-- **When making a decision** — why you chose one approach over another
-- **When encountering an error** — what went wrong, your recovery plan
-- **When a user message is task-relevant** — summarize it into the task context
-
-### How to narrate
-
-Use `task_update(task_id=<id>, message="...")`. Messages appear in the dashboard feed with "LLM → task" headers in blue.
+For **every** tool call that involves the desktop or GUI:
 
 ```
-task_update(task_id=<id>, message="Opening the DaVinci Resolve project at ~/Projects/edit.drp via File > Open Recent.")
-task_update(task_id=<id>, message="Export dialog appeared. Setting H.264 4K (3840x2160).")
-task_update(task_id=<id>, message="Build failed (exit 1): missing libfoo. Installing and retrying.")
+1. ANNOUNCE  →  task_log_action(task_id=<id>, action_type=<type>, summary="<what I'm about to do and why>", status="started")
+2. EXECUTE   →  call the tool (desktop_look, gui_do, desktop_action, etc.)
+3. REPORT    →  task_update(task_id=<id>, message="<what I observed or what happened>")
 ```
 
-### User messages
+Do not skip steps. The announce creates a visible entry in the dashboard. The report records your observation.
 
-If the user sends a message relevant to the active task, post it to task history:
+### action_type values
+
+| action_type | Use for |
+|---|---|
+| `vision` | desktop_look, observing the screen |
+| `gui` | gui_do, desktop_action (click/type/key) |
+| `cli` | shell commands |
+| `wait` | smart_wait calls |
+| `reasoning` | decision-making, planning, deductions |
+
+### Examples
+
+**Looking at the screen:**
+```
+task_log_action(task_id=<id>, action_type="vision", summary="Taking screenshot to assess current state of DaVinci export dialog", status="started")
+desktop_look(task_id=<id>)
+task_update(task_id=<id>, message="I can see the Export dialog is open. Format is H.264, output path is ~/Desktop/output.mp4. I need to change resolution to 4K before confirming.")
+```
+
+**Clicking a button:**
+```
+task_log_action(task_id=<id>, action_type="gui", summary="Clicking the Export button to open render dialog", status="started")
+gui_do(instruction="click the Export button", task_id=<id>)
+task_update(task_id=<id>, message="Export button clicked. Render dialog appeared with codec options.")
+```
+
+**Shell command:**
+```
+task_log_action(task_id=<id>, action_type="cli", summary="Running ffmpeg to convert video to H.264", input_data="ffmpeg -i input.mp4 -c:v libx264 output.mp4")
+# run the command via Bash
+task_update(task_id=<id>, message="ffmpeg completed in 12s. Output file is 45MB at ~/Desktop/output.mp4.")
+```
+
+**Decision / reasoning:**
+```
+task_log_action(task_id=<id>, action_type="reasoning", summary="DaVinci Resolve is still loading — splash screen visible. Will wait 10s before attempting GUI interaction.")
+```
+
+### When a user message is task-relevant
+
+Post it to task history so the context is preserved:
 ```
 task_update(task_id=<id>, message="[user] Change the output format to ProRes instead of H.264")
 ```
-
-Only do this when the message is clearly task-related. General conversation or unrelated questions should not be posted.
 
 ## Tool reference
 

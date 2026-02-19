@@ -487,6 +487,57 @@ async def on_wait_finished(task_id: str, wait_id: str, state: str, detail: str,
         await conn.close()
 
 
+async def delete_task(task_id: str) -> dict:
+    """Hard-delete a task and all its child records."""
+    conn = await db.get_db()
+    try:
+        rows = await conn.execute_fetchall("SELECT 1 FROM tasks WHERE id = ?", (task_id,))
+        if not rows:
+            return {"error": f"Task {task_id} not found"}
+        # Delete child tables first (no FK cascade in SQLite by default)
+        await conn.execute(
+            "DELETE FROM action_logs WHERE action_id IN (SELECT id FROM actions WHERE task_id = ?)", (task_id,)
+        )
+        await conn.execute("DELETE FROM actions WHERE task_id = ?", (task_id,))
+        await conn.execute("DELETE FROM task_messages WHERE task_id = ?", (task_id,))
+        await conn.execute("DELETE FROM plan_items WHERE task_id = ?", (task_id,))
+        await conn.execute("DELETE FROM wait_jobs WHERE task_id = ?", (task_id,))
+        try:
+            await conn.execute("DELETE FROM task_plan_revisions WHERE task_id = ?", (task_id,))
+        except Exception:
+            pass
+        await conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        await conn.commit()
+        try:
+            release_display(task_id)
+        except Exception:
+            pass
+        debug.log_task(task_id, "DELETED", "hard delete")
+        return {"ok": True, "task_id": task_id}
+    finally:
+        await conn.close()
+
+
+async def append_tool_log(task_id: str, log_type: str, content: str) -> None:
+    """Append a tool-call log to the most recent action for this task (fire-and-forget)."""
+    conn = await db.get_db()
+    try:
+        rows = await conn.execute_fetchall(
+            "SELECT id FROM actions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1",
+            (task_id,)
+        )
+        if not rows:
+            return
+        action_id = dict(rows[0])["id"]
+        await conn.execute(
+            "INSERT INTO action_logs (id, action_id, log_type, content, created_at) VALUES (?,?,?,?,?)",
+            (db.new_id(), action_id, log_type, content, db.now_iso())
+        )
+        await conn.commit()
+    finally:
+        await conn.close()
+
+
 async def log_wait_verdict(task_id: str, wait_id: str, verdict: str, description: str) -> None:
     """Append a vision poll result to the wait action's logs."""
     conn = await db.get_db()

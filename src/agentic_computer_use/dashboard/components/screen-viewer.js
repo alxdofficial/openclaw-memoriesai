@@ -104,7 +104,6 @@ const ScreenViewer = (() => {
   }
 
   function showTask(taskId) {
-    if (taskId === _currentTaskId) return;
     _currentTaskId = taskId;
 
     // Update recording button state for new task
@@ -112,6 +111,11 @@ const ScreenViewer = (() => {
     if (taskId && _recordBtn) _checkRecordStatus(taskId);
 
     if (!_img) return;
+
+    // Optimistically show the img and reset stream state
+    _streamActive = false;
+    _img.classList.remove("active");
+    if (_placeholder) _placeholder.textContent = "Loading stream…";
 
     if (taskId) {
       _img.src = `/api/tasks/${encodeURIComponent(taskId)}/screen`;
