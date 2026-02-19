@@ -1,182 +1,218 @@
-<mxfile host="app.diagrams.net" modified="2026-02-14T08:35:00.000Z" agent="openclaw-memoriesai" version="24.0.0" type="device">
+<mxfile host="app.diagrams.net" modified="2026-02-19T00:00:00.000Z" agent="openclaw-memoriesai" version="24.0.0" type="device">
   <diagram id="arch-overview" name="System Architecture">
-    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
       <root>
         <mxCell id="0"/>
         <mxCell id="1" parent="0"/>
 
         <!-- Title -->
-        <mxCell id="title" value="openclaw-memoriesai — System Architecture" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
-          <mxGeometry x="400" y="20" width="800" height="40" as="geometry"/>
+        <mxCell id="title" value="agentic-computer-use — System Architecture" style="text;html=1;fontSize=22;fontStyle=1;align=center;verticalAlign=middle;fillColor=none;strokeColor=none;fontColor=#1a1a2e;" vertex="1" parent="1">
+          <mxGeometry x="400" y="10" width="800" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════ CLOUD LAYER ═══════════ -->
+        <mxCell id="cloud-group" value="Cloud" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
+          <mxGeometry x="440" y="60" width="360" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="llm" value="&lt;b&gt;LLM API&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Claude / Anthropic&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="520" y="80" width="200" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════ HUMAN ═══════════ -->
+        <mxCell id="human" value="&lt;b&gt;Human&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Discord / WhatsApp / Browser&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="170" width="200" height="60" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════ HOST COMPUTER ═══════════ -->
+        <mxCell id="host-group" value="Host Computer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="150" width="1100" height="800" as="geometry"/>
         </mxCell>
 
         <!-- ═══════════ AGENT LAYER ═══════════ -->
         <mxCell id="agent-group" value="Agent Layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
-          <mxGeometry x="80" y="80" width="560" height="160" as="geometry"/>
+          <mxGeometry x="310" y="170" width="520" height="90" as="geometry"/>
         </mxCell>
 
-        <mxCell id="openclaw" value="&lt;b&gt;OpenClaw Gateway&lt;/b&gt;&lt;br&gt;:18789&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Agent loop + session mgmt&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="110" y="120" width="200" height="80" as="geometry"/>
+        <mxCell id="openclaw" value="&lt;b&gt;OpenClaw Gateway&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Agent framework — session management, tool routing&lt;br&gt;Reads SKILL.md at session start (symlinked from repo)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="370" y="190" width="400" height="60" as="geometry"/>
         </mxCell>
 
-        <mxCell id="llm" value="&lt;b&gt;LLM (Claude)&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Anthropic API&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="400" y="120" width="200" height="80" as="geometry"/>
+        <!-- SKILL.md -->
+        <mxCell id="skill" value="&lt;b&gt;SKILL.md&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;LLM prompt&lt;br&gt;(symlink)&lt;/font&gt;" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;shadow=1;size=14;" vertex="1" parent="1">
+          <mxGeometry x="860" y="170" width="120" height="70" as="geometry"/>
         </mxCell>
 
-        <mxCell id="agent-llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="openclaw" target="llm">
+        <!-- Human → OpenClaw -->
+        <mxCell id="human-oc" style="rounded=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1" source="human" target="openclaw">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="agent-llm-label" value="tool calls" style="edgeLabel;html=1;align=center;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="agent-llm">
-          <mxGeometry x="-0.1" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
-        </mxCell>
-
-        <!-- ═══════════ MCP LAYER ═══════════ -->
-        <mxCell id="mcp-group" value="MCP Transport" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
-          <mxGeometry x="80" y="280" width="560" height="120" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="mcporter" value="&lt;b&gt;mcporter&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;MCP client (stdio spawn)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="110" y="315" width="180" height="60" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="mcpproxy" value="&lt;b&gt;MCP Proxy&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#999&quot;&gt;server.py — thin httpx forwarder&lt;/font&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Stateless, spawned per-call&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="370" y="305" width="240" height="70" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="oc-mcporter" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="openclaw" target="mcporter">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="oc-mcporter-label" value="exec" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="oc-mcporter">
+        <mxCell id="human-oc-label" value="chat" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="human-oc">
           <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
         </mxCell>
 
-        <mxCell id="mcporter-proxy" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1" source="mcporter" target="mcpproxy">
+        <!-- OpenClaw → LLM -->
+        <mxCell id="oc-llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1" source="openclaw" target="llm">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
-        <mxCell id="mcporter-proxy-label" value="stdio (JSON-RPC)" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="mcporter-proxy">
+        <mxCell id="oc-llm-label" value="API calls" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="oc-llm">
           <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
         </mxCell>
 
-        <!-- ═══════════ DAEMON LAYER ═══════════ -->
-        <mxCell id="daemon-group" value="Persistent Daemon (systemd: memoriesai-daemon)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
-          <mxGeometry x="80" y="440" width="780" height="200" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="daemon" value="&lt;b&gt;daemon.py&lt;/b&gt;&lt;br&gt;aiohttp :18790&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;HTTP API + key normalizer&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="110" y="480" width="180" height="70" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="waitengine" value="&lt;b&gt;WaitEngine&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Async event loop&lt;br&gt;Priority queue&lt;br&gt;Pixel-diff gate&lt;br&gt;Vision-only PTY path&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="330" y="470" width="160" height="90" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="taskmgr" value="&lt;b&gt;TaskManager&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Chat threads&lt;br&gt;Plan tracking&lt;br&gt;Stuck detection (60s)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="530" y="470" width="160" height="90" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="stuckloop" value="&lt;b&gt;Stuck Loop&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;every 60s&lt;/font&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="720" y="480" width="110" height="50" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="taskmgr-stuck" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#d79b00;strokeWidth=1;dashed=1;" edge="1" parent="1" source="taskmgr" target="stuckloop">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="daemon-wait" style="rounded=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="daemon" target="waitengine">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="daemon-task" style="rounded=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="daemon" target="taskmgr">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="proxy-daemon" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="mcpproxy" target="daemon">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="proxy-daemon-label" value="HTTP (JSON)" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="proxy-daemon">
-          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
-        </mxCell>
-
-        <!-- ═══════════ INFRASTRUCTURE LAYER ═══════════ -->
-        <mxCell id="infra-group" value="Infrastructure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
-          <mxGeometry x="80" y="680" width="780" height="160" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="ollama" value="&lt;b&gt;Ollama&lt;/b&gt;&lt;br&gt;:11434&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;MiniCPM-o 4.5&lt;br&gt;RTX 3070 (8GB)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="110" y="720" width="160" height="80" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="xvfb" value="&lt;b&gt;Xvfb :99&lt;/b&gt;&lt;br&gt;1920×1080×24&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;+ fluxbox WM&lt;br&gt;+ Chrome&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
-          <mxGeometry x="320" y="720" width="160" height="80" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="sqlite" value="&lt;b&gt;SQLite&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;~/.openclaw-memoriesai/data.db&lt;br&gt;tasks, task_messages, wait_jobs&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;shadow=1;size=10;" vertex="1" parent="1">
-          <mxGeometry x="540" y="715" width="200" height="90" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="wait-ollama" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1" source="waitengine" target="ollama">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="wait-ollama-label" value="vision eval" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="wait-ollama">
-          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
-        </mxCell>
-
-        <mxCell id="wait-xvfb" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1" source="waitengine" target="xvfb">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="wait-xvfb-label" value="screen capture" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="wait-xvfb">
-          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
-        </mxCell>
-
-        <mxCell id="task-sqlite" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1" source="taskmgr" target="sqlite">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-
-        <!-- ═══════════ WAKE PATH (feedback loop) ═══════════ -->
-        <mxCell id="wake-arrow" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#cc0000;strokeWidth=2;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="waitengine" target="openclaw">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="950" y="515"/>
-              <mxPoint x="950" y="160"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="wake-label" value="&lt;font color=&quot;#cc0000&quot;&gt;&lt;b&gt;system event --mode now&lt;/b&gt;&lt;br&gt;(wake on resolve/timeout/stuck)&lt;/font&gt;" style="edgeLabel;html=1;fontSize=10;" vertex="1" connectable="0" parent="wake-arrow">
-          <mxGeometry x="0.2" relative="1" as="geometry"><mxPoint x="10" as="offset"/></mxGeometry>
-        </mxCell>
-
-        <mxCell id="stuck-wake" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#cc0000;strokeWidth=1;dashed=1;" edge="1" parent="1" source="stuckloop" target="openclaw">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="950" y="505"/>
-              <mxPoint x="950" y="160"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-
-        <!-- ═══════════ SKILL FILE ═══════════ -->
-        <mxCell id="skill" value="&lt;b&gt;SKILL.md&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;workspace/skills/memoriesai/&lt;br&gt;Auto-discovered by OpenClaw&lt;/font&gt;" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;shadow=1;size=14;" vertex="1" parent="1">
-          <mxGeometry x="700" y="100" width="200" height="80" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="skill-oc" style="rounded=1;strokeColor=#d6b656;strokeWidth=1;dashed=1;" edge="1" parent="1" source="skill" target="llm">
+        <!-- SKILL.md → OpenClaw -->
+        <mxCell id="skill-oc" style="rounded=1;strokeColor=#d6b656;strokeWidth=1;dashed=1;" edge="1" parent="1" source="skill" target="openclaw">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
         <mxCell id="skill-oc-label" value="teaches" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="skill-oc">
           <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
         </mxCell>
 
-        <!-- ═══════════ FUTURE: Procedural Memory ═══════════ -->
-        <mxCell id="future-group" value="Phase 4: Procedural Memory (NOT YET BUILT)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999;fontSize=11;fontStyle=3;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=3 3;fontColor=#999;" vertex="1" parent="1">
-          <mxGeometry x="920" y="440" width="280" height="200" as="geometry"/>
+        <!-- ═══════════ MCP LAYER ═══════════ -->
+        <mxCell id="mcp-group" value="MCP Transport" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
+          <mxGeometry x="310" y="280" width="520" height="70" as="geometry"/>
         </mxCell>
 
-        <mxCell id="memoriesai" value="&lt;font color=&quot;#999&quot;&gt;&lt;b&gt;Memories AI API&lt;/b&gt;&lt;br&gt;Video upload&lt;br&gt;Semantic search&lt;br&gt;Procedure extraction&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#ccc;fontSize=11;shadow=0;" vertex="1" parent="1">
-          <mxGeometry x="950" y="490" width="220" height="80" as="geometry"/>
+        <mxCell id="mcpserver" value="&lt;b&gt;MCP Server&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;thin HTTP proxy — spawned per-call by mcporter&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="295" width="380" height="45" as="geometry"/>
         </mxCell>
 
-        <mxCell id="future-record" value="&lt;font color=&quot;#999&quot;&gt;&lt;b&gt;video_record&lt;/b&gt;&lt;br&gt;(tool exists)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#ccc;fontSize=10;" vertex="1" parent="1">
-          <mxGeometry x="960" y="590" width="120" height="40" as="geometry"/>
+        <!-- OpenClaw → MCP Server -->
+        <mxCell id="oc-mcp" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#6c8ebf;strokeWidth=2;" edge="1" parent="1" source="openclaw" target="mcpserver">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="oc-mcp-label" value="MCP (stdio)" style="edgeLabel;html=1;fontSize=10;fontColor=#6c8ebf;fontStyle=1;" vertex="1" connectable="0" parent="oc-mcp">
+          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+
+        <!-- ═══════════ DAEMON LAYER ═══════════ -->
+        <mxCell id="daemon-group" value="DETM Daemon (persistent aiohttp server on localhost:18790)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;" vertex="1" parent="1">
+          <mxGeometry x="80" y="370" width="1060" height="370" as="geometry"/>
+        </mxCell>
+
+        <!-- MCP → Daemon -->
+        <mxCell id="mcp-daemon" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1" source="mcpserver" target="daemon-group">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="570" y="370" as="targetPoint"/>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="mcp-daemon-label" value="HTTP :18790" style="edgeLabel;html=1;fontSize=10;fontColor=#82b366;fontStyle=1;" vertex="1" connectable="0" parent="mcp-daemon">
+          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+
+        <!-- Row 1: Core components -->
+        <mxCell id="taskmgr" value="&lt;b&gt;Task Manager&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Task → PlanItems&lt;br&gt;→ Actions → Logs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="400" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="waitengine" value="&lt;b&gt;Smart Wait Engine&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Pixel-diff gate&lt;br&gt;Adaptive polling&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="400" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="guiagent" value="&lt;b&gt;GUI Agent&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;NL → coordinates&lt;br&gt;UI-TARS / Claude CU&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="530" y="400" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="desktopctl" value="&lt;b&gt;Desktop Control&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;xdotool: click, type, keys&lt;br&gt;Window management&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="400" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Row 2: Support components -->
+        <mxCell id="displaymgr" value="&lt;b&gt;Display Manager&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Per-task Xvfb (:100+)&lt;br&gt;Xlib connection cache&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="490" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="stuckdetect" value="&lt;b&gt;Stuck Detection&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;60s check interval&lt;br&gt;Wake OpenClaw + resume&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="490" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="visionback" value="&lt;b&gt;Vision Backend&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Ollama / vLLM /&lt;br&gt;Claude / Passthrough&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="530" y="490" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="screencap" value="&lt;b&gt;Screen Capture&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;python-xlib + ffmpeg&lt;br&gt;Video recording&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="740" y="490" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Row 3: Dashboard -->
+        <mxCell id="dashboard" value="&lt;b&gt;Web Dashboard — /dashboard&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Task tree + Message feed (color-coded) + Live MJPEG stream + Task controls (Cancel/Pause/Resume) + Recording&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="580" width="810" height="50" as="geometry"/>
+        </mxCell>
+
+        <!-- Row 4: Message types legend -->
+        <mxCell id="msg-legend" value="&lt;font color=&quot;#666&quot;&gt;Messages: &lt;/font&gt;&lt;font color=&quot;#6c8ebf&quot;&gt;&lt;b&gt;LLM→task&lt;/b&gt;&lt;/font&gt; &lt;font color=&quot;#000&quot;&gt;&lt;b&gt;User→LLM&lt;/b&gt;&lt;/font&gt; &lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;SmartWait→task&lt;/b&gt;&lt;/font&gt; &lt;font color=&quot;#82b366&quot;&gt;&lt;b&gt;System→task&lt;/b&gt;&lt;/font&gt; &lt;font color=&quot;#9673a6&quot;&gt;&lt;b&gt;LLM→plan&lt;/b&gt;&lt;/font&gt; &lt;font color=&quot;#b85450&quot;&gt;&lt;b&gt;System→alert&lt;/b&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#ccc;fontSize=10;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="640" width="810" height="30" as="geometry"/>
+        </mxCell>
+
+        <!-- Dashboard → Human (browser) -->
+        <mxCell id="dash-human" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#666;strokeWidth=1;dashed=1;" edge="1" parent="1" source="dashboard" target="human">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="90" y="605"/>
+              <mxPoint x="90" y="230"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="dash-human-label" value="browser" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="dash-human">
+          <mxGeometry x="-0.3" relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+
+        <!-- ═══════════ INFRASTRUCTURE LAYER ═══════════ -->
+        <mxCell id="infra-group" value="Infrastructure" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;fontStyle=1;verticalAlign=top;align=left;spacingLeft=8;spacingTop=2;dashed=1;dashPattern=5 5;" vertex="1" parent="1">
+          <mxGeometry x="80" y="760" width="1060" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ollama" value="&lt;b&gt;Ollama&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;MiniCPM-o / minicpm-v&lt;br&gt;Local vision model&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="110" y="790" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="xvfb" value="&lt;b&gt;Xvfb Virtual Displays&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;:100, :101, :102 ...&lt;br&gt;Per-task isolated screens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="340" y="790" width="200" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="sqlite" value="&lt;b&gt;SQLite&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;~/.agentic-computer-use/&lt;br&gt;data.db&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;shadow=1;size=10;" vertex="1" parent="1">
+          <mxGeometry x="590" y="785" width="180" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="desktopapps" value="&lt;b&gt;Desktop Apps&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Running inside Xvfb&lt;br&gt;DaVinci, Chrome, etc.&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
+          <mxGeometry x="820" y="790" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Daemon → Infrastructure edges -->
+        <mxCell id="vision-ollama" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=1;dashed=1;" edge="1" parent="1" source="visionback" target="ollama">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="vision-ollama-label" value="vision eval" style="edgeLabel;html=1;fontSize=10;fontColor=#666;" vertex="1" connectable="0" parent="vision-ollama">
+          <mxGeometry relative="1" as="geometry"><mxPoint as="offset"/></mxGeometry>
+        </mxCell>
+
+        <mxCell id="display-xvfb" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=1;dashed=1;" edge="1" parent="1" source="displaymgr" target="xvfb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="task-sqlite" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=1;dashed=1;" edge="1" parent="1" source="taskmgr" target="sqlite">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="desktop-apps" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#9673a6;strokeWidth=1;dashed=1;" edge="1" parent="1" source="desktopctl" target="desktopapps">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ═══════════ WAKE PATH (feedback loop) ═══════════ -->
+        <mxCell id="wake-arrow" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#cc0000;strokeWidth=2;dashed=1;dashPattern=8 4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="stuckdetect" target="openclaw">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1020" y="525"/>
+              <mxPoint x="1020" y="220"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="wake-label" value="&lt;font color=&quot;#cc0000&quot;&gt;&lt;b&gt;system event --mode now&lt;/b&gt;&lt;br&gt;(wake on stuck/resolve/timeout)&lt;/font&gt;" style="edgeLabel;html=1;fontSize=10;" vertex="1" connectable="0" parent="wake-arrow">
+          <mxGeometry x="0.2" relative="1" as="geometry"><mxPoint x="10" as="offset"/></mxGeometry>
+        </mxCell>
+
+        <!-- ═══════════ DATA FLOW LEGEND ═══════════ -->
+        <mxCell id="legend" value="&lt;b&gt;DATA FLOW&lt;/b&gt;  —  &lt;font color=&quot;#6c8ebf&quot;&gt;━━ MCP tool calls&lt;/font&gt;  —  &lt;font color=&quot;#82b366&quot;&gt;━━ HTTP daemon calls&lt;/font&gt;  —  &lt;font color=&quot;#666&quot;&gt;┅┅ Internal / async&lt;/font&gt;  —  &lt;font color=&quot;#cc0000&quot;&gt;┅┅ Wake events&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#ccc;fontSize=10;shadow=0;" vertex="1" parent="1">
+          <mxGeometry x="80" y="910" width="1060" height="30" as="geometry"/>
         </mxCell>
 
       </root>

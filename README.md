@@ -19,9 +19,7 @@ The installer handles:
 
 ## Architecture
 
-```
-OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
-```
+![System Architecture](docs/diagrams/system-architecture.svg)
 
 Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
