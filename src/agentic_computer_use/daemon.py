@@ -656,16 +656,69 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
         jpeg = _frame_buffer.get(display) or _get_no_signal_jpeg()
         w, h = _frame_buffer_dims.get(display, (0, 0))
 
+    # Compute actual JPEG pixel dimensions (may differ from screen due to downscaling)
+    if w and h:
+        ratio = config.DESKTOP_LOOK_MAX_DIM / max(w, h)
+        if ratio < 1.0:
+            img_w, img_h = int(w * ratio), int(h * ratio)
+        else:
+            img_w, img_h = w, h
+    else:
+        img_w, img_h = w, h
+
     if task_id:
         asyncio.ensure_future(task_mgr.append_tool_log(
             task_id, "tool_call",
-            f"desktop_look: screenshot ({w}x{h})"
+            f"desktop_look: screenshot ({img_w}x{img_h}, screen {w}x{h})"
         ))
     return web.json_response({
         "image_b64": base64.b64encode(jpeg).decode(),
         "mime_type": "image/jpeg",
         "screen_size": {"width": w, "height": h},
+        "image_size": {"width": img_w, "height": img_h},
     })
+
+
+def _get_screen_dims(display: str) -> tuple[int, int]:
+    """Return the actual display dimensions, falling back to xdpyinfo query if buffer not ready."""
+    screen_w, screen_h = _frame_buffer_dims.get(display, (0, 0))
+    if screen_w and screen_h:
+        return screen_w, screen_h
+    # Buffer not warmed yet — query X11 directly
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["xdpyinfo", "-display", display],
+            capture_output=True, text=True, timeout=3,
+        )
+        for line in result.stdout.split("\n"):
+            if "dimensions:" in line:
+                # "  dimensions:    1920x1080 pixels"
+                parts = line.split()
+                if parts:
+                    w, h = parts[1].split("x")
+                    dims = (int(w), int(h))
+                    _frame_buffer_dims[display] = dims  # cache for next time
+                    return dims
+    except Exception:
+        pass
+    return 1920, 1080  # reasonable fallback
+
+
+def _img_to_screen(x: int, y: int, display: str) -> tuple[int, int]:
+    """Scale image-space coordinates to screen-space coordinates.
+
+    desktop_look serves a downscaled JPEG (DESKTOP_LOOK_MAX_DIM). The LLM gives
+    coordinates in that image's pixel space. We need to scale them back to actual
+    screen resolution before passing to xdotool.
+    """
+    screen_w, screen_h = _get_screen_dims(display)
+    if screen_w and screen_h:
+        actual_max = max(screen_w, screen_h)
+        if actual_max > config.DESKTOP_LOOK_MAX_DIM:
+            scale = actual_max / config.DESKTOP_LOOK_MAX_DIM
+            return int(round(x * scale)), int(round(y * scale))
+    return x, y
 
 
 async def handle_desktop_action(request: web.Request) -> web.Response:
@@ -682,13 +735,17 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
         x, y = args.get("x"), args.get("y")
         btn = args.get("button", 1)
         if x is not None and y is not None:
-            ok = desktop.mouse_click_at(x, y, btn, display=display)
-            result = {"ok": ok, "action": "click", "x": x, "y": y}
+            sx, sy = _img_to_screen(x, y, display)
+            ok = desktop.mouse_click_at(sx, sy, btn, display=display)
+            result = {"ok": ok, "action": "click", "x": sx, "y": sy}
         else:
             ok = desktop.mouse_click(btn, display=display)
             result = {"ok": ok, "action": "click"}
     elif action == "double_click":
-        ok = desktop.mouse_double_click(args.get("x"), args.get("y"), display=display)
+        x, y = args.get("x"), args.get("y")
+        if x is not None and y is not None:
+            x, y = _img_to_screen(x, y, display)
+        ok = desktop.mouse_double_click(x, y, display=display)
         result = {"ok": ok, "action": "double_click"}
     elif action == "type":
         ok = desktop.type_text(args.get("text", ""), display=display)
@@ -697,10 +754,13 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
         ok = desktop.press_key(args.get("text", "Return"), display=display)
         result = {"ok": ok, "action": "press_key"}
     elif action == "mouse_move":
-        ok = desktop.mouse_move(args["x"], args["y"], display=display)
+        x, y = _img_to_screen(args["x"], args["y"], display)
+        ok = desktop.mouse_move(x, y, display=display)
         result = {"ok": ok, "action": "mouse_move"}
     elif action == "drag":
-        ok = desktop.mouse_drag(args["x"], args["y"], args["x2"], args["y2"], args.get("button", 1), display=display)
+        x1, y1 = _img_to_screen(args["x"], args["y"], display)
+        x2, y2 = _img_to_screen(args["x2"], args["y2"], display)
+        ok = desktop.mouse_drag(x1, y1, x2, y2, args.get("button", 1), display=display)
         result = {"ok": ok, "action": "drag"}
     elif action == "screenshot":
         path = desktop.take_screenshot(display=display)
@@ -775,12 +835,36 @@ async def handle_video_record(request: web.Request) -> web.Response:
 async def handle_gui_do(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     from .gui.agent import execute_gui_action
+    import re as _re
 
     task_id = args.get("task_id")
     display = await _resolve_task_display(task_id)
+    instruction = args["instruction"]
+
+    # If instruction contains explicit click(x, y) or type(x, y, ...) coordinates,
+    # scale them from image space to screen space so gui_do is consistent with desktop_action.
+    def _scale_click_coords(m):
+        x, y = _img_to_screen(int(m.group(1)), int(m.group(2)), display)
+        return f"click({x}, {y})"
+    instruction = _re.sub(
+        r'click\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)',
+        _scale_click_coords,
+        instruction,
+        flags=_re.IGNORECASE,
+    )
+
+    def _scale_type_coords(m):
+        x, y = _img_to_screen(int(m.group(1)), int(m.group(2)), display)
+        return f"type({x}, {y}, {m.group(3)}"
+    instruction = _re.sub(
+        r'type\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(.+)',
+        _scale_type_coords,
+        instruction,
+        flags=_re.IGNORECASE,
+    )
 
     result = await execute_gui_action(
-        instruction=args["instruction"],
+        instruction=instruction,
         task_id=task_id,
         window_name=args.get("window_name"),
         display=display,

@@ -122,15 +122,16 @@ def mouse_click(button: int = 1, display: str = None) -> bool:
 
 
 def mouse_click_at(x: int, y: int, button: int = 1, display: str = None) -> bool:
-    ok, _ = _run_xdotool("mousemove", str(x), str(y), "click", str(button), display=display)
+    """Move mouse to (x, y) and click. Uses --sync to ensure move completes before click."""
+    _run_xdotool("mousemove", "--sync", str(x), str(y), display=display)
+    ok, _ = _run_xdotool("click", str(button), display=display)
     return ok
 
 
 def mouse_double_click(x: int = None, y: int = None, display: str = None) -> bool:
     if x is not None and y is not None:
-        ok, _ = _run_xdotool("mousemove", str(x), str(y), "click", "--repeat", "2", "1", display=display)
-    else:
-        ok, _ = _run_xdotool("click", "--repeat", "2", "1", display=display)
+        _run_xdotool("mousemove", "--sync", str(x), str(y), display=display)
+    ok, _ = _run_xdotool("click", "--repeat", "2", "1", display=display)
     return ok
 
 

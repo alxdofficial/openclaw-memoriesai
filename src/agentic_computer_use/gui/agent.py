@@ -140,9 +140,10 @@ async def execute_gui_action(
     else:
         ok = desktop.mouse_click_at(x, y, display=display)
 
-    # Capture "after" screenshot
+    # Capture "after" screenshot (in executor — capture_screen is blocking Xlib)
     await asyncio.sleep(0.15)
-    after_frame = capture_screen(display=display)
+    loop = asyncio.get_event_loop()
+    after_frame = await loop.run_in_executor(None, capture_screen, display)
 
     # Log action to task if linked
     if task_id:

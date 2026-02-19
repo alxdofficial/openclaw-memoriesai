@@ -2,10 +2,23 @@
 import subprocess
 import os
 import io
+import threading
 import numpy as np
 from PIL import Image
 from .. import config
 from ..display.manager import get_xlib_display
+
+# Per-display lock — Xlib is not thread-safe; multiple run_in_executor threads
+# must serialize their access to the same display connection.
+_xlib_locks: dict[str, threading.Lock] = {}
+_xlib_locks_mu = threading.Lock()
+
+
+def _get_xlib_lock(display: str) -> threading.Lock:
+    with _xlib_locks_mu:
+        if display not in _xlib_locks:
+            _xlib_locks[display] = threading.Lock()
+        return _xlib_locks[display]
 
 
 def find_window_by_name(name: str, display: str = None) -> int | None:
@@ -44,23 +57,25 @@ def _x11_capture(window) -> np.ndarray | None:
 def capture_window(window_id: int, display: str = None) -> np.ndarray | None:
     """Capture a window as numpy array via X11."""
     display = display or config.DISPLAY
-    try:
-        xdisplay = get_xlib_display(display)
-        window = xdisplay.create_resource_object('window', window_id)
-        return _x11_capture(window)
-    except Exception:
-        return None
+    with _get_xlib_lock(display):
+        try:
+            xdisplay = get_xlib_display(display)
+            window = xdisplay.create_resource_object('window', window_id)
+            return _x11_capture(window)
+        except Exception:
+            return None
 
 
 def capture_screen(display: str = None) -> np.ndarray | None:
     """Capture the full virtual desktop via X11."""
     display = display or config.DISPLAY
-    try:
-        xdisplay = get_xlib_display(display)
-        root = xdisplay.screen().root
-        return _x11_capture(root)
-    except Exception:
-        return None
+    with _get_xlib_lock(display):
+        try:
+            xdisplay = get_xlib_display(display)
+            root = xdisplay.screen().root
+            return _x11_capture(root)
+        except Exception:
+            return None
 
 
 def frame_to_jpeg(frame: np.ndarray, max_dim: int = None, quality: int = None) -> bytes:

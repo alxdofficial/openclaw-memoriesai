@@ -365,8 +365,16 @@ async def call_tool(name: str, arguments: dict):
 
             data = resp.json()
             if "image_b64" in data:
+                isz = data.get("image_size", data.get("screen_size", {}))
                 sz = data.get("screen_size", {})
-                meta = f"Display: {sz.get('width','?')}×{sz.get('height','?')}px. Coordinates in your next click/action must use these pixel dimensions exactly."
+                img_w, img_h = isz.get("width", "?"), isz.get("height", "?")
+                scr_w, scr_h = sz.get("width", "?"), sz.get("height", "?")
+                meta = (
+                    f"Screenshot: {img_w}×{img_h}px image (actual display: {scr_w}×{scr_h}px). "
+                    f"Specify x/y coordinates as pixel positions in this image "
+                    f"(0,0 = top-left corner, {img_w},{img_h} = bottom-right). "
+                    f"Coordinates are automatically scaled to screen space."
+                )
                 return [
                     ImageContent(type="image", data=data["image_b64"], mimeType=data.get("mime_type", "image/jpeg")),
                     TextContent(type="text", text=meta),
