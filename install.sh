@@ -218,6 +218,68 @@ else
     warn "skill/ directory not found in repo — skill not installed"
 fi
 
+# Inject DETM guidance into OpenClaw MEMORY.md (idempotent via markers)
+MEMORY_FILE="$OC_WORKSPACE/MEMORY.md"
+FRAGMENT_FILE="$REPO_DIR/openclaw/MEMORY-fragment.md"
+
+if [ -f "$FRAGMENT_FILE" ]; then
+    REPO_DIR="$REPO_DIR" OC_WORKSPACE="$OC_WORKSPACE" "$VENV_DIR/bin/python3" - <<'PYEOF'
+import re, os, sys
+
+repo_dir  = os.environ.get('REPO_DIR', '')
+oc_ws     = os.environ.get('OC_WORKSPACE', os.path.expanduser('~/.openclaw/workspace'))
+mem_path  = os.path.join(oc_ws, 'MEMORY.md')
+frag_path = os.path.join(repo_dir, 'openclaw', 'MEMORY-fragment.md')
+
+MARKER_BEGIN = '<!-- BEGIN:agentic-computer-use -->'
+MARKER_END   = '<!-- END:agentic-computer-use -->'
+OLD_HEADER   = '## Desktop & GUI Automation — DETM Workflow (Always Use This)'
+
+with open(frag_path) as f:
+    fragment = f.read().strip()
+
+new_block = f'{MARKER_BEGIN}\n{fragment}\n{MARKER_END}'
+
+if not os.path.exists(mem_path):
+    os.makedirs(os.path.dirname(mem_path), exist_ok=True)
+    content = '# MEMORY.md - Your Long-Term Memory\n'
+else:
+    with open(mem_path) as f:
+        content = f.read()
+
+if MARKER_BEGIN in content:
+    # Already injected — update content between markers
+    pattern = re.escape(MARKER_BEGIN) + r'.*?' + re.escape(MARKER_END)
+    content = re.sub(pattern, new_block, content, flags=re.DOTALL)
+    print('Updated DETM section in MEMORY.md')
+else:
+    # Remove any old manually-added DETM section (no markers)
+    if OLD_HEADER in content:
+        pattern = re.escape(OLD_HEADER) + r'.*?(?=\n## |\Z)'
+        content = re.sub(pattern, '', content, flags=re.DOTALL)
+        # Clean up extra blank lines after removal
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        print('Removed old untracked DETM section from MEMORY.md')
+
+    # Insert after the title line (first line starting with #)
+    lines = content.splitlines(keepends=True)
+    insert_at = 0
+    for i, line in enumerate(lines):
+        if line.startswith('# '):
+            insert_at = i + 1
+            break
+    lines.insert(insert_at, f'\n{new_block}\n')
+    content = ''.join(lines)
+    print('Injected DETM section into MEMORY.md')
+
+with open(mem_path, 'w') as f:
+    f.write(content)
+PYEOF
+    ok "MEMORY.md updated with DETM workflow guidance"
+else
+    warn "openclaw/MEMORY-fragment.md not found — skipping MEMORY.md injection"
+fi
+
 # ─── Verify ────────────────────────────────────────────────────
 
 info "Running health check..."
