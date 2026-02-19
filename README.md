@@ -1,6 +1,6 @@
 # agentic-computer-use
 
-Desktop Environment Task Manager (DETM) — an MCP server with hierarchical task tracking, smart visual waiting, GUI automation with NL grounding, pluggable vision backends, per-task virtual displays, and a live web dashboard. All local-first.
+Desktop Environment Task Manager (DETM) — an MCP server with hierarchical task tracking, smart visual waiting, GUI automation with NL grounding, pluggable vision backends, shared or isolated virtual displays, and a live web dashboard. All local-first.
 
 ## Quick Install
 
@@ -13,9 +13,11 @@ cd openclaw-memoriesai
 The installer handles:
 - Python venv + dependencies
 - Ollama + vision model
-- System packages (xdotool, ffmpeg, fluxbox, Xvfb)
-- Systemd service (auto-start, auto-restart)
+- System packages (xdotool, ffmpeg, fluxbox, Xvfb, scrot)
+- Display detection: uses real X display if present, otherwise sets up Xvfb + x11vnc + noVNC (systemd services)
+- Systemd service for the DETM daemon (auto-start, auto-restart)
 - OpenClaw mcporter config
+- MEMORY.md injection with idempotency markers (safe to re-run)
 
 ## Architecture
 
@@ -26,7 +28,7 @@ Five layers:
 2. **Smart Wait** — vision-based async monitoring with pixel-diff gate + adaptive polling
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
-5. **Display Manager** — shared system display (VNC) by default; opt-in Xvfb isolation per task
+5. **Display Manager** — shared system display (VNC, `:99`) by default; opt-in Xvfb isolation per task
 
 ```
 ┌──────────────────────┐   HTTP proxy   ┌──────────────────────────────┐
@@ -35,27 +37,28 @@ Five layers:
 │   by mcporter)       │               │  ├── Wait Engine (async)      │
 └──────────────────────┘               │  ├── GUI Agent (NL grounding) │
                                        │  ├── Desktop Control (xdotool)│
-                                       │  ├── Display Manager (Xvfb)   │
+                                       │  ├── Display Manager          │
+                                       │  ├── Frame Buffer (~4fps)     │
                                        │  ├── Stuck Detection (opt-in) │
                                        │  ├── Web Dashboard            │
                                        │  └── Vision (pluggable)       │
                                        └──────────────────────────────┘
 ```
 
-## Tools (20)
+## Tools (21)
 
 ### Task Management (Hierarchical)
 | Tool | Description |
 |------|-------------|
 | `task_register` | Create task with plan items. Shares system display by default; `metadata={"isolated_display": true}` for private Xvfb. |
 | `task_update` | Post message (narration), change status, query state |
-| `task_item_update` | Update plan item status (pending/active/completed/failed/skipped/**scrapped**) |
-| `task_plan_append` | Append new plan items mid-task (use with `scrapped` to revise the plan) |
+| `task_item_update` | Update plan item status (pending/active/completed/failed/skipped/**scrapped**). Scrapped items appear struck-through and collapsed in the dashboard. |
+| `task_plan_append` | Append new plan items to an existing task. Use after scrapping to add revised steps. |
 | `task_log_action` | Log action under a plan item (cli/gui/wait/vision/reasoning) |
 | `task_summary` | Item-level overview (default), actions, full, or focused (expand only active item) |
 | `task_drill_down` | Expand one plan item to see actions + logs |
 | `task_thread` | Legacy message thread view |
-| `task_list` | List tasks by status |
+| `task_list` | List tasks by status (default: all) |
 
 ### Smart Wait
 | Tool | Description |
@@ -75,7 +78,7 @@ Five layers:
 | Tool | Description |
 |------|-------------|
 | `desktop_action` | Raw xdotool: click, type, keys, windows |
-| `desktop_look` | Screenshot + vision description |
+| `desktop_look` | Returns screenshot image + text content with pixel dimensions. Served from pre-captured frame buffer (~0ms latency). No local vision model involved — you interpret the image directly. |
 | `video_record` | Record screen/window clip |
 
 ### System
@@ -92,7 +95,7 @@ Five layers:
 | GPU | None (CPU works) | NVIDIA RTX 3060+ (8GB VRAM) |
 | RAM | 8 GB | 16 GB |
 | OS | Linux (X11) | Ubuntu 22.04+ |
-| Display | Xvfb (headless) or physical | Xvfb for headless servers |
+| Display | Xvfb (headless) or physical | Real X display or install.sh-managed VNC |
 
 ## Manual Setup
 
@@ -106,7 +109,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull minicpm-v
 
 # 3. System deps
-sudo apt install xdotool ffmpeg fluxbox xvfb
+sudo apt install xdotool ffmpeg fluxbox xvfb scrot
 
 # 4. Start daemon
 DISPLAY=:99 .venv/bin/python3 -m agentic_computer_use.daemon
@@ -116,7 +119,7 @@ DISPLAY=:99 .venv/bin/python3 -m agentic_computer_use.daemon
 
 ## Daemon — Start / Stop / Restart
 
-The DETM daemon is the long-running process that hosts the wait engine, task manager, GUI agent, display manager, stuck detection, and dashboard. Everything else (MCP server, CLI) talks to it over HTTP.
+The DETM daemon is the long-running process that hosts the wait engine, task manager, GUI agent, display manager, frame buffer, stuck detection, and dashboard. Everything else (MCP server, CLI) talks to it over HTTP.
 
 ### dev.sh (development)
 
@@ -185,9 +188,16 @@ open http://localhost:18790/dashboard
 
 ### Dashboard features
 
-- **Task list sidebar** — all tasks with status badges and progress bars
+- **Task list sidebar** — all tasks with status badges and progress bars; task delete button
 - **Task tree** — expandable plan items with nested actions
   - Task control buttons: **Pause**, **Resume**, **Cancel** in the tree header
+  - Scrapped plan items appear collapsed, grayed out with strikethrough
+- **Action tags** — each action shows a sender/subsystem label:
+  - `gui:click`, `gui:type`, etc. — GUI actions with sub-action detail
+  - `vision:look` — desktop_look / screenshot actions
+  - `wait:active`, `wait:resolved`, `wait:timeout` — smart wait lifecycle
+  - `cli:exec` — shell commands
+  - `llm:reasoning` — LLM narration / reasoning steps
 - **Action details** — click any action to expand; GUI/wait actions show:
   - Before/after screenshot thumbnails (click to open full-res lightbox)
   - Click coordinates and confidence scores (GUI actions)
@@ -200,9 +210,10 @@ open http://localhost:18790/dashboard
   - Green: Progress updates (`System -> task`)
   - Purple: Plan changes (`LLM -> plan`)
   - Red: Stuck alerts (`System -> alert`)
-- **Live screen viewer** — MJPEG stream of the task's per-task virtual display
-- **Recording controls** — start/stop screen recording per task
-- **Auto-refresh** — polls for updates every 2 seconds
+- **Live screen viewer** — always shows the live system display (`:99`) even when no task is selected. Polled JPEG snapshots at 500ms (replaces the previous MJPEG stream).
+- **Replay mode** — scrub through auto-recorded frames for any task
+- **Recording controls** — start/stop manual screen recording per task
+- **Poll intervals** — task list: 1s; selected task detail: 500ms
 
 ### Dashboard API endpoints
 
@@ -211,14 +222,19 @@ open http://localhost:18790/dashboard
 | `/dashboard` | GET | Dashboard HTML page |
 | `/api/tasks` | GET | List tasks (`?status=active&limit=20`) |
 | `/api/tasks/{id}` | GET | Task detail (`?detail=items\|actions\|full\|focused`) |
+| `/api/tasks/{id}` | DELETE | Delete a task |
 | `/api/tasks/{id}/messages` | GET | Task message feed (`?limit=50`) |
 | `/api/tasks/{id}/status` | POST | Change task status (`{"status":"cancelled"}`) |
 | `/api/tasks/{id}/items/{ord}` | GET | Drill into plan item |
-| `/api/tasks/{id}/screen` | GET | MJPEG stream for task's display |
+| `/api/tasks/{id}/snapshot` | GET | Single JPEG snapshot for task's display (from frame buffer) |
+| `/api/tasks/{id}/frames` | GET | List recorded frame indices |
+| `/api/tasks/{id}/frames/{n}` | GET | Fetch a single recorded frame |
+| `/api/tasks/{id}/screen` | GET | MJPEG stream for task's display (legacy) |
 | `/api/tasks/{id}/record/start` | POST | Start screen recording |
 | `/api/tasks/{id}/record/stop` | POST | Stop screen recording |
 | `/api/tasks/{id}/record/status` | GET | Recording status |
-| `/api/screen` | GET | MJPEG stream of full desktop |
+| `/api/snapshot` | GET | Single JPEG snapshot of full system display (from frame buffer) |
+| `/api/screen` | GET | MJPEG stream of full desktop (legacy) |
 | `/api/screenshots/{filename}` | GET | Serve action screenshot files |
 | `/api/recordings/{filename}` | GET | Serve recording files |
 | `/api/waits` | GET | Active wait jobs |
@@ -234,31 +250,70 @@ Action screenshots (GUI before/after, wait before/after) are saved to:
 
 Files are named `{action_id}_{role}.jpg` and `{action_id}_{role}_thumb.jpg`. The dashboard fetches thumbnails via `/api/screenshots/` and opens full-res in a lightbox on click.
 
-## Per-Task Virtual Displays
+## Display Architecture
 
-Each task gets its own Xvfb display at registration time. This isolates tasks from each other — one task's GUI actions don't interfere with another's screen.
+Tasks default to the **shared system display** (`:99` by default). All tasks on the same machine see and control the same screen. This is intentional for single-agent workflows — no display allocation overhead, and the live dashboard view always reflects the real desktop.
 
-Pass `display_width` and `display_height` in task metadata to override the default 1280x720:
+**Opt-in isolation** — if a task needs its own private Xvfb, pass `metadata={"isolated_display": true}` to `task_register`:
 
 ```bash
 # Via MCP tool:
-task_register(name="Edit video", plan=[...], metadata={"display_width": 1920, "display_height": 1080})
+task_register(name="Edit video", plan=[...], metadata={"isolated_display": true})
+
+# Override resolution (default 1280x720):
+task_register(name="Edit video", plan=[...], metadata={"isolated_display": true, "display_width": 1920, "display_height": 1080})
 
 # The task's display is stored in metadata as "display" (e.g., ":100")
 # All tools that accept task_id automatically target the correct display
 ```
 
-Displays are released automatically when a task reaches a terminal status (completed, failed, cancelled).
+Isolated displays are released automatically when a task reaches a terminal status (completed, failed, cancelled).
+
+### Headless server setup
+
+On headless servers (no real X display), `install.sh` automatically sets up:
+
+| Service | Description |
+|---------|-------------|
+| `detm-xvfb` | Xvfb virtual framebuffer on `:99` at 1920×1080 |
+| `detm-vnc` | x11vnc serving the virtual display on localhost:5901 |
+| `detm-novnc` | noVNC websockify proxy on localhost:6080 |
+
+After install on a headless server:
+```
+http://127.0.0.1:6080/vnc.html   # browser VNC client
+```
+
+On a machine with a real display, VNC services are not installed.
+
+## Frame Buffer
+
+The daemon maintains a background frame buffer per display, refreshed at ~4fps using `run_in_executor` (non-blocking). Both `desktop_look` and the dashboard snapshot endpoints read from this buffer — no blocking Xlib round-trip on each call.
+
+`desktop_look` returns two content items:
+1. An `ImageContent` with the JPEG screenshot
+2. A `TextContent` with the pixel dimensions: `Display: WIDTHxHEIGHTpx. Coordinates in your next click/action must use these pixel dimensions exactly.`
+
+## Stuck Detection
+
+Stuck detection is **off by default**. Enable it by setting:
+
+```bash
+ACU_STUCK_DETECTION=1
+```
+
+When enabled, the daemon monitors active tasks for inactivity and posts a stuck alert to the task's message feed after `STUCK_THRESHOLD_SECONDS` (default: 300s) with no progress. Alerts fire at most once per `STUCK_ALERT_COOLDOWN_SECONDS` (default: 300s).
 
 ## LLM Guidance (SKILL.md)
 
 The file `skill/SKILL.md` is the prompt that teaches OpenClaw's LLM how to use DETM tools. It covers:
 - Tool reference and lifecycle patterns
 - When to use GUI vs CLI
-- Per-task display usage
+- Shared vs isolated display usage
+- Scrapping plan items and appending revised steps
 - Narration requirements (writing reasoning to task history)
 - Dashboard awareness (the human can cancel tasks)
-- Stuck detection and automatic resumption
+- Stuck detection behavior
 
 When updating tools or behavior, keep SKILL.md in sync — it's what the LLM actually reads.
 
@@ -266,7 +321,7 @@ When updating tools or behavior, keep SKILL.md in sync — it's what the LLM act
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DISPLAY` | `:1` | X11 display (fallback for tasks without per-task display) |
+| `DISPLAY` | `:99` | X11 display used for the shared system display |
 | `ACU_VISION_BACKEND` | `ollama` | ollama, vllm, claude, passthrough |
 | `ACU_VISION_MODEL` | `minicpm-v` | Ollama model name |
 | `ACU_VLLM_URL` | `http://localhost:8000` | vLLM API endpoint |
@@ -275,6 +330,9 @@ When updating tools or behavior, keep SKILL.md in sync — it's what the LLM act
 | `ACU_GUI_AGENT_BACKEND` | `direct` | direct, uitars, claude_cu |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | `~/.openclaw/workspace` | Workspace directory for memory files |
+| `ACU_STUCK_DETECTION` | `0` | Enable stuck detection (`1` to turn on) |
+| `ACU_DESKTOP_LOOK_DIM` | `1200` | Max pixel dimension for desktop_look images |
+| `ACU_DESKTOP_LOOK_QUALITY` | `72` | JPEG quality for desktop_look images |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `ANTHROPIC_API_KEY` | -- | Required for Claude vision/GUI backends |
 
@@ -283,7 +341,7 @@ When updating tools or behavior, keep SKILL.md in sync — it's what the LLM act
 ```
 src/agentic_computer_use/
   server.py              # MCP server (thin HTTP proxy to daemon)
-  daemon.py              # Persistent HTTP daemon (aiohttp)
+  daemon.py              # Persistent HTTP daemon (aiohttp); frame buffer, snapshot endpoints
   config.py              # Configuration from env vars
   db.py                  # SQLite schema + helpers
   debug.py               # Colored debug logging
@@ -295,10 +353,11 @@ src/agentic_computer_use/
     poller.py            # Adaptive polling interval
   capture/
     screen.py            # X11 screen capture via python-xlib
+    frame_recorder.py    # Auto frame recording (run_in_executor, non-blocking)
   desktop/
     control.py           # xdotool wrapper (click, type, windows)
   display/
-    manager.py           # Per-task Xvfb display lifecycle
+    manager.py           # Shared display routing + opt-in Xvfb isolation per task
   gui/
     agent.py             # NL-to-coordinates grounding (UI-TARS, Claude CU)
   vision/
@@ -310,13 +369,16 @@ src/agentic_computer_use/
     style.css            # Dark terminal theme
     app.js               # Main app: polling, fetch helpers, wiring
     components/
-      task-list.js       # Sidebar task list
-      task-tree.js       # Expandable plan item tree with action details
-      screen-viewer.js   # MJPEG stream + recording controls
+      task-list.js       # Sidebar task list with delete button
+      task-tree.js       # Expandable plan item tree; scrapped items, action sender tags
+      screen-viewer.js   # Polled JPEG viewer (500ms); replay mode; recording controls
       message-feed.js    # Color-coded message feed
 
 skill/
   SKILL.md               # LLM prompt — teaches OpenClaw how to use DETM
+
+openclaw/
+  MEMORY-fragment.md     # Injected into OpenClaw MEMORY.md by install.sh (idempotent)
 
 docs/
   ARCHITECTURE.md        # Detailed architecture with ASCII diagrams
