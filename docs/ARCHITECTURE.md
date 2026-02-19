@@ -8,11 +8,12 @@
 OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
 ```
 
-Four layers:
+Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
 2. **Smart Wait** — vision-based async monitoring with pixel-diff gate + adaptive polling
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
+5. **Display Manager** — per-task virtual displays (Xvfb isolation)
 
 ## System Architecture
 
@@ -75,11 +76,24 @@ Four layers:
 │  └──────────────────┘  └──────────────────────────────────┘ │
 │                                                              │
 │  ┌──────────────────┐  ┌──────────────────────────────────┐ │
-│  │  SQLite Database  │  │  Debug Log                       │ │
-│  │  ~/.agentic-      │  │  ~/.agentic-computer-use/logs/   │ │
-│  │  computer-use/    │  │  debug.log                       │ │
-│  │  data.db          │  │  (tail -f for live monitoring)   │ │
+│  │  Display Manager  │  │  Stuck Detection Loop            │ │
+│  │                   │  │                                  │ │
+│  │  Per-task Xvfb    │  │  60s check interval              │ │
+│  │  displays (:100+) │  │  Wake OpenClaw via system event  │ │
+│  │  Xlib caching     │  │  Resume packet with context      │ │
 │  └──────────────────┘  └──────────────────────────────────┘ │
+│                                                              │
+│  ┌──────────────────┐  ┌──────────────────────────────────┐ │
+│  │  SQLite Database  │  │  Web Dashboard (:18790/dashboard)│ │
+│  │  ~/.agentic-      │  │                                  │ │
+│  │  computer-use/    │  │  Task tree + message feed        │ │
+│  │  data.db          │  │  Live MJPEG screen stream        │ │
+│  │                   │  │  Task controls (cancel/pause)    │ │
+│  └──────────────────┘  └──────────────────────────────────┘ │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │  Debug Log — ~/.agentic-computer-use/logs/debug.log      ││
+│  └──────────────────────────────────────────────────────────┘│
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -174,11 +188,44 @@ Three backends (`ACU_GUI_AGENT_BACKEND`):
 - Windows: list, find, focus, resize, move, close
 - Screen: capture, record video clips
 
+### Display Manager (Per-Task Isolation)
+
+Each task gets its own Xvfb virtual display at registration time (`display/manager.py`). This isolates tasks from each other — one task's GUI actions don't interfere with another's screen.
+
+- `allocate_display(task_id)` — starts Xvfb on the next free display number (`:100`, `:101`, ...)
+- `release_display(task_id)` — kills Xvfb and cleans up when task reaches terminal status
+- `get_xlib_display(display_str)` — cached Xlib connections for fast frame capture
+- `cleanup_all()` — tears down all managed displays on daemon shutdown
+
+Task metadata stores `display`, `display_num`, and `display_resolution`. All tools that accept `task_id` (desktop_action, gui_do, smart_wait, etc.) automatically resolve the task's display.
+
+### Stuck Detection
+
+Background loop in the daemon (`stuck_detection_loop()`, 60s interval) monitors active tasks:
+
+1. Skip tasks with active smart waits (they're legitimately waiting)
+2. If `now - task.updated_at >= 300s` and no active waits → task is stuck
+3. Build a resume packet: task state, plan items, active item expanded with action details + logs, last 5 messages, wait state
+4. Inject `[task_stuck_resume] {json}` into OpenClaw via `openclaw system event --mode now`
+5. Cooldown: no duplicate alerts within 300s per task
+
+### Web Dashboard
+
+Built-in web UI served by the daemon at `/dashboard`. No separate process.
+
+Components (`dashboard/components/`):
+- **task-list.js** — sidebar with status badges and progress bars
+- **task-tree.js** — expandable plan items → actions → logs with screenshots, coordinates, lightbox
+- **screen-viewer.js** — MJPEG stream + recording controls
+- **message-feed.js** — color-coded message feed (agent=blue, user=white, wait=yellow, system=gray/green, errors=red)
+
+Task controls in the tree header: **Pause**, **Resume**, **Cancel** buttons that POST status changes to the daemon.
+
 ### Database
 
 SQLite via `aiosqlite`. Single file at `~/.agentic-computer-use/data.db`.
 
-Tables: `tasks`, `plan_items`, `actions`, `action_logs`, `wait_jobs`.
+Tables: `tasks`, `plan_items`, `actions`, `action_logs`, `task_messages`, `wait_jobs`.
 
 ### Logging
 

@@ -22,10 +22,19 @@ const App = (() => {
     TaskList.init(taskListEl, onTaskSelected);
     TaskTree.init(taskTreeEl);
     ScreenViewer.init(screenImg, screenPlaceholder);
+    ScreenViewer.initRecordControls(document.getElementById("record-controls"));
+    MessageFeed.init(document.getElementById("message-feed"));
 
     // Wire up tree expand callback → fetches action details
     TaskTree.onExpandItem((taskId, ordinal) => {
       fetchItemDetail(taskId, ordinal);
+    });
+
+    // Wire up task control buttons (cancel, pause, resume)
+    TaskTree.onStatusChange(async (taskId, newStatus) => {
+      await apiPostJson(`/api/tasks/${encodeURIComponent(taskId)}/status`, { status: newStatus });
+      pollSelectedTask();
+      pollTasks();
     });
 
     // Filter change
@@ -49,6 +58,34 @@ const App = (() => {
     } catch (err) {
       console.error(`API error: ${path}`, err);
       setConnected(false);
+      return null;
+    }
+  }
+
+  async function apiPost(path) {
+    try {
+      const resp = await fetch(API_BASE + path, { method: "POST" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      setConnected(true);
+      return await resp.json();
+    } catch (err) {
+      console.error(`API POST error: ${path}`, err);
+      return null;
+    }
+  }
+
+  async function apiPostJson(path, body) {
+    try {
+      const resp = await fetch(API_BASE + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      setConnected(true);
+      return await resp.json();
+    } catch (err) {
+      console.error(`API POST error: ${path}`, err);
       return null;
     }
   }
@@ -88,9 +125,17 @@ const App = (() => {
 
   async function pollSelectedTask() {
     if (!_selectedTaskId) return;
-    const data = await apiFetch(`/api/tasks/${encodeURIComponent(_selectedTaskId)}?detail=actions`);
+    const data = await apiFetch(`/api/tasks/${encodeURIComponent(_selectedTaskId)}?detail=focused`);
     if (data && !data.error) {
       TaskTree.setTask(data);
+    }
+  }
+
+  async function pollMessages() {
+    if (!_selectedTaskId) return;
+    const data = await apiFetch(`/api/tasks/${encodeURIComponent(_selectedTaskId)}/messages?limit=50`);
+    if (data && data.messages) {
+      MessageFeed.setMessages(data.messages);
     }
   }
 
@@ -109,19 +154,24 @@ const App = (() => {
     document.getElementById("empty-state").classList.add("hidden");
     document.getElementById("screen-section").classList.remove("hidden");
     document.getElementById("tree-section").classList.remove("hidden");
+    document.getElementById("message-section").classList.remove("hidden");
 
     // Start screen stream
     ScreenViewer.showTask(taskId);
 
-    // Fetch full detail immediately
+    // Fetch full detail + messages immediately
     pollSelectedTask();
+    pollMessages();
 
-    // Start detail polling
+    // Start detail polling (task tree + messages every 2s)
     if (_detailPollTimer) clearInterval(_detailPollTimer);
-    _detailPollTimer = setInterval(pollSelectedTask, POLL_DETAIL_MS);
+    _detailPollTimer = setInterval(() => {
+      pollSelectedTask();
+      pollMessages();
+    }, POLL_DETAIL_MS);
   }
 
-  return { init };
+  return { init, apiPost };
 })();
 
 // Boot

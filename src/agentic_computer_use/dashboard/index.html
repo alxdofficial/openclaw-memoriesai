@@ -33,7 +33,10 @@
       </div>
 
       <section id="screen-section" class="hidden">
-        <h3>Live Screen</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h3>Live Screen</h3>
+          <div id="record-controls"></div>
+        </div>
         <div id="screen-container">
           <img id="screen-img" alt="Live screen">
           <div id="screen-placeholder">No stream available</div>
@@ -44,12 +47,18 @@
         <h3>Task History</h3>
         <div id="task-tree"></div>
       </section>
+
+      <section id="message-section" class="hidden">
+        <h3>Messages</h3>
+        <div id="message-feed"></div>
+      </section>
     </main>
   </div>
 
   <script src="/dashboard/static/components/task-list.js"></script>
   <script src="/dashboard/static/components/task-tree.js"></script>
   <script src="/dashboard/static/components/screen-viewer.js"></script>
+  <script src="/dashboard/static/components/message-feed.js"></script>
   <script src="/dashboard/static/app.js"></script>
 </body>
 </html>

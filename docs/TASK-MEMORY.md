@@ -44,32 +44,86 @@ With Task Memory, the agent writes progress to an external store as it goes:
 
 ## Data Model
 
-### SQLite Schema
+### SQLite Schema (Hierarchical)
+
+The current implementation uses a hierarchical model: Task → Plan Items → Actions → Logs, replacing the earlier flat plan/message design.
 
 ```sql
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active',  -- active, paused, completed, failed
-    plan TEXT NOT NULL,  -- JSON array of strings
-    metadata TEXT,  -- JSON object, arbitrary
-    running_summary TEXT,  -- distilled summary, updated periodically
-    summary_message_count INTEGER DEFAULT 0,  -- messages included in last summary
+    status TEXT NOT NULL DEFAULT 'active',  -- active, paused, completed, failed, cancelled
+    metadata TEXT,      -- JSON: active_wait_ids, last_wait_state, display, display_num, etc.
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 
-CREATE TABLE task_messages (
+CREATE TABLE plan_items (
     id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,  -- 'agent' (from LLM), 'system' (from wait/auto), 'distilled' (summary)
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    ordinal INTEGER NOT NULL,           -- 0-based index
+    title TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',      -- pending, active, completed, failed, skipped
+    started_at TEXT,
+    completed_at TEXT,
+    duration_seconds REAL
+);
+
+CREATE TABLE actions (
+    id TEXT PRIMARY KEY,
+    plan_item_id TEXT REFERENCES plan_items(id),
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    action_type TEXT NOT NULL,          -- cli, gui, wait, vision, reasoning, other
+    summary TEXT NOT NULL,
+    status TEXT DEFAULT 'completed',    -- started, completed, failed
+    input_data TEXT,                    -- JSON: command, coordinates, screenshots, etc.
+    output_data TEXT,                   -- JSON: result, screenshots, elapsed time, etc.
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE action_logs (
+    id TEXT PRIMARY KEY,
+    action_id TEXT NOT NULL REFERENCES actions(id),
+    log_type TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 
-CREATE INDEX idx_task_messages_task_id ON task_messages(task_id);
-CREATE INDEX idx_tasks_status ON tasks(status);
+CREATE TABLE task_messages (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id),
+    role TEXT NOT NULL,      -- 'agent', 'system', 'user'
+    content TEXT NOT NULL,
+    msg_type TEXT NOT NULL,  -- text, lifecycle, progress, wait, stuck, plan
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE wait_jobs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    criteria TEXT NOT NULL,
+    timeout_seconds INTEGER,
+    poll_interval REAL,
+    status TEXT NOT NULL,
+    result_message TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
 ```
+
+### Task metadata keys
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `active_wait_ids` | string[] | Currently active smart wait job IDs |
+| `last_wait_state` | string | watching, resolved, timeout, cancelled, error |
+| `last_wait_event_at` | float | Epoch seconds of last wait event |
+| `last_stuck_alert_at` | float | Epoch seconds of last stuck alert (cooldown) |
+| `display` | string | Per-task Xvfb display string (e.g., ":100") |
+| `display_num` | int | Display number |
+| `display_resolution` | string | e.g., "1280x720" |
 
 ## Distillation Strategy
 

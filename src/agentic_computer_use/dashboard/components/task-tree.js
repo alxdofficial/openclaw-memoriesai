@@ -59,6 +59,19 @@ const TaskTree = (() => {
     if (!_container || !_taskData) return;
     const d = _taskData;
 
+    let controls = "";
+    if (d.status === "active") {
+      controls = `
+        <button class="task-ctrl-btn ctrl-pause" data-action="paused" title="Pause task">Pause</button>
+        <button class="task-ctrl-btn ctrl-cancel" data-action="cancelled" title="Cancel task — frees the LLM">Cancel</button>
+      `;
+    } else if (d.status === "paused") {
+      controls = `
+        <button class="task-ctrl-btn ctrl-resume" data-action="active" title="Resume task">Resume</button>
+        <button class="task-ctrl-btn ctrl-cancel" data-action="cancelled" title="Cancel task">Cancel</button>
+      `;
+    }
+
     let html = `
       <div class="tree-task-header">
         <span>${_esc(d.name)}</span>
@@ -67,6 +80,7 @@ const TaskTree = (() => {
           <div class="progress-fill" style="width:${d.progress_pct || 0}%"></div>
         </div>
         <span style="color:var(--text-dim);font-size:11px">${d.progress_pct || 0}%</span>
+        <span class="task-controls">${controls}</span>
       </div>
     `;
 
@@ -164,11 +178,27 @@ const TaskTree = (() => {
         _openLightbox(img.dataset.full || img.src);
       });
     });
+
+    // Task control buttons
+    _container.querySelectorAll(".task-ctrl-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const newStatus = btn.dataset.action;
+        if (_onStatusChange && _taskData) {
+          _onStatusChange(_taskData.task_id, newStatus);
+        }
+      });
+    });
   }
 
   let _onExpandItem = null;
   function onExpandItem(cb) {
     _onExpandItem = cb;
+  }
+
+  let _onStatusChange = null;
+  function onStatusChange(cb) {
+    _onStatusChange = cb;
   }
 
   function updateItemActions(ordinal, actionDetails) {
@@ -282,5 +312,5 @@ const TaskTree = (() => {
     document.body.appendChild(overlay);
   }
 
-  return { init, setTask, clear, render, onExpandItem, updateItemActions };
+  return { init, setTask, clear, render, onExpandItem, onStatusChange, updateItemActions };
 })();

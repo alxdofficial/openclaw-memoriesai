@@ -34,6 +34,15 @@ async def _parse_body(request: web.Request) -> dict:
     return {k.rstrip(":"): v for k, v in raw.items()} if isinstance(raw, dict) else raw
 
 
+async def _resolve_task_display(task_id: str | None) -> str:
+    """Look up the per-task display, falling back to the system display."""
+    if task_id:
+        display = await task_mgr.get_task_display(task_id)
+        if display:
+            return display
+    return config.DISPLAY
+
+
 # ─── Wait handlers ───────────────────────────────────────────────
 
 async def handle_smart_wait(request: web.Request) -> web.Response:
@@ -51,6 +60,8 @@ async def handle_smart_wait(request: web.Request) -> web.Response:
     if task_id and not await task_mgr.task_exists(task_id):
         return web.json_response({"error": f"Task {task_id} not found"}, status=404)
 
+    display = await _resolve_task_display(task_id)
+
     job_id = db.new_id()
     job = WaitJob(
         id=job_id,
@@ -59,6 +70,7 @@ async def handle_smart_wait(request: web.Request) -> web.Response:
         criteria=args["wake_when"],
         timeout=args.get("timeout", config.DEFAULT_TIMEOUT),
         task_id=task_id,
+        display=display,
         poll_interval=float(args.get("poll_interval", config.DEFAULT_POLL_INTERVAL)),
     )
 
@@ -80,7 +92,7 @@ async def handle_smart_wait(request: web.Request) -> web.Response:
         try:
             from .capture.screen import capture_screen as _cap_screen
             from .screenshots import save_screenshot
-            before_frame = _cap_screen()
+            before_frame = _cap_screen(display=display)
             if before_frame is not None:
                 screenshot_refs = save_screenshot(job_id, "before", before_frame)
         except Exception:
@@ -260,6 +272,23 @@ async def handle_task_list(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_api_task_status(request: web.Request) -> web.Response:
+    task_id = request.match_info["task_id"]
+    body = await request.json()
+    status = body.get("status")
+    if not status:
+        return web.json_response({"error": "status is required"}, status=400)
+    result = await task_mgr.update_task(task_id=task_id, status=status)
+    return web.json_response(result)
+
+
+async def handle_api_task_messages(request: web.Request) -> web.Response:
+    task_id = request.match_info["task_id"]
+    limit = int(request.query.get("limit", 50))
+    result = await task_mgr.get_thread(task_id, limit=limit)
+    return web.json_response(result)
+
+
 # ─── Health ──────────────────────────────────────────────────────
 
 async def handle_health(request: web.Request) -> web.Response:
@@ -274,6 +303,63 @@ async def handle_health(request: web.Request) -> web.Response:
         "data_dir": str(config.DATA_DIR),
         "display": config.DISPLAY,
     })
+
+
+# ─── Async recording state ───────────────────────────────────────
+
+_active_recordings: dict = {}  # task_id -> AsyncRecording
+
+
+# ─── Recording handlers ─────────────────────────────────────────
+
+async def handle_record_start(request: web.Request) -> web.Response:
+    task_id = request.match_info["task_id"]
+    if task_id in _active_recordings:
+        return web.json_response({"error": "Already recording"}, status=409)
+
+    result = await task_mgr.get_task_summary(task_id=task_id, detail_level="items")
+    if result.get("error"):
+        return web.json_response(result, status=404)
+
+    display = await _resolve_task_display(task_id)
+
+    from .video.recorder import start_recording
+    recording = start_recording(task_id=task_id, display=display)
+    _active_recordings[task_id] = recording
+    return web.json_response({"ok": True})
+
+
+async def handle_record_stop(request: web.Request) -> web.Response:
+    task_id = request.match_info["task_id"]
+    recording = _active_recordings.pop(task_id, None)
+    if not recording:
+        return web.json_response({"error": "Not recording"}, status=404)
+
+    result = recording.stop()
+
+    # Log as a task action
+    try:
+        await task_mgr.log_action(
+            task_id=task_id,
+            action_type="recording",
+            summary=f"Screen recording ({result['duration']}s, {result['size_mb']}MB)",
+            output_data=result,
+            status="completed",
+        )
+    except Exception:
+        log.warning(f"Failed to log recording action for task {task_id}")
+
+    return web.json_response(result)
+
+
+async def handle_record_status(request: web.Request) -> web.Response:
+    task_id = request.match_info["task_id"]
+    recording = _active_recordings.get(task_id)
+    if recording and recording.is_running:
+        return web.json_response({"recording": True, "elapsed": round(recording.elapsed, 1)})
+    # Clean up stale entry
+    _active_recordings.pop(task_id, None)
+    return web.json_response({"recording": False, "elapsed": 0})
 
 
 # ─── Dashboard GET API endpoints ─────────────────────────────────
@@ -291,6 +377,20 @@ async def handle_api_screenshot(request: web.Request) -> web.Response:
     if not path.is_file():
         return web.json_response({"error": "not found"}, status=404)
     return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+
+async def handle_api_recording(request: web.Request) -> web.Response:
+    """Serve recording files from RECORDINGS_DIR with cache headers."""
+    filename = request.match_info["filename"]
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return web.json_response({"error": "invalid filename"}, status=400)
+    from .video.recorder import RECORDINGS_DIR
+    path = RECORDINGS_DIR / filename
+    if not path.is_file():
+        return web.json_response({"error": "not found"}, status=404)
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400"})
+
+
 MJPEG_FPS = 2
 MJPEG_BOUNDARY = b"frame"
 
@@ -344,37 +444,16 @@ async def handle_api_screen_stream(request: web.Request) -> web.StreamResponse:
 
 
 async def handle_api_task_screen(request: web.Request) -> web.StreamResponse:
-    """MJPEG stream for a task's assigned window, with full-screen fallback."""
-    from .capture.screen import capture_screen, capture_window, frame_to_jpeg, find_window_by_name
+    """MJPEG stream for a task's per-task display (full screen of that display)."""
+    from .capture.screen import capture_screen, frame_to_jpeg
 
     task_id = request.match_info["task_id"]
     result = await task_mgr.get_task_summary(task_id=task_id, detail_level="items")
     if result.get("error"):
         return web.json_response(result, status=404)
 
-    # Try to get the task's assigned window from its metadata
-    window_id = None
-    try:
-        from . import db as _db
-        conn = await _db.get_db()
-        try:
-            rows = await conn.execute_fetchall("SELECT metadata FROM tasks WHERE id = ?", (task_id,))
-            if rows:
-                meta = json.loads(dict(rows[0]).get("metadata", "{}"))
-                wid = meta.get("assigned_window_id")
-                if wid:
-                    window_id = int(wid)
-                elif meta.get("assigned_window_name"):
-                    window_id = find_window_by_name(meta["assigned_window_name"])
-        finally:
-            await conn.close()
-    except Exception:
-        pass
-
-    if window_id:
-        capture_fn = lambda: capture_window(window_id)
-    else:
-        capture_fn = capture_screen
+    display = await _resolve_task_display(task_id)
+    capture_fn = lambda: capture_screen(display=display)
 
     return await _mjpeg_stream(request, capture_fn=capture_fn, jpeg_fn=frame_to_jpeg)
 
@@ -409,13 +488,17 @@ async def _mjpeg_stream(request, capture_fn, jpeg_fn):
 async def handle_desktop_look(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     from .capture.screen import capture_screen, frame_to_jpeg
+
+    task_id = args.get("task_id")
+    display = await _resolve_task_display(task_id)
+
     if args.get("window_name"):
         from .desktop import control as desktop
-        wid = desktop.find_window(args["window_name"])
+        wid = desktop.find_window(args["window_name"], display=display)
         if wid:
-            desktop.focus_window(wid)
+            desktop.focus_window(wid, display=display)
             await asyncio.sleep(0.3)
-    frame = capture_screen()
+    frame = capture_screen(display=display)
     if frame is None:
         return web.json_response({"error": "Failed to capture screen"}, status=500)
     jpeg = frame_to_jpeg(frame)
@@ -431,6 +514,10 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
 async def handle_desktop_action(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     from .desktop import control as desktop
+
+    task_id = args.get("task_id")
+    display = await _resolve_task_display(task_id)
+
     action = args["action"]
     result = {}
 
@@ -438,57 +525,57 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
         x, y = args.get("x"), args.get("y")
         btn = args.get("button", 1)
         if x is not None and y is not None:
-            ok = desktop.mouse_click_at(x, y, btn)
+            ok = desktop.mouse_click_at(x, y, btn, display=display)
             result = {"ok": ok, "action": "click", "x": x, "y": y}
         else:
-            ok = desktop.mouse_click(btn)
+            ok = desktop.mouse_click(btn, display=display)
             result = {"ok": ok, "action": "click"}
     elif action == "double_click":
-        ok = desktop.mouse_double_click(args.get("x"), args.get("y"))
+        ok = desktop.mouse_double_click(args.get("x"), args.get("y"), display=display)
         result = {"ok": ok, "action": "double_click"}
     elif action == "type":
-        ok = desktop.type_text(args.get("text", ""))
+        ok = desktop.type_text(args.get("text", ""), display=display)
         result = {"ok": ok, "action": "type"}
     elif action == "press_key":
-        ok = desktop.press_key(args.get("text", "Return"))
+        ok = desktop.press_key(args.get("text", "Return"), display=display)
         result = {"ok": ok, "action": "press_key"}
     elif action == "mouse_move":
-        ok = desktop.mouse_move(args["x"], args["y"])
+        ok = desktop.mouse_move(args["x"], args["y"], display=display)
         result = {"ok": ok, "action": "mouse_move"}
     elif action == "drag":
-        ok = desktop.mouse_drag(args["x"], args["y"], args["x2"], args["y2"], args.get("button", 1))
+        ok = desktop.mouse_drag(args["x"], args["y"], args["x2"], args["y2"], args.get("button", 1), display=display)
         result = {"ok": ok, "action": "drag"}
     elif action == "screenshot":
-        path = desktop.take_screenshot()
+        path = desktop.take_screenshot(display=display)
         result = {"ok": path is not None, "path": path}
     elif action == "list_windows":
-        windows = desktop.list_windows()
+        windows = desktop.list_windows(display=display)
         result = {"windows": windows, "count": len(windows)}
     elif action == "find_window":
-        wid = desktop.find_window(args.get("window_name", ""))
+        wid = desktop.find_window(args.get("window_name", ""), display=display)
         if wid:
-            info = desktop.get_window_info(wid)
+            info = desktop.get_window_info(wid, display=display)
             result = {"found": True, "window": info}
         else:
             result = {"found": False}
     elif action == "focus_window":
-        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
-        ok = desktop.focus_window(wid) if wid else False
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""), display=display)
+        ok = desktop.focus_window(wid, display=display) if wid else False
         result = {"ok": ok}
     elif action == "resize_window":
-        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
-        ok = desktop.resize_window(wid, args["width"], args["height"]) if wid else False
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""), display=display)
+        ok = desktop.resize_window(wid, args["width"], args["height"], display=display) if wid else False
         result = {"ok": ok}
     elif action == "move_window":
-        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
-        ok = desktop.move_window(wid, args["x"], args["y"]) if wid else False
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""), display=display)
+        ok = desktop.move_window(wid, args["x"], args["y"], display=display) if wid else False
         result = {"ok": ok}
     elif action == "close_window":
-        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""))
-        ok = desktop.close_window(wid) if wid else False
+        wid = args.get("window_id") or desktop.find_window(args.get("window_name", ""), display=display)
+        ok = desktop.close_window(wid, display=display) if wid else False
         result = {"ok": ok}
     elif action == "get_mouse_position":
-        pos = desktop.get_mouse_position()
+        pos = desktop.get_mouse_position(display=display)
         result = {"x": pos[0], "y": pos[1]} if pos else {"error": "Failed"}
     else:
         result = {"error": f"Unknown action: {action}"}
@@ -501,17 +588,20 @@ async def handle_video_record(request: web.Request) -> web.Response:
     from .video.recorder import record_screen
     from .desktop.control import find_window
 
+    task_id = args.get("task_id")
+    display = await _resolve_task_display(task_id)
+
     target = args.get("target", "screen")
     duration = min(max(args.get("duration", 10), 1), 120)
     fps = args.get("fps", 5)
     window_id = None
 
     if target.startswith("window:"):
-        window_id = find_window(target[7:])
+        window_id = find_window(target[7:], display=display)
         if not window_id:
             return web.json_response({"error": "Window not found"}, status=404)
 
-    path = record_screen(duration=duration, fps=fps, window_id=window_id)
+    path = record_screen(duration=duration, fps=fps, window_id=window_id, display=display)
     if path:
         size_mb = os.path.getsize(path) / 1024 / 1024
         return web.json_response({"ok": True, "path": path, "duration": duration, "fps": fps, "size_mb": round(size_mb, 2)})
@@ -523,10 +613,15 @@ async def handle_video_record(request: web.Request) -> web.Response:
 async def handle_gui_do(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     from .gui.agent import execute_gui_action
+
+    task_id = args.get("task_id")
+    display = await _resolve_task_display(task_id)
+
     result = await execute_gui_action(
         instruction=args["instruction"],
-        task_id=args.get("task_id"),
+        task_id=task_id,
         window_name=args.get("window_name"),
+        display=display,
     )
     return web.json_response(result)
 
@@ -534,9 +629,14 @@ async def handle_gui_do(request: web.Request) -> web.Response:
 async def handle_gui_find(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     from .gui.agent import find_gui_element
+
+    task_id = args.get("task_id")
+    display = await _resolve_task_display(task_id)
+
     result = await find_gui_element(
         description=args["description"],
         window_name=args.get("window_name"),
+        display=display,
     )
     return web.json_response(result)
 
@@ -706,12 +806,19 @@ def create_app() -> web.Application:
     app.router.add_get("/dashboard", handle_dashboard_index)
     app.router.add_get("/api/tasks", handle_api_tasks)
     app.router.add_get("/api/tasks/{task_id}", handle_api_task_detail)
+    app.router.add_post("/api/tasks/{task_id}/status", handle_api_task_status)
+    app.router.add_get("/api/tasks/{task_id}/messages", handle_api_task_messages)
     app.router.add_get("/api/tasks/{task_id}/items/{ordinal}", handle_api_task_item)
     app.router.add_get("/api/tasks/{task_id}/screen", handle_api_task_screen)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)
     app.router.add_get("/api/screen", handle_api_screen_stream)
     app.router.add_get("/api/screenshots/{filename}", handle_api_screenshot)
+    app.router.add_get("/api/recordings/{filename}", handle_api_recording)
+    # Recording start/stop/status
+    app.router.add_post("/api/tasks/{task_id}/record/start", handle_record_start)
+    app.router.add_post("/api/tasks/{task_id}/record/stop", handle_record_stop)
+    app.router.add_get("/api/tasks/{task_id}/record/status", handle_record_status)
     app.router.add_static("/dashboard/static", DASHBOARD_DIR)
     return app
 
@@ -764,6 +871,8 @@ def main():
             await app['stuck_detector']
         except asyncio.CancelledError:
             pass
+        from .display.manager import cleanup_all
+        cleanup_all()
 
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)

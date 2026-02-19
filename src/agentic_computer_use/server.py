@@ -79,7 +79,7 @@ TOOLS = [
             "properties": {
                 "name": {"type": "string", "description": "Human-readable task name"},
                 "plan": {"type": "array", "items": {"type": "string"}, "description": "Ordered checklist of plan items"},
-                "metadata": {"type": "object", "description": "Arbitrary key-value pairs (e.g., assigned_window_id)"},
+                "metadata": {"type": "object", "description": "Arbitrary key-value pairs. Use display_width/display_height to override the default 1280x720 task display resolution."},
             },
             "required": ["name", "plan"],
         },
@@ -136,7 +136,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "task_id": {"type": "string", "description": "Task ID"},
-                "detail_level": {"type": "string", "enum": ["items", "actions", "full"], "default": "items", "description": "items=plan overview, actions=expand actions per item, full=include logs"},
+                "detail_level": {"type": "string", "enum": ["items", "actions", "full", "focused"], "default": "items", "description": "items=plan overview, actions=expand actions per item, full=include logs, focused=expand only active item"},
             },
             "required": ["task_id"],
         },
@@ -192,6 +192,7 @@ TOOLS = [
                              "get_mouse_position"],
                     "description": "Action to perform"
                 },
+                "task_id": {"type": "string", "description": "Task ID — actions target the task's virtual display"},
                 "x": {"type": "integer"}, "y": {"type": "integer"},
                 "x2": {"type": "integer"}, "y2": {"type": "integer"},
                 "text": {"type": "string"},

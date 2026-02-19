@@ -10,7 +10,7 @@ Create a task with plan items.
 |-------|------|----------|-------------|
 | `name` | string | yes | Task name |
 | `plan` | string[] | yes | Ordered checklist of plan items |
-| `metadata` | object | no | Arbitrary key-value pairs (e.g., `assigned_window_id`) |
+| `metadata` | object | no | Arbitrary key-value pairs. Use `display_width`/`display_height` to override the default 1280x720 task display resolution. |
 
 Returns: `task_id`, plan items with ordinals.
 
@@ -57,7 +57,7 @@ Get a summary of a task. Default view is item-level.
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `task_id` | string | yes | Task ID |
-| `detail_level` | string | no | items (default), actions, full |
+| `detail_level` | string | no | items (default), actions, full, focused (expand only active item) |
 
 ### `task_drill_down`
 
@@ -125,7 +125,7 @@ Execute a GUI action by natural language or explicit coordinates.
 | `task_id` | string | no | Link action to a task |
 | `window_name` | string | no | Target window (auto-focused) |
 
-NL instructions are grounded to coordinates by the vision model (UI-TARS or Claude CU), then executed via xdotool. Explicit coordinates bypass grounding.
+NL instructions are grounded to coordinates by the vision model (UI-TARS or Claude CU), then executed via xdotool. Explicit coordinates bypass grounding. Pass `task_id` to target the task's per-task virtual display.
 
 ### `gui_find`
 
@@ -142,7 +142,7 @@ Locate a UI element without acting. Returns coordinates.
 
 ### `desktop_action`
 
-Raw xdotool control.
+Raw xdotool control. Pass `task_id` to target the task's per-task virtual display.
 
 | Action | Params | Description |
 |--------|--------|-------------|

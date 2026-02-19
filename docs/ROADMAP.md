@@ -40,7 +40,7 @@
 - [x] Unified PTY and GUI waits under the same vision evaluator
 - [ ] Optional future improvement: bind `pty:<session_id>` to a specific terminal window capture for cleaner frames
 
-## Phase 3: Task Memory ← MOSTLY DONE
+## Phase 3: Task Memory ← DONE
 
 **Goal**: Agent can register tasks, report progress, and query state across context boundaries.
 
@@ -48,6 +48,7 @@
 - [x] SQLite schema + migrations
 - [x] task_register, task_update, task_list tools
 - [x] Message history append + retrieval
+- [x] Hierarchical model: Task → Plan Items → Actions → Logs
 
 ### 3b: Distillation
 - [x] Running summary generation (MiniCPM-o)
@@ -56,7 +57,8 @@
 
 ### 3c: Integration
 - [x] Link smart_wait to tasks (auto-post on resolution)
-- [ ] OpenClaw agent learns to register tasks for multi-step work
+- [x] SKILL.md narration guidance teaches agent to register tasks and narrate progress
+- [x] Compact-with-focused-expansion context for task resumption (active item expanded, others compact)
 - [ ] Test: multi-step deployment with context compaction mid-task
 
 ## Phase 4: Video Comprehension (Memories AI)
@@ -96,6 +98,31 @@
 - [x] Desktop screenshot → action pipeline (`desktop_look`)
 - [ ] Combine with procedural memory for efficient UI navigation
 
+## Phase 6: Dashboard & Observability ← DONE
+
+**Goal**: Human can observe and control tasks in real time.
+
+- [x] Web dashboard served by daemon (no separate process)
+- [x] Task list sidebar with status badges and progress bars
+- [x] Expandable task tree with nested actions, screenshots, lightbox
+- [x] Rich action logs: GUI screenshots, coordinates, confidence scores
+- [x] Live MJPEG screen stream per task (per-task virtual display)
+- [x] Color-coded message feed (agent narration, wait events, system messages)
+- [x] Task control buttons (Pause, Resume, Cancel) — human can free up the LLM
+- [x] Recording controls (start/stop per task)
+- [x] Per-task virtual displays (Xvfb isolation via display/manager.py)
+- [x] Stuck detection + automatic LLM wake with resume packets
+
+## Phase 7: Context Compaction & LLM Guidance ← DONE
+
+**Goal**: Agent survives context loss and resumes effectively.
+
+- [x] `build_resume_packet()` with active item expansion (actions + logs)
+- [x] `detail_level="focused"` — compact view with only active item expanded
+- [x] SKILL.md narration section — teaches agent to write reasoning to task history
+- [x] Stuck detection loop (60s interval, 5min threshold, cooldown)
+- [x] `[task_stuck_resume]` wake event with full resume context
+
 ## Future Ideas
 
 - **Multi-machine federation**: Share procedural memory across devices
@@ -115,7 +142,9 @@
 | Screen Capture | ffmpeg + python-xlib | Reads from Xvfb virtual framebuffer |
 | Video Indexing | Memories AI API | Alex's company, advanced video comprehension |
 | Pixel Diff | NumPy | Fast, minimal dependency |
-| Wake Mechanism | File-based (v1) → Gateway API (v2) | Progressive complexity |
+| Wake Mechanism | `openclaw system event --mode now` | Direct CLI injection, seconds latency |
+| Web Dashboard | aiohttp static + vanilla JS | Zero dependencies, served by daemon |
+| Display Isolation | Xvfb per task | Each task gets its own virtual screen |
 
 ## Hardware Requirements
 

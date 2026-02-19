@@ -227,4 +227,5 @@ Where payload schema is:
 - Full autonomous task resumption execution policy.
 - Multi-agent task ownership.
 - Cross-session distributed locking.
-- UI/dashboard for task state.
+
+> **Note:** UI/dashboard for task state was originally out of scope but is now implemented — see the web dashboard at `/dashboard` with task tree, message feed, and control buttons.

@@ -11,7 +11,8 @@ import time
 import logging
 from datetime import datetime, timezone
 
-from .. import db, debug
+from .. import db, debug, config
+from ..display.manager import allocate_display, release_display
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +111,22 @@ async def register_task(name: str, plan: list[str], metadata: dict = None) -> di
         initial_meta.setdefault("last_wait_event_at", None)
         initial_meta.setdefault("last_stuck_alert_at", 0)
 
+        # Allocate a per-task virtual display
+        display_width = initial_meta.pop("display_width", None)
+        display_height = initial_meta.pop("display_height", None)
+        try:
+            display_info = allocate_display(
+                task_id,
+                width=int(display_width) if display_width else None,
+                height=int(display_height) if display_height else None,
+            )
+            initial_meta["display"] = display_info.display_str
+            initial_meta["display_num"] = display_info.display_num
+            initial_meta["display_resolution"] = f"{display_info.width}x{display_info.height}"
+        except Exception as e:
+            log.warning(f"Failed to allocate display for task {task_id}: {e}")
+            initial_meta["display"] = config.DISPLAY
+
         await conn.execute(
             "INSERT INTO tasks (id, name, status, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?)",
             (task_id, name, "active", json.dumps(initial_meta), now, now)
@@ -157,6 +174,11 @@ async def update_task(task_id: str, message: str = None, query: str = None, stat
                 await conn.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (normalized, now, task_id))
                 await _append_msg(conn, task_id, "system", f"Status changed: {old} → {normalized}", "lifecycle", now)
                 debug.log_task(task_id, f"STATUS {old} → {normalized}")
+                if normalized in TERMINAL_STATUSES:
+                    try:
+                        release_display(task_id)
+                    except Exception as e:
+                        log.warning(f"Failed to release display for task {task_id}: {e}")
 
         if message:
             # Log message as an action under the active plan item
@@ -465,6 +487,19 @@ async def on_wait_finished(task_id: str, wait_id: str, state: str, detail: str,
         await conn.close()
 
 
+async def get_task_display(task_id: str) -> str | None:
+    """Return the display string from a task's metadata, or None."""
+    conn = await db.get_db()
+    try:
+        rows = await conn.execute_fetchall("SELECT metadata FROM tasks WHERE id = ?", (task_id,))
+        if rows:
+            meta = _load_json(dict(rows[0]).get("metadata", "{}"), {})
+            return meta.get("display")
+        return None
+    finally:
+        await conn.close()
+
+
 async def list_tasks(status: str = "active", limit: int = 10) -> dict:
     conn = await db.get_db()
     try:
@@ -517,6 +552,26 @@ async def build_resume_packet(task_id: str, reason: str | None = None, conn=None
 
         pct = round((len(completed) / len(item_list)) * 100) if item_list else 0
         current = active[0] if active else (remaining[0] if remaining else None)
+
+        # Expand action details for the current (active/next pending) item
+        if current:
+            pi_rows = await conn.execute_fetchall(
+                "SELECT id FROM plan_items WHERE task_id = ? AND ordinal = ?",
+                (task_id, current["ordinal"]))
+            if pi_rows:
+                plan_item_id = dict(pi_rows[0])["id"]
+                action_rows = await conn.execute_fetchall(
+                    "SELECT * FROM actions WHERE plan_item_id = ? ORDER BY created_at",
+                    (plan_item_id,))
+                expanded_actions = []
+                for ar in action_rows:
+                    a = dict(ar)
+                    log_rows = await conn.execute_fetchall(
+                        "SELECT * FROM action_logs WHERE action_id = ? ORDER BY created_at",
+                        (a["id"],))
+                    a["logs"] = [dict(lr) for lr in log_rows]
+                    expanded_actions.append(a)
+                current["action_details"] = expanded_actions
 
         return {
             "task_id": task_id,
@@ -631,6 +686,20 @@ async def _build_item_summary(conn, task_id: str, detail_level: str = "items") -
         "SELECT * FROM plan_items WHERE task_id = ? ORDER BY ordinal", (task_id,)
     )
 
+    # For "focused" mode, find the ordinal to expand (last active, fallback first pending)
+    focused_ordinal = None
+    if detail_level == "focused":
+        for ir in items_rows:
+            it = dict(ir)
+            if it["status"] == "active":
+                focused_ordinal = it["ordinal"]
+        if focused_ordinal is None:
+            for ir in items_rows:
+                it = dict(ir)
+                if it["status"] == "pending":
+                    focused_ordinal = it["ordinal"]
+                    break
+
     items = []
     for ir in items_rows:
         item = dict(ir)
@@ -646,7 +715,12 @@ async def _build_item_summary(conn, task_id: str, detail_level: str = "items") -
         )
         entry["actions"] = dict(action_count_rows[0])["cnt"]
 
-        if detail_level in ("actions", "full"):
+        expand_this = (
+            detail_level in ("actions", "full")
+            or (detail_level == "focused" and item["ordinal"] == focused_ordinal)
+        )
+
+        if expand_this:
             action_rows = await conn.execute_fetchall(
                 "SELECT * FROM actions WHERE plan_item_id = ? ORDER BY created_at", (item["id"],)
             )
@@ -660,13 +734,12 @@ async def _build_item_summary(conn, task_id: str, detail_level: str = "items") -
                     "status": a["status"],
                     "created_at": a["created_at"],
                 }
-                if detail_level in ("actions", "full"):
-                    action_entry["input_data"] = a.get("input_data")
-                    action_entry["output_data"] = a.get("output_data")
-                    log_rows = await conn.execute_fetchall(
-                        "SELECT * FROM action_logs WHERE action_id = ? ORDER BY created_at", (a["id"],)
-                    )
-                    action_entry["logs"] = [dict(lr) for lr in log_rows]
+                action_entry["input_data"] = a.get("input_data")
+                action_entry["output_data"] = a.get("output_data")
+                log_rows = await conn.execute_fetchall(
+                    "SELECT * FROM action_logs WHERE action_id = ? ORDER BY created_at", (a["id"],)
+                )
+                action_entry["logs"] = [dict(lr) for lr in log_rows]
                 entry["action_details"].append(action_entry)
 
         items.append(entry)
