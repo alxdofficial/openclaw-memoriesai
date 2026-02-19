@@ -204,14 +204,18 @@ print(f'Written: {config_path}')
 "
 ok "mcporter config updated"
 
-# Install OpenClaw skill (SKILL.md)
-SKILL_DIR="$OC_WORKSPACE/skills/agentic-computer-use"
-mkdir -p "$SKILL_DIR"
-if [ -f "$REPO_DIR/skill/SKILL.md" ]; then
-    cp "$REPO_DIR/skill/SKILL.md" "$SKILL_DIR/SKILL.md"
-    ok "OpenClaw skill installed: $SKILL_DIR/SKILL.md"
+# Install OpenClaw skill (symlink so edits to repo auto-propagate)
+SKILL_LINK="$OC_WORKSPACE/skills/agentic-computer-use"
+if [ -L "$SKILL_LINK" ]; then
+    rm "$SKILL_LINK"
+elif [ -d "$SKILL_LINK" ]; then
+    rm -rf "$SKILL_LINK"
+fi
+if [ -d "$REPO_DIR/skill" ]; then
+    ln -s "$REPO_DIR/skill" "$SKILL_LINK"
+    ok "OpenClaw skill symlinked: $SKILL_LINK → $REPO_DIR/skill"
 else
-    warn "skill/SKILL.md not found in repo — skill not installed"
+    warn "skill/ directory not found in repo — skill not installed"
 fi
 
 # ─── Verify ────────────────────────────────────────────────────
