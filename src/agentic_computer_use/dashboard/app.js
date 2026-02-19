@@ -45,6 +45,9 @@ const App = (() => {
     checkHealth();
     pollTasks();
     _taskPollTimer = setInterval(pollTasks, POLL_TASKS_MS);
+
+    // Always show system display (no task selected)
+    ScreenViewer.showFullScreen();
   }
 
   // ─── API helpers ──────────────────────────
@@ -150,7 +153,6 @@ const App = (() => {
 
     // Show sections
     document.getElementById("empty-state").classList.add("hidden");
-    document.getElementById("screen-section").classList.remove("hidden");
     document.getElementById("tree-section").classList.remove("hidden");
 
     // Start screen stream
@@ -173,9 +175,8 @@ const App = (() => {
         _selectedTaskId = null;
         if (_detailPollTimer) { clearInterval(_detailPollTimer); _detailPollTimer = null; }
         TaskTree.clear();
-        ScreenViewer.stop();
+        ScreenViewer.showFullScreen();
         document.getElementById("empty-state").classList.remove("hidden");
-        document.getElementById("screen-section").classList.add("hidden");
         document.getElementById("tree-section").classList.add("hidden");
       }
       pollTasks();

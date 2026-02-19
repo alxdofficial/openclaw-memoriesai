@@ -106,10 +106,23 @@ TOOLS = [
             "properties": {
                 "task_id": {"type": "string", "description": "Task ID"},
                 "ordinal": {"type": "integer", "description": "Plan item index (0-based)"},
-                "status": {"type": "string", "enum": ["pending", "active", "completed", "failed", "skipped"], "description": "New status for this plan item"},
+                "status": {"type": "string", "enum": ["pending", "active", "completed", "failed", "skipped", "scrapped"], "description": "New status for this plan item. Use 'scrapped' to abandon an item and replace it with new ones via task_plan_append."},
                 "note": {"type": "string", "description": "Optional note about this status change"},
             },
             "required": ["task_id", "ordinal", "status"],
+        },
+    ),
+    Tool(
+        name="task_plan_append",
+        description="Append new plan items to an existing task. Use after scrapping items to replace them with revised steps.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task ID"},
+                "items": {"type": "array", "items": {"type": "string"}, "description": "New plan items to append"},
+                "note": {"type": "string", "description": "Optional reason for the plan change"},
+            },
+            "required": ["task_id", "items"],
         },
     ),
     Tool(
@@ -312,6 +325,7 @@ ROUTE_MAP = {
     "task_register": ("POST", "/task_register"),
     "task_update": ("POST", "/task_update"),
     "task_item_update": ("POST", "/task_item_update"),
+    "task_plan_append": ("POST", "/task_plan_append"),
     "task_log_action": ("POST", "/task_log_action"),
     "task_summary": ("POST", "/task_summary"),
     "task_drill_down": ("POST", "/task_drill_down"),

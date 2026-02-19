@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 VALID_STATUSES = {"active", "paused", "completed", "failed", "cancelled"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-VALID_ITEM_STATUSES = {"pending", "active", "completed", "failed", "skipped"}
+VALID_ITEM_STATUSES = {"pending", "active", "completed", "failed", "skipped", "scrapped"}
 VALID_MSG_TYPES = {"text", "lifecycle", "progress", "wait", "stuck", "plan"}
 VALID_WAIT_STATES = {"watching", "resolved", "timeout", "cancelled", "error"}
 
@@ -226,7 +226,7 @@ async def update_plan_item(task_id: str, ordinal: int, status: str, note: str = 
         updates = {"status": status}
         if status == "active" and not item.get("started_at"):
             updates["started_at"] = now
-        elif status in ("completed", "failed", "skipped"):
+        elif status in ("completed", "failed", "skipped", "scrapped"):
             updates["completed_at"] = now
             if item.get("started_at"):
                 duration = _parse_iso(now) - _parse_iso(item["started_at"])
@@ -243,13 +243,50 @@ async def update_plan_item(task_id: str, ordinal: int, status: str, note: str = 
                 (action_id, item["id"], task_id, "reasoning", note, "completed", now)
             )
 
-        symbol = {"completed": "✓", "failed": "✗", "skipped": "⊘", "active": "▶", "pending": "○"}.get(status, "•")
+        symbol = {"completed": "✓", "failed": "✗", "skipped": "⊘", "scrapped": "⊗", "active": "▶", "pending": "○"}.get(status, "•")
         await _append_msg(conn, task_id, "system", f"{symbol} Item {ordinal}: {item['title']} → {status}", "progress", now)
         await conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (now, task_id))
         await conn.commit()
 
         debug.log_task(task_id, f"ITEM {ordinal} → {status}", item["title"])
         return await _build_item_summary(conn, task_id)
+    finally:
+        await conn.close()
+
+
+async def append_plan_items(task_id: str, items: list, note: str = None) -> dict:
+    """Append new plan items to an existing task's plan."""
+    conn = await db.get_db()
+    try:
+        task = await _get_task(conn, task_id)
+        if not task:
+            return {"error": f"Task {task_id} not found"}
+
+        rows = await conn.execute_fetchall(
+            "SELECT MAX(ordinal) as max_ord FROM plan_items WHERE task_id = ?", (task_id,)
+        )
+        next_ordinal = (dict(rows[0])["max_ord"] or -1) + 1
+        now = db.now_iso()
+
+        new_items = []
+        for i, title in enumerate(items):
+            item_id = db.new_id()
+            ordinal = next_ordinal + i
+            await conn.execute(
+                "INSERT INTO plan_items (id, task_id, ordinal, title, status) VALUES (?,?,?,?,?)",
+                (item_id, task_id, ordinal, title, "pending")
+            )
+            new_items.append({"ordinal": ordinal, "title": title})
+
+        msg = f"Plan updated: added {len(items)} item(s) — " + ", ".join(f'"{t}"' for t in items)
+        if note:
+            msg = f"{note} | {msg}"
+        await _append_msg(conn, task_id, "system", msg, "plan", now)
+        await conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (now, task_id))
+        await conn.commit()
+
+        debug.log_task(task_id, "PLAN APPEND", f"+{len(items)} items")
+        return {"ok": True, "added": new_items}
     finally:
         await conn.close()
 
@@ -567,15 +604,36 @@ async def log_wait_verdict(task_id: str, wait_id: str, verdict: str, description
         await conn.close()
 
 
-async def get_task_display(task_id: str) -> str | None:
-    """Return the display string from a task's metadata, or None."""
+async def set_task_display(task_id: str, display: str) -> None:
+    """Persist the allocated display string into the task's metadata."""
     conn = await db.get_db()
     try:
         rows = await conn.execute_fetchall("SELECT metadata FROM tasks WHERE id = ?", (task_id,))
         if rows:
             meta = _load_json(dict(rows[0]).get("metadata", "{}"), {})
-            return meta.get("display")
-        return None
+            meta["display"] = display
+            await conn.execute("UPDATE tasks SET metadata = ? WHERE id = ?",
+                               (json.dumps(meta), task_id))
+            await conn.commit()
+    finally:
+        await conn.close()
+
+
+async def get_task_display(task_id: str) -> str | None:
+    """Return the display string from a task's metadata, or None."""
+    display, _ = await get_task_display_info(task_id)
+    return display
+
+
+async def get_task_display_info(task_id: str) -> tuple[str | None, bool]:
+    """Return (display, isolated) from a task's metadata."""
+    conn = await db.get_db()
+    try:
+        rows = await conn.execute_fetchall("SELECT metadata FROM tasks WHERE id = ?", (task_id,))
+        if rows:
+            meta = _load_json(dict(rows[0]).get("metadata", "{}"), {})
+            return meta.get("display"), bool(meta.get("isolated_display"))
+        return None, False
     finally:
         await conn.close()
 

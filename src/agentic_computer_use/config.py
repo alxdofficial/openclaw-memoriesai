@@ -57,8 +57,13 @@ MAX_POLL_INTERVAL = 15.0
 DEFAULT_TIMEOUT = 300  # seconds
 PIXEL_DIFF_THRESHOLD = 0.01  # 1% of pixels must change
 MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
+STUCK_DETECTION_ENABLED = os.environ.get("ACU_STUCK_DETECTION", "0") in ("1", "true", "yes")
 FRAME_MAX_DIM = 1920  # send full resolution — small models miss text at lower res
 FRAME_JPEG_QUALITY = 80
+# OpenClaw re-encodes images >1200px before forwarding to Claude, causing double-compression.
+# Match that ceiling so images pass through unmodified at our chosen quality.
+DESKTOP_LOOK_MAX_DIM = int(os.environ.get("ACU_DESKTOP_LOOK_DIM", "1200"))
+DESKTOP_LOOK_JPEG_QUALITY = int(os.environ.get("ACU_DESKTOP_LOOK_QUALITY", "72"))
 THUMBNAIL_MAX_DIM = 360
 THUMBNAIL_JPEG_QUALITY = 60
 MAX_CONTEXT_FRAMES = 4

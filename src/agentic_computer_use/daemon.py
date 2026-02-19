@@ -37,11 +37,17 @@ async def _parse_body(request: web.Request) -> dict:
 
 
 async def _resolve_task_display(task_id: str | None) -> str:
-    """Look up the per-task display, falling back to the system display."""
+    """Look up the per-task display, falling back to the system display.
+
+    Only trusts a stored display that differs from the system display if the
+    task explicitly opted into isolation — prevents stale Xvfb metadata from
+    pre-shared-display era returning dead displays.
+    """
     if task_id:
-        display = await task_mgr.get_task_display(task_id)
+        display, isolated = await task_mgr.get_task_display_info(task_id)
         if display:
-            return display
+            if display == config.DISPLAY or isolated:
+                return display
     return config.DISPLAY
 
 
@@ -204,12 +210,20 @@ async def handle_wait_cancel(request: web.Request) -> web.Response:
 
 async def handle_task_register(request: web.Request) -> web.Response:
     args = await _parse_body(request)
-    result = await task_mgr.register_task(name=args["name"], plan=args["plan"], metadata=args.get("metadata"))
-    # Auto-start frame recording for this task
+    metadata = args.get("metadata") or {}
+    result = await task_mgr.register_task(name=args["name"], plan=args["plan"], metadata=metadata)
     task_id = result.get("task_id")
     if task_id:
+        # Only allocate an isolated Xvfb if explicitly requested via metadata
+        if metadata.get("isolated_display"):
+            from .display.manager import allocate_display
+            w = metadata.get("display_width")
+            h = metadata.get("display_height")
+            info = allocate_display(task_id, width=w, height=h)
+            await task_mgr.set_task_display(task_id, info.display_str)
         display = await _resolve_task_display(task_id)
         frame_recorder.start(task_id, display)
+        _ensure_frame_buffer(display)
     return web.json_response(result)
 
 
@@ -230,6 +244,16 @@ async def handle_task_item_update(request: web.Request) -> web.Response:
         task_id=args["task_id"],
         ordinal=int(args["ordinal"]),
         status=args["status"],
+        note=args.get("note"),
+    )
+    return web.json_response(result)
+
+
+async def handle_task_plan_append(request: web.Request) -> web.Response:
+    args = await _parse_body(request)
+    result = await task_mgr.append_plan_items(
+        task_id=args["task_id"],
+        items=args["items"],
         note=args.get("note"),
     )
     return web.json_response(result)
@@ -414,6 +438,41 @@ MJPEG_BOUNDARY = b"frame"
 
 _NO_SIGNAL_JPEG: bytes | None = None
 
+# ─── Frame buffer — pre-captured JPEG per display ───────────────
+# Background loop keeps this fresh at ~4fps so snapshot/desktop_look
+# read from memory instead of blocking on Xlib.
+_frame_buffer: dict[str, bytes] = {}         # display → latest JPEG bytes
+_frame_buffer_dims: dict[str, tuple] = {}    # display → (width, height) of original frame
+_frame_buffer_tasks: dict[str, asyncio.Task] = {}
+
+
+async def _frame_buffer_loop(display: str) -> None:
+    from .capture.screen import capture_screen, frame_to_jpeg
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            frame = await loop.run_in_executor(None, capture_screen, display)
+            if frame is not None:
+                jpeg = await loop.run_in_executor(
+                    None, frame_to_jpeg, frame,
+                    config.DESKTOP_LOOK_MAX_DIM, config.DESKTOP_LOOK_JPEG_QUALITY,
+                )
+                _frame_buffer[display] = jpeg
+                _frame_buffer_dims[display] = (frame.shape[1], frame.shape[0])
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)  # ~4fps
+
+
+def _ensure_frame_buffer(display: str) -> None:
+    if display not in _frame_buffer_tasks or _frame_buffer_tasks[display].done():
+        _frame_buffer_tasks[display] = asyncio.ensure_future(_frame_buffer_loop(display))
+
+
+def _get_frame_jpeg(display: str) -> bytes:
+    _ensure_frame_buffer(display)
+    return _frame_buffer.get(display) or _get_no_signal_jpeg()
+
 
 def _make_no_signal_jpeg() -> bytes:
     from PIL import Image, ImageDraw
@@ -496,12 +555,14 @@ async def handle_api_task_frame(request: web.Request) -> web.Response:
 
 
 async def handle_api_task_snapshot(request: web.Request) -> web.Response:
-    """Single JPEG frame for a task's display (for polling-based screen viewer)."""
-    from .capture.screen import capture_screen, frame_to_jpeg
+    """Single JPEG frame for a task's display — served from frame buffer (no blocking Xlib call)."""
     task_id = request.match_info["task_id"]
     display = await _resolve_task_display(task_id)
-    frame = capture_screen(display=display)
-    jpeg = frame_to_jpeg(frame, max_dim=1280, quality=60) if frame is not None else _get_no_signal_jpeg()
+    # If the task's display has no buffered frames (stale isolated Xvfb, dead display, etc.)
+    # fall back to the system display so the human sees something useful.
+    jpeg = _frame_buffer.get(display) or _frame_buffer.get(config.DISPLAY) or _get_no_signal_jpeg()
+    if display not in _frame_buffer:
+        _ensure_frame_buffer(display)  # start it for next time if it's a live display
     return web.Response(
         body=jpeg,
         content_type="image/jpeg",
@@ -510,10 +571,8 @@ async def handle_api_task_snapshot(request: web.Request) -> web.Response:
 
 
 async def handle_api_snapshot(request: web.Request) -> web.Response:
-    """Single JPEG frame of the global display."""
-    from .capture.screen import capture_screen, frame_to_jpeg
-    frame = capture_screen()
-    jpeg = frame_to_jpeg(frame, max_dim=1280, quality=60) if frame is not None else _get_no_signal_jpeg()
+    """Single JPEG frame of the global display — served from frame buffer."""
+    jpeg = _get_frame_jpeg(config.DISPLAY)
     return web.Response(
         body=jpeg,
         content_type="image/jpeg",
@@ -583,19 +642,29 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
         if wid:
             desktop.focus_window(wid, display=display)
             await asyncio.sleep(0.3)
-    frame = capture_screen(display=display)
-    if frame is None:
-        return web.json_response({"error": "Failed to capture screen"}, status=500)
-    jpeg = frame_to_jpeg(frame)
+        # Fresh capture needed after focus — fall through to live capture
+        loop = asyncio.get_event_loop()
+        frame = await loop.run_in_executor(None, capture_screen, display)
+        if frame is None:
+            return web.json_response({"error": "Failed to capture screen"}, status=500)
+        jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame,
+                                          config.DESKTOP_LOOK_MAX_DIM, config.DESKTOP_LOOK_JPEG_QUALITY)
+        w, h = frame.shape[1], frame.shape[0]
+    else:
+        # Use pre-captured frame buffer — instant, no Xlib round-trip
+        _ensure_frame_buffer(display)
+        jpeg = _frame_buffer.get(display) or _get_no_signal_jpeg()
+        w, h = _frame_buffer_dims.get(display, (0, 0))
+
     if task_id:
         asyncio.ensure_future(task_mgr.append_tool_log(
             task_id, "tool_call",
-            f"desktop_look: screenshot captured ({frame.shape[1]}x{frame.shape[0]})"
+            f"desktop_look: screenshot ({w}x{h})"
         ))
     return web.json_response({
         "image_b64": base64.b64encode(jpeg).decode(),
         "mime_type": "image/jpeg",
-        "screen_size": {"width": frame.shape[1], "height": frame.shape[0]},
+        "screen_size": {"width": w, "height": h},
     })
 
 
@@ -877,6 +946,7 @@ def create_app() -> web.Application:
     app.router.add_post("/task_register", handle_task_register)
     app.router.add_post("/task_update", handle_task_update)
     app.router.add_post("/task_item_update", handle_task_item_update)
+    app.router.add_post("/task_plan_append", handle_task_plan_append)
     app.router.add_post("/task_log_action", handle_task_log_action)
     app.router.add_post("/task_summary", handle_task_summary)
     app.router.add_post("/task_drill_down", handle_task_drill_down)
@@ -961,14 +1031,21 @@ def main():
     app = create_app()
 
     async def on_startup(app):
-        app['stuck_detector'] = asyncio.create_task(stuck_detection_loop())
+        if config.STUCK_DETECTION_ENABLED:
+            app['stuck_detector'] = asyncio.create_task(stuck_detection_loop())
+        else:
+            app['stuck_detector'] = None
+        # Pre-warm frame buffer for the system display so the dashboard
+        # shows a live screen immediately, even before any task is created.
+        _ensure_frame_buffer(config.DISPLAY)
 
     async def on_cleanup(app):
-        app['stuck_detector'].cancel()
-        try:
-            await app['stuck_detector']
-        except asyncio.CancelledError:
-            pass
+        if app.get('stuck_detector'):
+            app['stuck_detector'].cancel()
+            try:
+                await app['stuck_detector']
+            except asyncio.CancelledError:
+                pass
         from .display.manager import cleanup_all
         cleanup_all()
 

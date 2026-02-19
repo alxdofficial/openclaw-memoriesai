@@ -5,10 +5,12 @@ REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE_NAME="detm-daemon"
 OC_WORKSPACE="${OPENCLAW_WORKSPACE:-$HOME/.openclaw/workspace}"
 
-echo "Stopping and removing $SERVICE_NAME service..."
-sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-sudo rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+echo "Stopping and removing services..."
+for svc in detm-daemon detm-novnc detm-vnc detm-xvfb; do
+    sudo systemctl stop "$svc" 2>/dev/null || true
+    sudo systemctl disable "$svc" 2>/dev/null || true
+    sudo rm -f "/etc/systemd/system/${svc}.service"
+done
 sudo systemctl daemon-reload
 
 echo "Removing data directory..."

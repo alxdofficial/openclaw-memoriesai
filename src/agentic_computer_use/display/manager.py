@@ -21,6 +21,7 @@ class DisplayInfo:
     width: int
     height: int
     process: subprocess.Popen
+    wm_process: subprocess.Popen | None = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -62,6 +63,21 @@ def allocate_display(
     if proc.poll() is not None:
         raise RuntimeError(f"Xvfb failed to start on {display_str} (exit {proc.returncode})")
 
+    # Start fluxbox window manager so the display has a visible desktop immediately
+    wm_proc = None
+    if _which("fluxbox"):
+        try:
+            wm_env = {**os.environ, "DISPLAY": display_str}
+            wm_proc = subprocess.Popen(
+                ["fluxbox", "-no-slit", "-no-toolbar"],
+                env=wm_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(0.2)  # let it draw the desktop background
+        except Exception as e:
+            log.warning(f"fluxbox failed to start on {display_str}: {e}")
+
     info = DisplayInfo(
         task_id=task_id,
         display_num=num,
@@ -69,6 +85,7 @@ def allocate_display(
         width=width,
         height=height,
         process=proc,
+        wm_process=wm_proc,
     )
     _displays[task_id] = info
     log.info(f"Allocated display {display_str} ({width}x{height}) for task {task_id}")
@@ -83,14 +100,15 @@ def release_display(task_id: str) -> None:
 
     release_xlib_display(info.display_str)
 
-    try:
-        info.process.send_signal(signal.SIGTERM)
-        info.process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        info.process.kill()
-        info.process.wait()
-    except Exception:
-        pass
+    for proc in filter(None, [info.wm_process, info.process]):
+        try:
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        except Exception:
+            pass
 
     log.info(f"Released display {info.display_str} for task {task_id}")
 
@@ -135,6 +153,12 @@ def cleanup_all() -> None:
 
 
 # ─── Internal ────────────────────────────────────────────────────
+
+
+def _which(cmd: str) -> bool:
+    """Return True if cmd is on PATH."""
+    import shutil
+    return shutil.which(cmd) is not None
 
 
 def _find_free_display_num(start: int = 100) -> int:

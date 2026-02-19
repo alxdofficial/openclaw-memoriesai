@@ -20,15 +20,17 @@ Five layers:
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
 5. **Display Manager** — per-task virtual displays (Xvfb) for isolated screen environments
 
-## Per-task virtual displays
+## Displays
 
-Each task gets its own Xvfb display at registration time. Pass `display_width` and `display_height` in `metadata` to override the default 1280x720 resolution.
+By default every task shares the **system display** — the same desktop the human sees via VNC or their monitor. This is the normal mode: the human watches, you act on the same screen.
+
+To get an **isolated private Xvfb** instead (no interference with the human's desktop), pass `isolated_display: true` in metadata:
 
 ```
-task_register(name="Edit video", plan=[...], metadata={"display_width": 1920, "display_height": 1080})
+task_register(name="Edit video", plan=[...], metadata={"isolated_display": true, "display_width": 1920, "display_height": 1080})
 ```
 
-All `desktop_action`, `gui_do`, `desktop_look`, and `smart_wait` calls that include `task_id` automatically target the task's display. No need to manage DISPLAY env vars manually.
+All `desktop_action`, `gui_do`, `desktop_look`, and `smart_wait` calls that include `task_id` automatically target the correct display. No need to manage DISPLAY env vars manually.
 
 ## When to use GUI vs CLI
 
@@ -54,6 +56,20 @@ For any multi-step or long-running work:
 7. task_drill_down(ordinal=N) → inspect specific item's actions
 8. task_update(status="completed") → close task
 ```
+
+## Revising the plan mid-task
+
+If reality diverges from the original plan, scrap the stale items and append revised ones. Scrapped items appear struck-through in the dashboard — the human can see exactly what changed and why.
+
+```
+# Something unexpected happened — revise the plan
+task_item_update(task_id=<id>, ordinal=2, status="scrapped", note="Export dialog missing — app not open yet")
+task_item_update(task_id=<id>, ordinal=3, status="scrapped", note="depends on ordinal 2")
+task_plan_append(task_id=<id>, items=["Launch DaVinci Resolve", "Wait for project to load", "Open export dialog", "Set 4K and export"], note="Revised: app was not running")
+task_item_update(task_id=<id>, ordinal=4, status="active")
+```
+
+Use `scrapped` (not `skipped`) when you are abandoning an item because the approach changed. Use `skipped` only when an item is intentionally bypassed but the plan remains valid.
 
 ## Narrating your work — MANDATORY
 
@@ -121,7 +137,8 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 ### Task Management (hierarchical)
 - `task_register` — create task with plan items
 - `task_update` — post message, change status, query state
-- `task_item_update` — update plan item status (pending/active/completed/failed/skipped)
+- `task_item_update` — update plan item status (pending/active/completed/failed/skipped/**scrapped**)
+- `task_plan_append` — append new plan items to an existing task (use after scrapping to replace with revised steps)
 - `task_log_action` — log discrete action under a plan item (cli/gui/wait/vision/reasoning)
 - `task_summary` — item-level overview (default), actions, full, or focused (expand only active item)
 - `task_drill_down` — expand one plan item to see all actions + logs

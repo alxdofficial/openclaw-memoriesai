@@ -55,16 +55,24 @@ def frame_count(task_id: str) -> int:
 
 async def _loop(task_id: str, display: str, d: Path) -> None:
     from .screen import capture_screen, frame_to_jpeg
+    import concurrent.futures
     n = frame_count(task_id)   # resume numbering if restarted
+    loop = asyncio.get_event_loop()
     try:
         while True:
-            frame = capture_screen(display=display)
-            if frame is not None:
-                jpeg = frame_to_jpeg(frame, max_dim=FRAME_MAX_DIM, quality=FRAME_QUALITY)
-                (d / f"{n:06d}.jpg").write_bytes(jpeg)
-                n += 1
+            try:
+                frame = await loop.run_in_executor(None, capture_screen, display)
+                if frame is not None:
+                    jpeg = await loop.run_in_executor(
+                        None, frame_to_jpeg, frame, FRAME_MAX_DIM, FRAME_QUALITY
+                    )
+                    path = d / f"{n:06d}.jpg"
+                    await loop.run_in_executor(None, path.write_bytes, jpeg)
+                    n += 1
+            except concurrent.futures.CancelledError:
+                raise asyncio.CancelledError
+            except Exception as e:
+                log.warning(f"Frame recorder error task={task_id}: {e}")
             await asyncio.sleep(FRAME_INTERVAL)
     except asyncio.CancelledError:
         pass
-    except Exception as e:
-        log.warning(f"Frame recorder error task={task_id}: {e}")

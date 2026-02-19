@@ -9,6 +9,44 @@ const TaskTree = (() => {
   let _autoExpanded = false;
   let _verbose = false;
 
+  const _WAIT_STATUS_LABEL = {
+    started:   "wait:active",
+    completed: "wait:resolved",
+    failed:    "wait:timeout",
+  };
+
+  // Try to extract a specific sub-action from input_data JSON or summary text
+  function _guiSubAction(act) {
+    if (act.input_data) {
+      try {
+        const d = typeof act.input_data === "string" ? JSON.parse(act.input_data) : act.input_data;
+        if (d.action) return d.action;           // desktop_action: click/type/key/scroll
+        if (d.instruction) {
+          const m = d.instruction.match(/^(click|type|press|key|scroll|drag|focus|double.click)/i);
+          if (m) return m[1].toLowerCase().replace(/\s+/g, "_");
+        }
+      } catch (e) { /* ignore */ }
+    }
+    if (act.summary) {
+      const m = act.summary.match(/^(click|type|press|key|scroll|drag|focus|double.click)/i);
+      if (m) return m[1].toLowerCase().replace(/\s+/g, "_");
+    }
+    return "do";
+  }
+
+  function _actionSender(act) {
+    const type = act.action_type;
+    if (type === "wait") {
+      const label = _WAIT_STATUS_LABEL[act.status] || `wait:${act.status || "active"}`;
+      return { senderLabel: label, senderClass: "sender-wait" };
+    }
+    if (type === "gui")       return { senderLabel: `gui:${_guiSubAction(act)}`,  senderClass: "sender-gui" };
+    if (type === "vision")    return { senderLabel: "vision:look",                 senderClass: "sender-vision" };
+    if (type === "cli")       return { senderLabel: "cli:exec",                     senderClass: "sender-cli" };
+    if (type === "reasoning") return { senderLabel: "llm:reasoning",               senderClass: "sender-agent" };
+    return { senderLabel: `tool:${type}`, senderClass: "sender-tool" };
+  }
+
   function init(container) {
     _container = container;
   }
@@ -16,13 +54,25 @@ const TaskTree = (() => {
   function setTask(data) {
     const isNewTask = !_taskData || _taskData.task_id !== data.task_id;
     const prevScroll = isNewTask ? 0 : (_container ? _container.scrollTop : 0);
-    _taskData = data;
 
     if (isNewTask) {
       _expandedItems.clear();
       _expandedActions.clear();
       _autoExpanded = false;
+    } else if (_taskData && _taskData.items) {
+      // Preserve cached action_details across polls — prevents flashing "Loading actions..."
+      const prevDetails = {};
+      for (const item of _taskData.items) {
+        if (item.action_details) prevDetails[item.ordinal] = item.action_details;
+      }
+      for (const item of data.items || []) {
+        if (prevDetails[item.ordinal] !== undefined) {
+          item.action_details = prevDetails[item.ordinal];
+        }
+      }
     }
+
+    _taskData = data;
 
     if (!_autoExpanded || isNewTask) {
       _autoExpand(data.items);
@@ -92,20 +142,21 @@ const TaskTree = (() => {
 
     const items = d.items || [];
     for (const item of items) {
-      const isExpanded = _expandedItems.has(item.ordinal);
+      const isScrapped = item.status === "scrapped";
+      const isExpanded = !isScrapped && _expandedItems.has(item.ordinal);
       const icon = _itemIcon(item.status, isExpanded);
       const dur = item.duration_s != null ? `${Math.round(item.duration_s)}s` : "";
       const actCount = item.actions > 0 ? `${item.actions} action${item.actions !== 1 ? "s" : ""}` : "";
 
-      html += `<div class="tree-item${isExpanded ? " expanded" : ""}" data-ordinal="${item.ordinal}">`;
+      html += `<div class="tree-item${isExpanded ? " expanded" : ""}${isScrapped ? " scrapped" : ""}" data-ordinal="${item.ordinal}">`;
       html += `
-        <div class="tree-item-row" data-ordinal="${item.ordinal}">
+        <div class="tree-item-row${isScrapped ? "" : ""}" data-ordinal="${item.ordinal}">
           <span class="tree-item-icon">${icon}</span>
           <span class="tree-item-ordinal">${item.ordinal}:</span>
           <span class="tree-item-title">${_esc(item.title)}</span>
-          <span class="badge badge-${item.status}">${item.status}</span>
+          ${!isScrapped ? `<span class="badge badge-${item.status}">${item.status}</span>` : ""}
           <span class="tree-item-duration">${dur}</span>
-          <span class="tree-item-actions-count">${actCount}</span>
+          ${!isScrapped ? `<span class="tree-item-actions-count">${actCount}</span>` : ""}
         </div>
       `;
 
@@ -114,10 +165,10 @@ const TaskTree = (() => {
       if (isExpanded && item.action_details && item.action_details.length > 0) {
         for (const act of item.action_details) {
           const actExpanded = _expandedActions.has(act.id);
-          const typeClass = `type-${act.action_type}`;
+          const { senderLabel, senderClass } = _actionSender(act);
           html += `
             <div class="tree-action${actExpanded ? " expanded" : ""}" data-action-id="${act.id}">
-              <span class="tree-action-type ${typeClass}">${_esc(act.action_type)}</span>
+              <span class="tree-action-type ${senderClass}">${_esc(senderLabel)}</span>
               <span>${_esc(act.summary)}</span>
               <span class="tree-action-status">— ${act.status}</span>
               <div class="tree-action-detail">
@@ -138,7 +189,11 @@ const TaskTree = (() => {
               html += `<div class="detail-label">Logs</div>`;
               for (const entry of visibleLogs) {
                 const isVerdict = entry.log_type === "verdict";
-                html += `<div class="action-log-entry${isVerdict ? " log-verdict" : ""}">${_esc(entry.content)}</div>`;
+                html += `<div class="action-log-entry${isVerdict ? " log-verdict" : ""}">`;
+                if (isVerdict) {
+                  html += `<span class="tree-action-type sender-wait">wait:check</span> `;
+                }
+                html += `${_esc(entry.content)}</div>`;
               }
             }
             if (!_verbose && hiddenCount > 0) {
@@ -242,6 +297,7 @@ const TaskTree = (() => {
     if (status === "completed") return "✓";
     if (status === "failed")    return "✗";
     if (status === "skipped")   return "⊘";
+    if (status === "scrapped")  return "⊗";
     if (status === "active")    return "▶";
     if (status === "pending")   return "○";
     return expanded ? "▼" : "▷";

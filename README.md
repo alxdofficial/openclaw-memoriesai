@@ -26,7 +26,7 @@ Five layers:
 2. **Smart Wait** — vision-based async monitoring with pixel-diff gate + adaptive polling
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
-5. **Display Manager** — per-task virtual displays (Xvfb isolation)
+5. **Display Manager** — shared system display (VNC) by default; opt-in Xvfb isolation per task
 
 ```
 ┌──────────────────────┐   HTTP proxy   ┌──────────────────────────────┐
@@ -36,7 +36,7 @@ Five layers:
 └──────────────────────┘               │  ├── GUI Agent (NL grounding) │
                                        │  ├── Desktop Control (xdotool)│
                                        │  ├── Display Manager (Xvfb)   │
-                                       │  ├── Stuck Detection Loop     │
+                                       │  ├── Stuck Detection (opt-in) │
                                        │  ├── Web Dashboard            │
                                        │  └── Vision (pluggable)       │
                                        └──────────────────────────────┘
@@ -47,9 +47,10 @@ Five layers:
 ### Task Management (Hierarchical)
 | Tool | Description |
 |------|-------------|
-| `task_register` | Create task with plan items. Each task gets its own virtual display. |
+| `task_register` | Create task with plan items. Shares system display by default; `metadata={"isolated_display": true}` for private Xvfb. |
 | `task_update` | Post message (narration), change status, query state |
-| `task_item_update` | Update plan item status (pending/active/completed/failed/skipped) |
+| `task_item_update` | Update plan item status (pending/active/completed/failed/skipped/**scrapped**) |
+| `task_plan_append` | Append new plan items mid-task (use with `scrapped` to revise the plan) |
 | `task_log_action` | Log action under a plan item (cli/gui/wait/vision/reasoning) |
 | `task_summary` | Item-level overview (default), actions, full, or focused (expand only active item) |
 | `task_drill_down` | Expand one plan item to see actions + logs |

@@ -46,18 +46,121 @@ if [ -z "$PYTHON" ]; then
 fi
 ok "Python: $($PYTHON --version)"
 
-# Display
-DISPLAY="${DISPLAY:-}"
-if [ -z "$DISPLAY" ]; then
-    if pgrep -x Xvfb &>/dev/null; then
-        DISPLAY=":99"
-        warn "No DISPLAY set, detected Xvfb — using :99"
+# ─── Display detection / setup ─────────────────────────────────
+
+VIRTUAL_DISPLAY=false
+NOVNC_PORT=6080
+VNC_PORT=5901
+DETM_DISPLAY=":99"
+
+# Check for a real X display first
+_has_real_display() {
+    for d in "${DISPLAY:-}" :0 :1 :2; do
+        [ -z "$d" ] && continue
+        if DISPLAY="$d" xdpyinfo &>/dev/null 2>&1; then
+            echo "$d"; return 0
+        fi
+    done
+    return 1
+}
+
+if REAL_DISP=$(_has_real_display); then
+    DETM_DISPLAY="$REAL_DISP"
+    ok "Real display found: $DETM_DISPLAY (no virtual display needed)"
+else
+    info "No real display found — setting up virtual display infrastructure..."
+    VIRTUAL_DISPLAY=true
+
+    # Install x11vnc + novnc if missing
+    VNC_PKGS=()
+    command -v x11vnc    &>/dev/null || VNC_PKGS+=("x11vnc")
+    command -v websockify &>/dev/null || VNC_PKGS+=("novnc")
+    if [ ${#VNC_PKGS[@]} -gt 0 ]; then
+        info "Installing: ${VNC_PKGS[*]}"
+        if command -v apt &>/dev/null; then
+            sudo apt install -y "${VNC_PKGS[@]}"
+        else
+            warn "Cannot auto-install ${VNC_PKGS[*]} — install manually then re-run"
+        fi
+    fi
+
+    # ── Xvfb service ──────────────────────────────────────────
+    sudo tee /etc/systemd/system/detm-xvfb.service > /dev/null <<EOF
+[Unit]
+Description=DETM Virtual Display (Xvfb $DETM_DISPLAY)
+After=network.target
+
+[Service]
+Type=simple
+User=$(whoami)
+ExecStart=/usr/bin/Xvfb $DETM_DISPLAY -screen 0 1920x1080x24 -nolisten tcp
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # ── x11vnc service ─────────────────────────────────────────
+    sudo tee /etc/systemd/system/detm-vnc.service > /dev/null <<EOF
+[Unit]
+Description=DETM VNC Server
+After=detm-xvfb.service
+Requires=detm-xvfb.service
+
+[Service]
+Type=simple
+User=$(whoami)
+Environment=DISPLAY=$DETM_DISPLAY
+ExecStart=/usr/bin/x11vnc -display $DETM_DISPLAY -nopw -listen 127.0.0.1 -forever -shared -rfbport $VNC_PORT
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # ── noVNC (websockify) service ─────────────────────────────
+    NOVNC_WEB=""
+    for p in /usr/share/novnc /usr/share/novnc/utils; do
+        [ -d "$p" ] && NOVNC_WEB="$p" && break
+    done
+    NOVNC_CMD="websockify"
+    [ -n "$NOVNC_WEB" ] && NOVNC_CMD="websockify --web=$NOVNC_WEB"
+
+    sudo tee /etc/systemd/system/detm-novnc.service > /dev/null <<EOF
+[Unit]
+Description=DETM noVNC Web Client
+After=detm-vnc.service
+Requires=detm-vnc.service
+
+[Service]
+Type=simple
+User=$(whoami)
+ExecStart=/usr/bin/$NOVNC_CMD $NOVNC_PORT 127.0.0.1:$VNC_PORT
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo systemctl daemon-reload
+    for svc in detm-xvfb detm-vnc detm-novnc; do
+        sudo systemctl enable "$svc"
+        sudo systemctl restart "$svc"
+    done
+    sleep 1
+
+    if DISPLAY="$DETM_DISPLAY" xdpyinfo &>/dev/null 2>&1; then
+        ok "Virtual display ready: $DETM_DISPLAY"
+        ok "noVNC available at: http://127.0.0.1:$NOVNC_PORT/vnc.html"
     else
-        warn "No DISPLAY set and no Xvfb found. Smart Wait screen capture won't work."
-        warn "Install Xvfb: sudo apt install xvfb && Xvfb :99 -screen 0 1920x1080x24 &"
-        DISPLAY=":99"
+        warn "Virtual display may still be starting — check: systemctl status detm-xvfb"
     fi
 fi
+
+export DISPLAY="$DETM_DISPLAY"
 
 # GPU
 HAS_GPU=false
@@ -300,12 +403,15 @@ echo -e "${GREEN}║   agentic-computer-use installed successfully    ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "  Daemon:    http://127.0.0.1:$DAEMON_PORT"
+echo "  Dashboard: http://127.0.0.1:$DAEMON_PORT/dashboard"
+echo "  Display:   $DETM_DISPLAY"
+if [ "$VIRTUAL_DISPLAY" = true ]; then
+echo "  noVNC:     http://127.0.0.1:$NOVNC_PORT/vnc.html"
+fi
 echo "  Service:   sudo systemctl status $SERVICE_NAME"
 echo "  Logs:      journalctl -u $SERVICE_NAME -f"
-echo "  Debug log: ~/.agentic-computer-use/logs/debug.log"
 echo ""
 echo "  Test:      curl http://127.0.0.1:$DAEMON_PORT/health"
-echo "  Docs:      $REPO_DIR/docs/"
 echo ""
 if [ -n "$OPENCLAW_BIN" ]; then
     echo "  OpenClaw will auto-discover tools via mcporter."

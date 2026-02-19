@@ -206,7 +206,7 @@ const ScreenViewer = (() => {
       // Swap via offscreen Image to avoid flicker
       const tmp = new Image();
       tmp.onload = () => {
-        if (_currentTaskId !== taskId) {
+        if (_currentTaskId !== taskId && !(_currentTaskId === null && taskId === null)) {
           // Task changed while loading — discard
           URL.revokeObjectURL(blobUrl);
           return;
@@ -237,10 +237,14 @@ const ScreenViewer = (() => {
     if (taskId && _recordBtn) _checkRecordStatus(taskId);
 
     if (!_img) return;
-    _img.classList.remove("active");
-    if (_placeholder) _placeholder.textContent = "Loading…";
+    // Keep the previous frame visible until the new one arrives (no black flash).
+    // Only show placeholder if there was nothing displayed before.
+    if (!_img.classList.contains("active") && _placeholder) {
+      _placeholder.textContent = "Loading…";
+    }
 
-    if (taskId !== null && taskId !== undefined) {
+    // null = system display (/api/snapshot), string = task display — both poll
+    if (taskId !== undefined) {
       _fetchFrame();
       _pollTimer = setInterval(_fetchFrame, POLL_MS);
     }

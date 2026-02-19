@@ -13,6 +13,13 @@ Any task involving desktop apps, GUI interaction, visual monitoring, or Xvfb dis
 
 **Never skip narration.** The human watches the dashboard in real time. Every action must be announced before it happens.
 
+**Revising the plan mid-task:** If the approach changes, scrap stale items and append revised ones — do not leave obsolete items as "pending".
+```
+task_item_update(ordinal=N, status="scrapped", note="reason")
+task_plan_append(task_id=<id>, items=["revised step 1", "revised step 2"], note="reason for change")
+```
+Use `scrapped` when abandoning an approach. Use `skipped` only when intentionally bypassing a still-valid step.
+
 **`desktop_look` returns the image directly to you** — you interpret it yourself. After calling it, always narrate what you see via `task_update(message=...)`.
 
 **`smart_wait` is for long-running visual checks** (downloads, renders, builds). Use `window:<name>` not `screen` when possible. The local Ollama model does the vision polling — you just get woken up when done.

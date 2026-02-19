@@ -191,6 +191,7 @@ html, body {
 .badge-pending   { background: rgba(72,79,88,0.2);     color: var(--gray); }
 .badge-cancelled { background: rgba(72,79,88,0.2);     color: var(--gray); }
 .badge-skipped   { background: rgba(72,79,88,0.2);     color: var(--text-dim); }
+.badge-scrapped  { background: rgba(72,79,88,0.1);     color: var(--text-dim); }
 
 /* ─── Progress bar ────────────────────────── */
 .progress-bar {
@@ -330,15 +331,17 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
-  max-height: 45vh;
+  /* maintain 16:9 aspect ratio */
+  aspect-ratio: 16 / 9;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 #screen-img {
-  max-width: 100%;
-  max-height: 45vh;
+  width: 100%;
+  height: 100%;
   display: none;
   object-fit: contain;
 }
@@ -401,6 +404,22 @@ html, body {
 
 .tree-item-row:hover {
   background: var(--bg-hover);
+}
+
+/* Scrapped plan items — struck-through, collapsed, dimmed */
+.tree-item.scrapped {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.tree-item.scrapped .tree-item-title {
+  text-decoration: line-through;
+  text-decoration-color: var(--text-dim);
+}
+.tree-item.scrapped .tree-item-icon {
+  color: var(--text-dim);
+}
+.tree-item.scrapped .tree-actions {
+  display: none;
 }
 
 .tree-item-icon {
@@ -488,10 +507,18 @@ html, body {
   color: var(--blue);
 }
 
-.tree-action-type.type-gui     { background: rgba(188,140,255,0.15); color: var(--purple); }
-.tree-action-type.type-wait    { background: rgba(210,153,34,0.15);  color: var(--yellow); }
-.tree-action-type.type-vision  { background: rgba(63,185,80,0.15);   color: var(--green); }
-.tree-action-type.type-reasoning { background: rgba(72,79,88,0.2);   color: var(--text-dim); }
+/* gui subsystem — purple */
+.tree-action-type.sender-gui    { background: rgba(188,140,255,0.15); color: var(--purple); }
+/* vision subsystem — green */
+.tree-action-type.sender-vision { background: rgba(63,185,80,0.15);   color: var(--green); }
+/* wait subsystem — yellow */
+.tree-action-type.sender-wait   { background: rgba(210,153,34,0.15);  color: var(--yellow); }
+/* cli subsystem — cyan */
+.tree-action-type.sender-cli    { background: rgba(56,189,193,0.15);  color: #38bdc1; }
+/* generic tool (other MCP tools) — blue */
+.tree-action-type.sender-tool   { background: rgba(88,166,255,0.15);  color: var(--blue); }
+/* llm reasoning — gray */
+.tree-action-type.sender-agent  { background: rgba(72,79,88,0.2);     color: var(--text-dim); }
 
 .tree-action-status {
   font-size: 10px;
