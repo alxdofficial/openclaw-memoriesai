@@ -1,112 +1,112 @@
 ---
-name: memoriesai
-description: Smart waiting, task memory, and desktop vision via the memoriesai daemon. Use for long-running operations (builds, downloads, page loads), task tracking across session boundaries, and reading screen contents.
+name: agentic-computer-use
+description: Desktop Environment Task Manager (DETM) — hierarchical task tracking, smart visual waiting, GUI automation with NL grounding, pluggable vision backends, and screen recording. Use for multi-step desktop workflows, visual app control, and long-running operations.
 ---
 
-# memoriesai — Smart Wait + Task Memory + Desktop Vision
+# agentic-computer-use — DETM
 
-Local daemon (port 18790) with MiniCPM-o vision on GPU. Tools accessed via `mcporter call` or `curl`.
+Local daemon on `127.0.0.1:18790` with hierarchical task persistence, async wait engine, GUI grounding, and pluggable vision.
 
-## When to Use
+## Architecture
 
-- **Waiting for something** (build, install, page load, deployment): `smart_wait`
-- **Multi-step complex tasks** that span compactions: `task_register` → `task_update` → `task_thread`
-- **Reading the screen** (OCR, UI state): `desktop_look`
-- **Typing/clicking on desktop**: `desktop_action`
-
-## Quick Reference
-
-All tools via mcporter (preferred):
-```bash
-mcporter call memoriesai.<tool> [key=value ...] --config /home/alex/.openclaw/workspace/config/mcporter.json
+```
+OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
 ```
 
-Or curl to daemon directly:
-```bash
-curl -s -X POST http://127.0.0.1:18790/<tool> -H 'Content-Type: application/json' -d '{...}'
+Four layers:
+1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
+2. **Smart Wait** — vision-based async monitoring with diff gate + adaptive polling
+3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
+4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
+
+## When to use GUI vs CLI
+
+| Scenario | Prefer | Why |
+|---|---|---|
+| Visual apps (DaVinci Resolve, Blender, VS Code GUI) | `gui_do` / `desktop_action` | No CLI equivalent |
+| File operations, git, builds | CLI/exec | Faster, deterministic |
+| Web forms, dialogs, popups | `gui_do` | Visual interaction required |
+| Status monitoring | `smart_wait` with window target | Vision handles any app |
+| Scripting, automation | CLI/exec | Structured output |
+
+## Task lifecycle pattern
+
+For any multi-step or long-running work:
+
+```
+1. task_register → creates hierarchical plan items
+2. task_item_update(ordinal=0, status="active") → start first item
+3. task_log_action(action_type="cli", summary="ran ffmpeg...") → log work
+4. task_item_update(ordinal=0, status="completed") → finish item
+5. smart_wait with task_id → async visual monitoring
+6. task_summary → check progress at item level
+7. task_drill_down(ordinal=N) → inspect specific item's actions
+8. task_update(status="completed") → close task
 ```
 
-## Tools
+## Tool reference
+
+### Task Management (hierarchical)
+- `task_register` — create task with plan items
+- `task_update` — post message, change status, query state
+- `task_item_update` — update plan item status (pending/active/completed/failed/skipped)
+- `task_log_action` — log discrete action under a plan item (cli/gui/wait/vision/reasoning)
+- `task_summary` — item-level overview (default), or expand to actions/full
+- `task_drill_down` — expand one plan item to see all actions + logs
+- `task_thread` — legacy message thread view
+- `task_list` — list tasks by status
 
 ### Smart Wait
-```bash
-# Wait for screen condition (vision-evaluated)
-mcporter call memoriesai.smart_wait target=screen wake_when="page finished loading" timeout:=120
+- `smart_wait` — delegate visual monitoring to local model
+- `wait_status` — check active wait jobs
+- `wait_update` — refine condition or extend timeout
+- `wait_cancel` — cancel a wait job
 
-# Wait for PTY with regex fast-path — YOU provide the patterns since you know what you launched
-mcporter call memoriesai.smart_wait target=pty wake_when="npm install finished" timeout:=60 'match_patterns=["added \\d+ packages", "npm error", "npm ERR"]'
+### GUI Agent
+- `gui_do` — execute NL or coordinate action ("click the Export button" or "click(847, 523)")
+- `gui_find` — locate element by description, return coords without acting
 
-# match_patterns are regex strings matched against terminal output in <1ms
-# If no pattern matches, falls back to MiniCPM vision (2-5s)
-# Always include both success AND failure patterns so it resolves either way
+### Desktop Control
+- `desktop_action` — raw xdotool: click, type, press_key, window management
+- `desktop_look` — screenshot + vision description
+- `video_record` — record screen/window clip
 
-# Check active waits
-mcporter call memoriesai.wait_status
+### System
+- `health_check` — daemon + vision backend + system status
+- `memory_search`, `memory_read`, `memory_append` — workspace memory files
 
-# Cancel a wait
-mcporter call memoriesai.wait_cancel job_id=<id>
+## Examples
+
+### Multi-step video export with GUI
+```
+→ task_register(name="Export 4K video", plan=["Open project", "Set export settings", "Start export", "Verify output"])
+→ task_item_update(task_id=<id>, ordinal=0, status="active")
+→ gui_do(instruction="click the Export button", window_name="DaVinci Resolve", task_id=<id>)
+→ task_item_update(task_id=<id>, ordinal=0, status="completed")
+→ task_item_update(task_id=<id>, ordinal=2, status="active")
+→ smart_wait(target=window:DaVinci Resolve, wake_when="export progress reaches 100% or error dialog", task_id=<id>)
+→ task_summary(task_id=<id>, detail_level="items")
 ```
 
-**match_patterns tips:** You know what command you launched — pass regex for its output signatures:
-- `npm install` → `["added \\d+ packages", "npm ERR"]`
-- `pip install` → `["Successfully installed", "ERROR:"]`
-- `git push` → `["Everything up-to-date", "->", "rejected"]`
-- `make` → `["Built target", "Error \\d+", "make.*Error"]`
-- `docker build` → `["Successfully built", "ERROR", "failed to"]`
-
-When resolved/timed out, the daemon injects a system event to wake you automatically.
-
-### Task Memory
-```bash
-# Register a task with plan steps
-mcporter call memoriesai.task_register name="Deploy app" plan='["Build Docker image","Push to registry","Update k8s"]'
-
-# Post progress update (mark step 0 done, 0-indexed)
-mcporter call memoriesai.task_update task_id=<id> status=active message="Image built successfully" step_done:=0
-
-# Recover full context after compaction
-mcporter call memoriesai.task_thread task_id=<id>
-
-# List tasks
-mcporter call memoriesai.task_list status=in_progress
+### Monitoring a build
+```
+→ task_register(name="Build project", plan=["Run build", "Wait for completion", "Check output"])
+→ task_item_update(task_id=<id>, ordinal=0, status="active")
+→ task_log_action(task_id=<id>, action_type="cli", summary="make -j8", input_data="make -j8")
+→ smart_wait(target=window:Terminal, wake_when="build succeeds or fails", task_id=<id>)
 ```
 
-### Desktop Vision
-```bash
-# Read what's on screen (OCR via MiniCPM-o)
-mcporter call memoriesai.desktop_look question="What text is in the terminal?"
+## Targeting guidance
+- Prefer `window:<name_or_id>` so Smart Wait evaluates one specific app window
+- Use `desktop_action(action=list_windows|find_window)` to discover window targets
+- `screen` watches the entire desktop (noisier, use as fallback)
 
-# Perform desktop action
-mcporter call memoriesai.desktop_action action_type=type text="hello world"
-```
+## Logs & debugging
+- Debug log: `~/.agentic-computer-use/logs/debug.log`
+- Set `ACU_DEBUG=1` for verbose colored logging
+- Both the human and Claude Code can tail the log file
+- Use `./dev.sh logs` for live log tail
 
-### Health
-```bash
-mcporter call memoriesai.health_check
-# or: curl -s http://127.0.0.1:18790/health
-```
-
-## Task Memory Workflow
-
-For complex multi-step work:
-
-1. **Register** task at start with plan steps
-2. **Update** after each step (`step_done` tracks progress %)
-3. If session compacts, call **`task_thread`** to recover full context
-4. **Complete** with `status=done` or `status=failed`
-
-Stuck detection runs in background — if no updates for 5 min, daemon alerts via system event.
-
-## Architecture Notes
-
-- Daemon is systemd service `memoriesai-daemon` (auto-restarts)
-- Vision model: MiniCPM-o on Ollama (RTX 3070, ~5.4GB VRAM)
-- Screen capture: python-xlib on Xvfb `:99` (1920x1080)
-- DB: SQLite at `~/.openclaw-memoriesai/data.db`
-- Debug log: `~/.openclaw-memoriesai/logs/debug.log`
-
-## Service Management
-```bash
-sudo systemctl status memoriesai-daemon
-sudo systemctl restart memoriesai-daemon
-```
+## Storage
+- Data: `~/.agentic-computer-use/`
+- Database: `~/.agentic-computer-use/data.db`

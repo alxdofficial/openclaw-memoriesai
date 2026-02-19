@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DETM Dashboard</title>
+  <link rel="stylesheet" href="/dashboard/static/style.css">
+</head>
+<body>
+  <header id="top-bar">
+    <span class="logo">DETM Dashboard</span>
+    <span id="conn-status" class="status-dot disconnected">● Disconnected</span>
+  </header>
+
+  <div id="app">
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h2>Tasks</h2>
+        <select id="task-filter">
+          <option value="active">Active</option>
+          <option value="all">All</option>
+          <option value="completed">Completed</option>
+          <option value="paused">Paused</option>
+          <option value="failed">Failed</option>
+        </select>
+      </div>
+      <ul id="task-list"></ul>
+    </aside>
+
+    <main id="content">
+      <div id="empty-state">
+        <p>Select a task from the sidebar to view details.</p>
+      </div>
+
+      <section id="screen-section" class="hidden">
+        <h3>Live Screen</h3>
+        <div id="screen-container">
+          <img id="screen-img" alt="Live screen">
+          <div id="screen-placeholder">No stream available</div>
+        </div>
+      </section>
+
+      <section id="tree-section" class="hidden">
+        <h3>Task History</h3>
+        <div id="task-tree"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/dashboard/static/components/task-list.js"></script>
+  <script src="/dashboard/static/components/task-tree.js"></script>
+  <script src="/dashboard/static/components/screen-viewer.js"></script>
+  <script src="/dashboard/static/app.js"></script>
+</body>
+</html>

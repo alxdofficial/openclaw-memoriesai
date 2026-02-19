@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Tail the debug log with live updates.
+# Usage: acu-debug-tail [--follow|-f]
+#
+# Requires the daemon to be running with --debug or ACU_DEBUG=1
+
+LOG_FILE="${HOME}/.agentic-computer-use/logs/debug.log"
+
+if [ ! -f "$LOG_FILE" ]; then
+    echo "Debug log not found at: $LOG_FILE"
+    echo ""
+    echo "Enable debug mode:"
+    echo "  1. Set ACU_DEBUG=1 in the systemd service, OR"
+    echo "  2. Run daemon with --debug flag"
+    echo ""
+    echo "Then restart: sudo systemctl restart detm-daemon"
+    exit 1
+fi
+
+echo "DETM debug log — $(wc -l < "$LOG_FILE") lines"
+echo "   File: $LOG_FILE"
+echo "─────────────────────────────────────────"
+echo ""
+
+if [[ "$1" == "--follow" || "$1" == "-f" || -z "$1" ]]; then
+    tail -f "$LOG_FILE"
+else
+    tail -n "${1:-50}" "$LOG_FILE"
+fi

@@ -2,13 +2,17 @@
 
 ## Overview
 
-openclaw-memoriesai is an **MCP (Model Context Protocol) server** that exposes tools to OpenClaw (or any MCP-compatible client). It runs as a local daemon alongside the OpenClaw gateway.
+**agentic-computer-use** is a Desktop Environment Task Manager (DETM) — an MCP server with a persistent HTTP daemon that provides hierarchical task tracking, smart visual waiting, GUI automation with natural language grounding, and pluggable vision backends.
 
-The MCP approach was chosen because:
-- OpenClaw already supports MCP servers via the `mcporter` skill
-- Tools appear natively in the agent's tool list — no custom plugin code needed
-- Any MCP client can use it (Claude Desktop, Cursor, etc.), not just OpenClaw
-- Clean separation of concerns: the daemon manages state, the LLM calls tools
+```
+OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
+```
+
+Four layers:
+1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
+2. **Smart Wait** — vision-based async monitoring with pixel-diff gate + adaptive polling
+3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
+4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
 
 ## System Architecture
 
@@ -16,67 +20,66 @@ The MCP approach was chosen because:
 ┌──────────────────────────────────────────────────────────────┐
 │                    OpenClaw Gateway                          │
 │                                                              │
-│  Agent Loop:                                                 │
-│  message → inference → tool call → inference → reply         │
-│                                                              │
 │  MCP tools available to the model:                           │
-│  ┌────────────────┐ ┌────────────────┐ ┌──────────────────┐ │
-│  │ task_register   │ │ smart_wait     │ │ memory_recall    │ │
-│  │ task_update     │ │                │ │ (phase 2)        │ │
-│  │ task_list       │ │                │ │                  │ │
-│  │ task_complete   │ │                │ │                  │ │
-│  └────────┬───────┘ └───────┬────────┘ └────────┬─────────┘ │
-└───────────┼─────────────────┼───────────────────┼────────────┘
-            │     MCP (stdio or SSE)              │
-            ▼                 ▼                   ▼
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐ │
+│  │ Task Mgmt    │ │ Smart Wait   │ │ GUI Agent            │ │
+│  │ task_register│ │ smart_wait   │ │ gui_do (NL→click)    │ │
+│  │ task_summary │ │ wait_status  │ │ gui_find (NL→coords) │ │
+│  │ task_update  │ │ wait_update  │ │                      │ │
+│  │ task_item_*  │ │ wait_cancel  │ │ Desktop              │ │
+│  │ task_log_*   │ │              │ │ desktop_action       │ │
+│  │ task_drill_* │ │              │ │ desktop_look         │ │
+│  └──────┬───────┘ └──────┬──────┘ │ video_record         │ │
+│         │                │        └──────────┬───────────┘ │
+└─────────┼────────────────┼───────────────────┼─────────────┘
+          │     MCP (stdio)                    │
+          ▼                ▼                   ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                openclaw-memoriesai daemon                     │
-│                                                              │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │                   MCP Server                         │    │
-│  │  (Python: mcp[cli] or TypeScript: @modelcontextprotocol/sdk) │
-│  │  Transport: stdio (launched by OpenClaw)              │    │
-│  └─────────────┬──────────────────┬────────────────────┘    │
-│                │                  │                          │
-│  ┌─────────────▼────┐  ┌─────────▼──────────┐              │
-│  │   Task Manager    │  │   Wait Manager      │              │
-│  │                   │  │                     │              │
-│  │ - CRUD tasks      │  │ - Wait job queue    │              │
-│  │ - Message history │  │ - Frame capture     │              │
-│  │ - Plan tracking   │  │ - Pixel-diff gate   │              │
-│  │ - Distillation    │  │ - Adaptive polling  │              │
-│  │   (on query)      │  │ - Condition eval    │              │
-│  │                   │  │ - Wake dispatch     │              │
-│  └────────┬──────────┘  └──────────┬──────────┘              │
-│           │                        │                          │
-│  ┌────────▼────────────────────────▼──────────┐              │
-│  │              Model Backend                  │              │
-│  │                                             │              │
-│  │  Local: MiniCPM-o 4.5 via llama.cpp/vLLM   │              │
-│  │  - Vision: evaluate wait conditions          │              │
-│  │  - Text: distill task histories              │              │
-│  │                                             │              │
-│  │  Remote (optional fallback):                 │              │
-│  │  - OpenRouter API for complex reasoning      │              │
-│  └─────────────────────────────────────────────┘              │
-│                                                              │
-│  ┌──────────────────────┐  ┌──────────────────────┐         │
-│  │   SQLite Database     │  │   Screen Capture     │         │
-│  │   - tasks             │  │   - X11: xdotool +   │         │
-│  │   - task_messages     │  │     XShm / import    │         │
-│  │   - wait_jobs         │  │   - Wayland: grim /  │         │
-│  │   - wait_results      │  │     PipeWire         │         │
-│  └──────────────────────┘  │   - PTY: buffer read │         │
-│                             └──────────────────────┘         │
-└──────────────────────────────────────────────────────────────┘
-                              │
-                              │ Wake event (HTTP POST
-                              │ to OpenClaw gateway)
-                              ▼
+│            agentic-computer-use MCP server                   │
+│            (thin proxy → daemon HTTP calls)                  │
+└──────────────────────┬───────────────────────────────────────┘
+                       │ HTTP (127.0.0.1:18790)
+                       ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  OpenClaw Gateway — receives system event                    │
-│  "smart_wait resolved: Download completed (file: report.pdf)"│
-│  → Agent wakes up, continues task                            │
+│                   DETM Daemon (persistent)                   │
+│                                                              │
+│  ┌────────────────────┐  ┌───────────────────────────────┐  │
+│  │  Task Manager       │  │  Wait Engine                  │  │
+│  │                     │  │                               │  │
+│  │  tasks              │  │  Wait job queue               │  │
+│  │  ├── plan_items     │  │  Pixel-diff gate              │  │
+│  │  │   ├── actions    │  │  Adaptive polling             │  │
+│  │  │   │   └── logs   │  │  Condition eval (via Vision)  │  │
+│  │  │   └── ...        │  │  Wake dispatch → OpenClaw     │  │
+│  │  └── ...            │  │                               │  │
+│  └─────────┬──────────┘  └──────────┬────────────────────┘  │
+│            │                        │                        │
+│  ┌─────────▼────────────────────────▼────────────────────┐  │
+│  │              Vision Backend (pluggable)                │  │
+│  │                                                       │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐  │  │
+│  │  │ Ollama   │ │ vLLM     │ │ Claude │ │Passthrough│  │  │
+│  │  │(default) │ │(UI-TARS) │ │ (API)  │ │ (no eval) │  │  │
+│  │  └──────────┘ └──────────┘ └────────┘ └───────────┘  │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                              │
+│  ┌──────────────────┐  ┌──────────────────────────────────┐ │
+│  │  GUI Agent        │  │  Desktop Control                 │ │
+│  │                   │  │                                  │ │
+│  │  NL → grounding   │  │  xdotool: click, type, keys     │ │
+│  │  ┌────────────┐   │  │  X11/Xvfb screen capture        │ │
+│  │  │ UI-TARS    │   │  │  Window management               │ │
+│  │  │ Claude CU  │   │  │  Video recording                 │ │
+│  │  │ Direct     │   │  │                                  │ │
+│  │  └────────────┘   │  │                                  │ │
+│  └──────────────────┘  └──────────────────────────────────┘ │
+│                                                              │
+│  ┌──────────────────┐  ┌──────────────────────────────────┐ │
+│  │  SQLite Database  │  │  Debug Log                       │ │
+│  │  ~/.agentic-      │  │  ~/.agentic-computer-use/logs/   │ │
+│  │  computer-use/    │  │  debug.log                       │ │
+│  │  data.db          │  │  (tail -f for live monitoring)   │ │
+│  └──────────────────┘  └──────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -84,160 +87,122 @@ The MCP approach was chosen because:
 
 ### MCP Server Layer
 
-The MCP server handles tool registration and request routing. It exposes tools via the Model Context Protocol, which OpenClaw discovers and makes available to the LLM.
+The MCP server (`server.py`) is a thin proxy. It defines tool schemas and forwards all calls to the persistent daemon over HTTP. OpenClaw launches it via stdio transport.
 
-**Transport**: stdio (recommended). OpenClaw launches the daemon as a child process and communicates over stdin/stdout. This is the simplest deployment — no ports, no auth.
+The daemon (`daemon.py`) runs independently on port 18790 and maintains state across MCP server restarts.
 
-**Alternative**: HTTP+SSE for remote deployment or debugging.
+### Task Manager (Hierarchical)
 
-### Task Manager
-
-Handles persistent task tracking. Core data model:
+Data model:
 
 ```
-Task {
-  id: string (uuid)
-  name: string
-  status: "active" | "paused" | "completed" | "failed"
-  plan: string[]           // original checklist
-  created_at: datetime
-  updated_at: datetime
-}
-
-TaskMessage {
-  id: string (uuid)
-  task_id: string (FK)
-  role: "agent" | "system" | "distilled"
-  content: string
-  created_at: datetime
-}
+Task
+├── id, name, status, metadata, created_at, updated_at
+└── PlanItem[] (ordered by ordinal)
+    ├── ordinal, title, status, started_at, completed_at, duration_seconds
+    └── Action[]
+        ├── action_type (cli|gui|wait|vision|reasoning|other)
+        ├── summary, status, input_data, output_data, duration_ms
+        └── ActionLog[]
+            └── log_type, content, created_at
 ```
 
-**Distillation**: When the agent queries task state, the Task Manager reads the full message history and produces a distilled summary. Two strategies:
+**Default view** is item-level: plan items with status + action counts. Drill-down expands individual items to show actions and logs.
 
-1. **Local (MiniCPM-o)**: Fast, free, good for simple queries ("what step am I on?")
-2. **Remote (API)**: For complex reasoning ("should I change the plan given this error?")
+**Status flow**:
+- Task: active → paused/completed/failed/cancelled
+- Plan Item: pending → active → completed/failed/skipped
 
-**Running summary**: Updated every N messages (configurable, default 5). Stored as a `distilled` role message. Queries first check the running summary; if it's fresh enough, skip re-distillation.
+### Smart Wait Engine
 
-### Wait Manager
-
-Handles the smart waiting system. Core data model:
-
-```
-WaitJob {
-  id: string (uuid)
-  task_id: string? (optional FK — links wait to a task)
-  target_type: "window" | "pty" | "screen"
-  target_id: string        // X11 window ID, PTY session, or "full"
-  criteria: string         // natural language condition
-  timeout_seconds: int
-  status: "watching" | "resolved" | "timeout" | "error"
-  result_message: string?  // why it woke up
-  created_at: datetime
-  resolved_at: datetime?
-}
-```
+Vision-based async monitoring. The LLM delegates a visual wait, the daemon monitors, and wakes the LLM when the condition is met.
 
 **Frame capture pipeline**:
-
 ```
-Target (window/pty/screen)
+Target (window or screen)
   │
   ▼
-Frame Grabber (1-10 fps configurable)
-  │ raw frame
-  ▼
-Pixel-Diff Gate
-  │ compares with previous frame
-  │ if <threshold% pixels changed → skip
-  │ if ≥threshold% → pass through
-  ▼
-Resize + Compress (720p, JPEG q=80)
-  │ ~50-100KB per frame
-  ▼
-MiniCPM-o Evaluation
-  │ "Has this condition been met: '{criteria}'?"
-  │ → YES (with description) / NO / PARTIAL
-  ▼
-Decision
-  │ YES → resolve job, dispatch wake event
-  │ NO → continue watching
-  │ PARTIAL → increase polling frequency
+Frame Grabber → Pixel-Diff Gate → Vision Backend Evaluation → Decision
+                (skip if static)   (evaluate NL condition)
 ```
 
-**Adaptive polling rates**:
-- Static screen (no pixel diff): check every 5-10 seconds
-- Changing screen (pixel diff detected): check every 1-2 seconds
-- Partial match from model: check every 0.5-1 second (burst mode)
-- After 30s of static: drop to every 15 seconds
+**Adaptive polling**:
+- Static screen (no pixel diff): 5-10s intervals
+- Changing screen: 1-2s intervals
+- Partial match: 0.5-1s burst mode
+- 30s+ static: forced re-evaluation
 
-**Multiplexing**: One MiniCPM-o instance serves all wait jobs. Jobs are processed round-robin from a priority queue (priority = time since last check × urgency). Frame batching: if multiple jobs have pending frames, batch them into a single inference call.
+### Vision Backend (Pluggable)
 
-### Screen Capture
+Configured via `ACU_VISION_BACKEND`:
 
-Platform-specific frame grabbing:
+| Backend | Model | Use Case |
+|---------|-------|----------|
+| `ollama` (default) | Configurable (`ACU_VISION_MODEL`) | Local evaluation, general purpose |
+| `vllm` | UI-TARS-1.5-7B, Qwen, etc. | Best accuracy for grounding + wait |
+| `claude` | Claude via Anthropic API | Zero-GPU fallback, API cost |
+| `passthrough` | None | No evaluation, returns raw screenshots |
 
-| Platform | Method | Notes |
-|----------|--------|-------|
-| X11 (headless) | Xvfb + `python-xlib` / `import -window {id}` | Virtual framebuffer for headless Ubuntu servers |
-| X11 (display) | `python-xlib` + XShm | Fast shared-memory capture on desktop machines |
-| Wayland | `grim` or PipeWire screen capture | Future — requires compositor support |
-| PTY | Direct buffer read via `process` tool | No vision needed — text matching first, vision fallback |
+All backends implement `evaluate_condition(prompt, images)` and `check_health()`.
 
-**Note on headless servers**: The primary development target (alxdws2) is a headless Ubuntu server. All X11 screen capture requires Xvfb (X Virtual Framebuffer) to provide a virtual display. GUI applications (browsers, file managers, etc.) run inside this virtual display, and frame capture reads from it. See [SMART-WAIT.md](SMART-WAIT.md#headless-setup-xvfb) for Xvfb configuration.
+### GUI Agent (NL Grounding)
 
-**PTY fast path**: For terminal targets, the daemon first tries regex/string matching on the terminal buffer. Vision is only used if the criteria is too complex for text matching (e.g., "the progress bar looks complete").
-
-### Wake Dispatch
-
-When a wait condition is met, the daemon needs to wake the OpenClaw agent. Options explored:
-
-1. **`cron.wake` with mode "now"**: Wakes the agent on the next opportunity. Simple but indirect.
-2. **System event injection**: POST to OpenClaw's gateway API to inject a message directly into the session. Most direct.
-3. **exec notifyOnExit pattern**: OpenClaw already wakes the agent when background exec sessions complete. We could model wait resolution as a virtual "process exit."
-
-**Recommended**: System event injection via the gateway API. This is the most direct path and doesn't depend on heartbeat timing.
+Natural language → screen coordinates → xdotool execution.
 
 ```
-POST /api/agent
-{
-  "sessionKey": "agent:main:main",
-  "message": "[smart_wait] Condition met for job {id}: {result_message}",
-  "source": "system"
-}
+"click the Export button"
+  │
+  ▼
+Screenshot capture → Grounding model → (x, y) coordinates → xdotool click
 ```
 
-### Model Backend
+Three backends (`ACU_GUI_AGENT_BACKEND`):
 
-**Primary: MiniCPM-o 4.5 (local)**
+| Backend | Model | Accuracy | Cost |
+|---------|-------|----------|------|
+| `uitars` | UI-TARS-1.5-7B via vLLM | 61.6% ScreenSpot-Pro | Local GPU |
+| `claude_cu` | Claude computer_use API | ~27.7% | API cost |
+| `direct` | None (coords required) | N/A | Free |
 
-- 9B parameters, runs on CPU via llama.cpp (quantized: Q4_K_M ~5GB RAM)
-- Also runs on GPU via vLLM/SGLang for faster inference
-- Capabilities: vision (screenshots up to 1344×1344), text understanding, OCR
-- Available on Ollama: `ollama run minicpm-v`
-- Full-duplex streaming for real-time video understanding
+`gui_do` accepts both NL ("click the Export button") and explicit coords ("click(847, 523)").
 
-Deployment options for this project:
-- **llama.cpp server**: `./llama-server -m minicpm-o-4.5-Q4_K_M.gguf --port 8090`
-- **Ollama**: `ollama serve` + `ollama run minicpm-v` (simplest)
-- **vLLM**: `vllm serve openbmb/MiniCPM-o-4_5` (highest throughput, needs GPU)
+### Desktop Control
 
-**Secondary: Remote API (optional)**
-
-For complex task distillation or when local model quality isn't sufficient:
-- OpenRouter API (configurable model, default: deepseek-chat for cost efficiency)
-- Only used for `task_update` queries that require deep reasoning
-- Disabled by default — local-first philosophy
+`xdotool`-based execution layer for X11/Xvfb:
+- Mouse: click, double-click, right-click, move, drag
+- Keyboard: type text, press keys
+- Windows: list, find, focus, resize, move, close
+- Screen: capture, record video clips
 
 ### Database
 
-SQLite via the `sqlite3` Python module (or `better-sqlite3` for TypeScript). Single file at `~/.openclaw-memoriesai/data.db`.
+SQLite via `aiosqlite`. Single file at `~/.agentic-computer-use/data.db`.
 
-Tables: `tasks`, `task_messages`, `wait_jobs`.
+Tables: `tasks`, `plan_items`, `actions`, `action_logs`, `wait_jobs`.
 
-SQLite was chosen for:
-- Zero-config, single-file deployment
-- Good enough for the expected load (tens of tasks, dozens of wait jobs)
-- Easy backup (copy one file)
-- Consistent with OpenClaw's own approach (it uses JSON files, but SQLite is more appropriate for our relational data)
+### Logging
+
+Debug log at `~/.agentic-computer-use/logs/debug.log`. Enable with `ACU_DEBUG=1` or `--debug` flag. Both the human and Claude Code can tail the log:
+
+```bash
+./dev.sh logs          # live colored tail
+tail -f ~/.agentic-computer-use/logs/debug.log
+```
+
+## Configuration
+
+All environment variables use the `ACU_*` prefix:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ACU_VISION_BACKEND` | `ollama` | Vision backend: ollama, vllm, claude, passthrough |
+| `ACU_VISION_MODEL` | `minicpm-v` | Ollama model name |
+| `ACU_VLLM_URL` | `http://localhost:8000` | vLLM API endpoint |
+| `ACU_VLLM_MODEL` | `ui-tars-1.5-7b` | vLLM model name |
+| `ACU_CLAUDE_VISION_MODEL` | `claude-sonnet-4-20250514` | Claude vision model |
+| `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu |
+| `ACU_DEBUG` | `0` | Enable verbose debug logging |
+| `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
+| `DISPLAY` | `:1` | X11 display for screen capture |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API URL |
+| `ANTHROPIC_API_KEY` | (none) | Required for Claude vision/GUI backends |

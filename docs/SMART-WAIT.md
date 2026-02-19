@@ -63,7 +63,7 @@ vllm serve openbmb/MiniCPM-o-4_5 --port 8090
 | Q8_0 | ~9 GB | ~3 tok/s | ~25 tok/s | Near-original |
 | FP16 | ~18 GB | Too slow | ~40 tok/s | Original |
 
-For Smart Wait, we need very short outputs ("YES: download completed" or "NO") so even CPU inference at 2 tok/s is fine — each evaluation takes <1 second.
+For Smart Wait, we ask for short reasoning text plus a final structured verdict line (`FINAL_JSON`). Outputs remain compact enough that CPU inference can still be viable, while structured parsing improves reliability.
 
 ## Headless Setup (Xvfb)
 
@@ -304,13 +304,18 @@ PREVIOUS OBSERVATIONS (oldest first):
 Frame history: {len(self.frames)} frames attached (oldest → newest).
 The last image is the current frame at full resolution.
 
-Based on the progression and current state, has the condition been met?
-Respond with exactly one of:
-- YES: <brief description of what satisfies the condition>
-- NO: <brief description of current state>  
-- PARTIAL: <brief description of progress toward the condition>
+Based on the progression and current state, evaluate whether the condition is satisfied.
 
-Be concise. One line only."""
+Decision policy:
+- `resolved` only if condition is explicitly met in the current frame.
+- `watching` if evidence is absent/ambiguous or condition not met.
+- `partial` only for clear progress that is still incomplete.
+
+Output contract:
+1) 2–6 lines brief reasoning.
+2) Final line only:
+`FINAL_JSON: {"decision":"resolved|watching|partial","confidence":0.0,"evidence":["..."],"summary":"..."}`
+"""
         
         # Thumbnails for history frames + full res for current
         images = [f.thumbnail for f in list(self.frames)[:-1]]
@@ -357,13 +362,13 @@ async def evaluate_condition(
         images=images
     )
     
-    text = response.strip()
-    if text.startswith("YES"):
-        return ("resolved", text[5:].strip())
-    elif text.startswith("PARTIAL"):
-        return ("partial", text[9:].strip())
-    else:
-        return ("watching", text[4:].strip() if text.startswith("NO") else text)
+    # Preferred: parse FINAL_JSON payload on the last line
+    verdict, description = parse_structured_verdict(response)
+    if verdict is not None:
+        return verdict, description
+
+    # Fallback for legacy/free-form responses
+    return parse_legacy_verdict(response)
 ```
 
 ## Adaptive Polling
@@ -523,42 +528,14 @@ Add to HEARTBEAT.md: "Check smart-wait-events.json; if present, read and clear i
 
 **Decision**: Start with Option A (`openclaw system event` CLI). It's purpose-built for this exact use case, requires zero custom OpenClaw code, and wakes the agent within seconds. Three lines of Python.
 
-## PTY Fast Path
+## PTY Targets (Current Behavior)
 
-For terminal targets, we can skip vision entirely for many common conditions:
+Smart Wait now uses a **vision-only evaluator** across GUI and CLI/PTy targets.
+There is no regex/text fast path in the runtime.
 
-```python
-import re
+Current PTY behavior:
+- `target=pty:<session_id>` links the wait to a process/session identity.
+- Frame capture is still visual (desktop/screen pipeline), not terminal-buffer parsing.
+- For best reliability, prefer `target=window:<terminal_window_id_or_name>` so the model sees only the terminal window.
 
-class PTYMatcher:
-    """Fast text-based matching for terminal output."""
-    
-    COMMON_PATTERNS = {
-        "command_complete": r"\$\s*$",  # Shell prompt returned
-        "error": r"(?i)(error|fail|fatal|exception|traceback)",
-        "download_complete": r"(?i)(100%|download complete|saved|done)",
-        "build_success": r"(?i)(build success|compiled|built in)",
-        "build_fail": r"(?i)(build fail|compilation error|make.*error)",
-    }
-    
-    @staticmethod
-    def try_text_match(terminal_output: str, criteria: str) -> str | None:
-        """Try to match criteria against terminal text. Returns match or None."""
-        output_lower = criteria.lower()
-        
-        # Check common patterns
-        for pattern_name, regex in PTYMatcher.COMMON_PATTERNS.items():
-            if pattern_name in output_lower or any(
-                word in output_lower for word in pattern_name.split("_")
-            ):
-                if re.search(regex, terminal_output):
-                    match = re.search(regex, terminal_output)
-                    return f"Matched '{pattern_name}': {match.group()}"
-        
-        # Simple substring check
-        for word in criteria.split():
-            if len(word) > 3 and word.lower() in terminal_output.lower():
-                return f"Found '{word}' in terminal output"
-        
-        return None  # Fall back to vision
-```
+Future improvement (optional): bind PTY waits directly to a resolved terminal window at creation time.

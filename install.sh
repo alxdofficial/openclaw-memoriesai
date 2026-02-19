@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ─── openclaw-memoriesai installer ──────────────────────────────
+# ─── agentic-computer-use (DETM) installer ──────────────────────
 # Usage: ./install.sh
 # Installs the daemon, configures systemd, and hooks into OpenClaw.
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$REPO_DIR/.venv"
-SERVICE_NAME="memoriesai-daemon"
+SERVICE_NAME="detm-daemon"
 DAEMON_PORT=18790
 OLLAMA_MODEL="minicpm-v"
 
@@ -49,7 +49,6 @@ ok "Python: $($PYTHON --version)"
 # Display
 DISPLAY="${DISPLAY:-}"
 if [ -z "$DISPLAY" ]; then
-    # Check for Xvfb
     if pgrep -x Xvfb &>/dev/null; then
         DISPLAY=":99"
         warn "No DISPLAY set, detected Xvfb — using :99"
@@ -108,12 +107,16 @@ if ! command -v ollama &>/dev/null; then
 fi
 ok "Ollama installed: $(ollama --version 2>/dev/null || echo 'unknown')"
 
-# Check if model is pulled
 if ! ollama list 2>/dev/null | grep -q "$OLLAMA_MODEL"; then
     info "Pulling vision model ($OLLAMA_MODEL)... this may take a few minutes."
     ollama pull "$OLLAMA_MODEL"
 fi
 ok "Vision model ready: $OLLAMA_MODEL"
+
+# ─── Vision backend selection ──────────────────────────────────
+
+info "Vision backend: ollama (default). Set ACU_VISION_BACKEND=vllm|claude|passthrough to change."
+info "GUI agent backend: direct (default). Set ACU_GUI_AGENT_BACKEND=uitars|claude_cu to change."
 
 # ─── Create systemd service ────────────────────────────────────
 
@@ -122,7 +125,7 @@ info "Installing systemd service..."
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 cat <<EOF | sudo tee "$SERVICE_FILE" > /dev/null
 [Unit]
-Description=OpenClaw MemoriesAI Daemon
+Description=Agentic Computer Use — DETM Daemon
 After=network.target ollama.service
 
 [Service]
@@ -131,7 +134,7 @@ User=$(whoami)
 Environment=DISPLAY=$DISPLAY
 Environment=PYTHONPATH=$REPO_DIR/src
 WorkingDirectory=$REPO_DIR
-ExecStart=$VENV_DIR/bin/python3 -m openclaw_memoriesai.daemon
+ExecStart=$VENV_DIR/bin/python3 -m agentic_computer_use.daemon
 Restart=on-failure
 RestartSec=5
 
@@ -155,11 +158,9 @@ fi
 
 info "Configuring OpenClaw integration..."
 
-# Find OpenClaw workspace
 OC_WORKSPACE="${OPENCLAW_WORKSPACE:-$HOME/.openclaw/workspace}"
 MCPORTER_CONFIG="$OC_WORKSPACE/config/mcporter.json"
 
-# Find openclaw binary
 OPENCLAW_BIN=""
 for p in "$HOME/.npm-global/bin/openclaw" "$(which openclaw 2>/dev/null)" "/usr/local/bin/openclaw"; do
     if [ -x "$p" ] 2>/dev/null; then
@@ -174,17 +175,8 @@ else
     warn "OpenClaw CLI not found. You'll need to configure mcporter manually."
 fi
 
-# Write mcporter config
 mkdir -p "$(dirname "$MCPORTER_CONFIG")"
 
-if [ -f "$MCPORTER_CONFIG" ]; then
-    # Merge — check if memoriesai already configured
-    if grep -q '"memoriesai"' "$MCPORTER_CONFIG" 2>/dev/null; then
-        info "mcporter config already has memoriesai entry — updating"
-    fi
-fi
-
-# Use python to safely merge JSON
 "$VENV_DIR/bin/python3" -c "
 import json, os
 
@@ -196,9 +188,9 @@ except (FileNotFoundError, json.JSONDecodeError):
     config = {}
 
 config.setdefault('mcpServers', {})
-config['mcpServers']['memoriesai'] = {
+config['mcpServers']['agentic-computer-use'] = {
     'command': '$VENV_DIR/bin/python3',
-    'args': ['-m', 'openclaw_memoriesai.server'],
+    'args': ['-m', 'agentic_computer_use.server'],
     'cwd': '$REPO_DIR',
     'env': {
         'DISPLAY': '$DISPLAY',
@@ -213,7 +205,7 @@ print(f'Written: {config_path}')
 ok "mcporter config updated"
 
 # Install OpenClaw skill (SKILL.md)
-SKILL_DIR="$OC_WORKSPACE/skills/memoriesai"
+SKILL_DIR="$OC_WORKSPACE/skills/agentic-computer-use"
 mkdir -p "$SKILL_DIR"
 if [ -f "$REPO_DIR/skill/SKILL.md" ]; then
     cp "$REPO_DIR/skill/SKILL.md" "$SKILL_DIR/SKILL.md"
@@ -236,18 +228,18 @@ fi
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     openclaw-memoriesai installed successfully   ║${NC}"
+echo -e "${GREEN}║   agentic-computer-use installed successfully    ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "  Daemon:    http://127.0.0.1:$DAEMON_PORT"
 echo "  Service:   sudo systemctl status $SERVICE_NAME"
 echo "  Logs:      journalctl -u $SERVICE_NAME -f"
+echo "  Debug log: ~/.agentic-computer-use/logs/debug.log"
 echo ""
-echo "  Test:      mcporter call memoriesai.health_check"
+echo "  Test:      curl http://127.0.0.1:$DAEMON_PORT/health"
 echo "  Docs:      $REPO_DIR/docs/"
 echo ""
 if [ -n "$OPENCLAW_BIN" ]; then
     echo "  OpenClaw will auto-discover tools via mcporter."
-    echo "  Try: mcporter call memoriesai.smart_wait target=screen wake_when=\"page loaded\""
 fi
 echo ""

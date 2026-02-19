@@ -35,10 +35,10 @@
 - [x] Register MCP server with OpenClaw via mcporter
 - [x] End-to-end test: Chrome detection in 1.3-1.8s
 
-### 2d: PTY Fast Path
-- [ ] Terminal buffer reading
-- [ ] Text pattern matching
-- [ ] Vision fallback for complex criteria
+### 2d: PTY Handling (vision-only)
+- [x] Removed terminal regex/text fast path
+- [x] Unified PTY and GUI waits under the same vision evaluator
+- [ ] Optional future improvement: bind `pty:<session_id>` to a specific terminal window capture for cleaner frames
 
 ## Phase 3: Task Memory ← MOSTLY DONE
 
