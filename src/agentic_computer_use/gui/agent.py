@@ -30,8 +30,11 @@ def _get_backend() -> GUIAgentBackend:
     elif name == "claude_cu":
         from .backends.claude_cu import ClaudeCUBackend
         _backend = ClaudeCUBackend()
+    elif name == "omniparser":
+        from .backends.omniparser import OmniParserBackend
+        _backend = OmniParserBackend()
     else:
-        raise ValueError(f"Unknown GUI agent backend: {name}. Use direct|uitars|claude_cu")
+        raise ValueError(f"Unknown GUI agent backend: {name}. Use direct|uitars|claude_cu|omniparser")
 
     return _backend
 
@@ -120,6 +123,7 @@ async def execute_gui_action(
             "error": f"Could not locate element: {instruction}",
             "hint": "Try explicit coordinates with click(x, y) or use a grounding-capable backend (uitars, claude_cu)",
             "backend": config.GUI_AGENT_BACKEND,
+            "provider": backend.provider,
         }
 
     # Execute based on instruction intent
@@ -186,6 +190,7 @@ async def execute_gui_action(
         "confidence": grounding.confidence,
         "element": grounding.element_text,
         "backend": config.GUI_AGENT_BACKEND,
+        "provider": backend.provider,
     }
 
 
@@ -219,6 +224,7 @@ async def find_gui_element(
             "found": False,
             "description": description,
             "backend": config.GUI_AGENT_BACKEND,
+            "provider": backend.provider,
             "hint": "Element not found. Try a different description or use a grounding-capable backend.",
         }
 
@@ -230,6 +236,7 @@ async def find_gui_element(
         "element_text": grounding.element_text,
         "description": description,
         "backend": config.GUI_AGENT_BACKEND,
+        "provider": backend.provider,
     }
 
 

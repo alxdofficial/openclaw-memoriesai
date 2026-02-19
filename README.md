@@ -328,6 +328,9 @@ When updating tools or behavior, keep SKILL.md in sync — it's what the LLM act
 | `ACU_VLLM_MODEL` | `ui-tars-1.5-7b` | vLLM model name |
 | `ACU_CLAUDE_VISION_MODEL` | `claude-sonnet-4-20250514` | Claude vision model |
 | `ACU_GUI_AGENT_BACKEND` | `direct` | direct, uitars, claude_cu |
+| `OPENROUTER_API_KEY` | -- | OpenRouter API key — enables cloud UI-TARS grounding |
+| `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
+| `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | `~/.openclaw/workspace` | Workspace directory for memory files |
 | `ACU_STUCK_DETECTION` | `0` | Enable stuck detection (`1` to turn on) |

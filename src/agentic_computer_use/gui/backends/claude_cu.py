@@ -13,6 +13,10 @@ log = logging.getLogger(__name__)
 class ClaudeCUBackend(GUIAgentBackend):
     """Claude computer_use tool for grounding — lower accuracy but zero-GPU."""
 
+    @property
+    def provider(self) -> str:
+        return "anthropic"
+
     async def ground(self, description: str, screenshot: bytes) -> GroundingResult | None:
         api_key = config.CLAUDE_API_KEY
         if not api_key:
@@ -65,5 +69,5 @@ class ClaudeCUBackend(GUIAgentBackend):
 
     async def check_health(self) -> dict:
         if not config.CLAUDE_API_KEY:
-            return {"ok": False, "backend": "claude_cu", "error": "ANTHROPIC_API_KEY not set"}
-        return {"ok": True, "backend": "claude_cu", "model": config.CLAUDE_VISION_MODEL}
+            return {"ok": False, "backend": "claude_cu", "provider": "anthropic", "error": "ANTHROPIC_API_KEY not set"}
+        return {"ok": True, "backend": "claude_cu", "provider": "anthropic", "model": config.CLAUDE_VISION_MODEL}

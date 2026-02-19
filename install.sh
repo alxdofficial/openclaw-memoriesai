@@ -179,6 +179,14 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 "$VENV_DIR/bin/pip" install --quiet -e "$REPO_DIR"
+
+if [ "$HAS_GPU" = true ]; then
+    info "Installing PyTorch with CUDA support..."
+    "$VENV_DIR/bin/pip" install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cu121
+else
+    info "Installing PyTorch (CPU only)..."
+    "$VENV_DIR/bin/pip" install --quiet torch torchvision
+fi
 ok "Python package installed"
 
 # ─── Install system dependencies ───────────────────────────────
@@ -221,7 +229,9 @@ ok "Vision model ready: $OLLAMA_MODEL"
 # ─── Vision backend selection ──────────────────────────────────
 
 info "Vision backend: ollama (default). Set ACU_VISION_BACKEND=vllm|claude|passthrough to change."
-info "GUI agent backend: direct (default). Set ACU_GUI_AGENT_BACKEND=uitars|claude_cu to change."
+info "GUI agent backend: direct (default). Set ACU_GUI_AGENT_BACKEND=omniparser|uitars|claude_cu to change."
+info "UI-TARS grounding: set OPENROUTER_API_KEY for cloud, or 'ollama pull 0000/ui-tars-1.5-7b' for local."
+info "OmniParser models (~1.1GB) auto-download on first gui_do with ACU_GUI_AGENT_BACKEND=omniparser."
 
 # ─── Create systemd service ────────────────────────────────────
 

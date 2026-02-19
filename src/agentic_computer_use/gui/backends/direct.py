@@ -11,4 +11,4 @@ class DirectBackend(GUIAgentBackend):
         return None
 
     async def check_health(self) -> dict:
-        return {"ok": True, "backend": "direct", "note": "Coordinates required — no NL grounding"}
+        return {"ok": True, "backend": "direct", "provider": "local", "note": "Coordinates required — no NL grounding"}

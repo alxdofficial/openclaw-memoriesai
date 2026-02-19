@@ -6,6 +6,11 @@ from .types import GroundingResult
 class GUIAgentBackend(ABC):
     """Interface for GUI grounding backends (UI-TARS, Claude CU, direct)."""
 
+    @property
+    def provider(self) -> str:
+        """Short label for the active provider (e.g. 'ollama', 'openrouter', 'local')."""
+        return "local"
+
     @abstractmethod
     async def ground(self, description: str, screenshot: bytes) -> GroundingResult | None:
         """Locate a UI element by natural language description.

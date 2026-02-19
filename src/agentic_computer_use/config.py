@@ -1,6 +1,9 @@
 """Configuration for agentic-computer-use (DETM)."""
 from pathlib import Path
+from dotenv import load_dotenv
 import os
+
+load_dotenv()  # loads .env from project root (or cwd) if present
 
 # Paths
 DATA_DIR = Path(os.environ.get("ACU_DATA_DIR", Path.home() / ".agentic-computer-use"))
@@ -33,6 +36,13 @@ VISION_SYSTEM_INSTRUCTIONS = os.environ.get(
 VLLM_URL = os.environ.get("ACU_VLLM_URL", "http://localhost:8000")
 VLLM_MODEL = os.environ.get("ACU_VLLM_MODEL", "ui-tars-1.5-7b")
 
+# OpenRouter (cloud grounding — UI-TARS via API)
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+
+# UI-TARS local via Ollama (used when no OpenRouter key)
+UITARS_OLLAMA_MODEL = os.environ.get("ACU_UITARS_OLLAMA_MODEL", "0000/ui-tars-1.5-7b")
+UITARS_KEEP_ALIVE = os.environ.get("ACU_UITARS_KEEP_ALIVE", "5m")
+
 # Claude vision
 CLAUDE_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_VISION_MODEL = os.environ.get("ACU_CLAUDE_VISION_MODEL", "claude-sonnet-4-20250514")
@@ -41,7 +51,15 @@ CLAUDE_VISION_MODEL = os.environ.get("ACU_CLAUDE_VISION_MODEL", "claude-sonnet-4
 OPENCLAW_CLI = os.environ.get("ACU_OPENCLAW_CLI", "openclaw")
 
 # GUI Agent
-GUI_AGENT_BACKEND = os.environ.get("ACU_GUI_AGENT_BACKEND", "direct")  # uitars|claude_cu|direct
+GUI_AGENT_BACKEND = os.environ.get("ACU_GUI_AGENT_BACKEND", "direct")  # omniparser|uitars|claude_cu|direct
+
+# OmniParser (SoM-based GUI grounding)
+OMNIPARSER_PICKER_MODEL = os.environ.get("ACU_OMNIPARSER_PICKER_MODEL", "claude-haiku-4-5-20251001")
+OMNIPARSER_BBOX_THRESHOLD = float(os.environ.get("ACU_OMNIPARSER_BBOX_THRESHOLD", "0.05"))
+OMNIPARSER_IOU_THRESHOLD = float(os.environ.get("ACU_OMNIPARSER_IOU_THRESHOLD", "0.1"))
+
+# Ollama model keepalive — "0" = unload immediately after each response (frees VRAM)
+OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "0")
 
 # Smart Wait confidence / partial-streak thresholds
 RESOLVE_CONFIDENCE_THRESHOLD = float(os.environ.get("ACU_RESOLVE_CONFIDENCE", "0.75"))

@@ -235,6 +235,10 @@ async def handle_task_update(request: web.Request) -> web.Response:
         query=args.get("query"),
         status=args.get("status"),
     )
+    # Stop frame recording when task reaches a terminal state
+    status = (args.get("status") or "").strip().lower().replace("canceled", "cancelled")
+    if status in ("completed", "cancelled", "failed"):
+        frame_recorder.stop(args["task_id"])
     return web.json_response(result)
 
 
@@ -335,12 +339,15 @@ async def handle_api_task_messages(request: web.Request) -> web.Response:
 
 async def handle_health(request: web.Request) -> web.Response:
     from .vision import check_health
+    from .gui.agent import _get_backend
     vision_health = await check_health()
+    gui_backend = _get_backend()
     return web.json_response({
         "server": "ok", "daemon": True,
         "vision": vision_health,
         "vision_backend": config.VISION_BACKEND,
         "gui_agent_backend": config.GUI_AGENT_BACKEND,
+        "gui_agent_provider": gui_backend.provider,
         "active_wait_jobs": len(wait_engine.jobs),
         "data_dir": str(config.DATA_DIR),
         "display": config.DISPLAY,

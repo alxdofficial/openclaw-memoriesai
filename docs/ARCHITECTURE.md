@@ -174,9 +174,11 @@ Three backends (`ACU_GUI_AGENT_BACKEND`):
 
 | Backend | Model | Accuracy | Cost |
 |---------|-------|----------|------|
-| `uitars` | UI-TARS-1.5-7B via vLLM | 61.6% ScreenSpot-Pro | Local GPU |
+| `uitars` | UI-TARS-1.5-7B (OpenRouter cloud or Ollama local) | 61.6% ScreenSpot-Pro | ~$0.0003/call or free |
 | `claude_cu` | Claude computer_use API | ~27.7% | API cost |
 | `direct` | None (coords required) | N/A | Free |
+
+The `uitars` backend auto-selects mode: if `OPENROUTER_API_KEY` is set, it uses OpenRouter's hosted model (fast, no GPU needed). Otherwise it uses Ollama with per-request `keep_alive` (default 5m) so UI-TARS auto-unloads from VRAM after idle, freeing space for minicpm-v smart_wait polls.
 
 `gui_do` accepts both NL ("click the Export button") and explicit coords ("click(847, 523)").
 
@@ -248,6 +250,9 @@ All environment variables use the `ACU_*` prefix:
 | `ACU_VLLM_MODEL` | `ui-tars-1.5-7b` | vLLM model name |
 | `ACU_CLAUDE_VISION_MODEL` | `claude-sonnet-4-20250514` | Claude vision model |
 | `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu |
+| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — enables cloud UI-TARS grounding |
+| `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
+| `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
 | `DISPLAY` | `:1` | X11 display for screen capture |
