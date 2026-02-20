@@ -97,21 +97,22 @@ async def execute_gui_action(
 
     # NL instruction — need grounding
     backend = _get_backend()
+    loop = asyncio.get_event_loop()
 
-    # Capture screenshot for grounding
+    # Capture screenshot for grounding (off-thread — Xlib/PIL are blocking)
     if window_name:
         wid = desktop.find_window(window_name, display=display)
         if wid:
-            frame = capture_window(wid, display=display)
+            frame = await loop.run_in_executor(None, capture_window, wid, display)
         else:
-            frame = capture_screen(display=display)
+            frame = await loop.run_in_executor(None, capture_screen, display)
     else:
-        frame = capture_screen(display=display)
+        frame = await loop.run_in_executor(None, capture_screen, display)
 
     if frame is None:
         return {"ok": False, "error": "Failed to capture screen for grounding"}
 
-    jpeg = frame_to_jpeg(frame)
+    jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
     screen_h, screen_w = frame.shape[:2]
 
     # Ground the instruction
@@ -204,21 +205,23 @@ async def find_gui_element(
     """Locate a UI element without acting on it."""
     backend = _get_backend()
 
+    loop = asyncio.get_event_loop()
+
     if window_name:
         wid = desktop.find_window(window_name, display=display)
         if wid:
             desktop.focus_window(wid, display=display)
             await asyncio.sleep(0.05)
-            frame = capture_window(wid, display=display)
+            frame = await loop.run_in_executor(None, capture_window, wid, display)
         else:
             return {"found": False, "error": f"Window '{window_name}' not found"}
     else:
-        frame = capture_screen(display=display)
+        frame = await loop.run_in_executor(None, capture_screen, display)
 
     if frame is None:
         return {"found": False, "error": "Failed to capture screen"}
 
-    jpeg = frame_to_jpeg(frame)
+    jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
     grounding = await backend.ground(description, jpeg)
 
     if grounding is None:

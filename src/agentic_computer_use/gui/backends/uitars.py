@@ -12,6 +12,27 @@ log = logging.getLogger(__name__)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "bytedance/ui-tars-1.5-7b"
 
+# Persistent HTTP clients — reused across calls to avoid TLS handshake overhead
+_or_client: httpx.AsyncClient | None = None  # OpenRouter
+_ol_client: httpx.AsyncClient | None = None  # Ollama
+
+
+def _get_or_client() -> httpx.AsyncClient:
+    global _or_client
+    if _or_client is None or _or_client.is_closed:
+        _or_client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}"},
+        )
+    return _or_client
+
+
+def _get_ol_client() -> httpx.AsyncClient:
+    global _ol_client
+    if _ol_client is None or _ol_client.is_closed:
+        _ol_client = httpx.AsyncClient(timeout=120.0)
+    return _ol_client
+
 
 class UITARSBackend(GUIAgentBackend):
     """UI-TARS-1.5-7B grounding via OpenRouter (cloud) or Ollama (local)."""
@@ -45,26 +66,22 @@ class UITARSBackend(GUIAgentBackend):
             "max_tokens": 100,
             "temperature": 0.0,
         }
-        headers = {
-            "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
-        }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["choices"][0]["message"]["content"].strip()
-                log.debug(f"OpenRouter UI-TARS response: {text}")
+            resp = await _get_or_client().post(OPENROUTER_URL, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["choices"][0]["message"]["content"].strip()
+            log.debug(f"OpenRouter UI-TARS response: {text}")
 
-                coords = _parse_coordinates(text)
-                if coords:
-                    return GroundingResult(
-                        x=coords[0], y=coords[1],
-                        confidence=0.8, description=description,
-                        element_text=text,
-                    )
-                return None
+            coords = _parse_coordinates(text)
+            if coords:
+                return GroundingResult(
+                    x=coords[0], y=coords[1],
+                    confidence=0.8, description=description,
+                    element_text=text,
+                )
+            return None
         except Exception as e:
             log.error(f"UI-TARS grounding failed (openrouter): {e}")
             return None
@@ -86,21 +103,20 @@ class UITARSBackend(GUIAgentBackend):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(f"{config.OLLAMA_URL}/api/chat", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["message"]["content"].strip()
-                log.debug(f"Ollama UI-TARS response: {text}")
+            resp = await _get_ol_client().post(f"{config.OLLAMA_URL}/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["message"]["content"].strip()
+            log.debug(f"Ollama UI-TARS response: {text}")
 
-                coords = _parse_coordinates(text)
-                if coords:
-                    return GroundingResult(
-                        x=coords[0], y=coords[1],
-                        confidence=0.8, description=description,
-                        element_text=text,
-                    )
-                return None
+            coords = _parse_coordinates(text)
+            if coords:
+                return GroundingResult(
+                    x=coords[0], y=coords[1],
+                    confidence=0.8, description=description,
+                    element_text=text,
+                )
+            return None
         except httpx.HTTPStatusError as e:
             body = e.response.text if e.response else ""
             if "not found" in body.lower() or e.response.status_code == 404:
@@ -119,31 +135,29 @@ class UITARSBackend(GUIAgentBackend):
 
     async def _check_health_openrouter(self) -> dict:
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(
-                    "https://openrouter.ai/api/v1/models",
-                    headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}"},
-                )
-                resp.raise_for_status()
-                return {"ok": True, "backend": "uitars", "provider": "openrouter", "model": OPENROUTER_MODEL}
+            resp = await _get_or_client().get(
+                "https://openrouter.ai/api/v1/models",
+                timeout=5.0,
+            )
+            resp.raise_for_status()
+            return {"ok": True, "backend": "uitars", "provider": "openrouter", "model": OPENROUTER_MODEL}
         except Exception as e:
             return {"ok": False, "backend": "uitars", "provider": "openrouter", "error": str(e)}
 
     async def _check_health_ollama(self) -> dict:
         model = config.UITARS_OLLAMA_MODEL
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{config.OLLAMA_URL}/api/tags")
-                resp.raise_for_status()
-                models = [m["name"] for m in resp.json().get("models", [])]
-                has_model = any(model in m for m in models)
-                result = {
-                    "ok": has_model, "backend": "uitars", "provider": "ollama",
-                    "model": model, "has_model": has_model,
-                }
-                if not has_model:
-                    result["hint"] = f"Run: ollama pull {model}"
-                return result
+            resp = await _get_ol_client().get(f"{config.OLLAMA_URL}/api/tags", timeout=5.0)
+            resp.raise_for_status()
+            models = [m["name"] for m in resp.json().get("models", [])]
+            has_model = any(model in m for m in models)
+            result = {
+                "ok": has_model, "backend": "uitars", "provider": "ollama",
+                "model": model, "has_model": has_model,
+            }
+            if not has_model:
+                result["hint"] = f"Run: ollama pull {model}"
+            return result
         except Exception as e:
             return {"ok": False, "backend": "uitars", "provider": "ollama", "error": str(e)}
 
@@ -154,8 +168,10 @@ def _parse_coordinates(text: str) -> tuple[int, int] | None:
     point_match = re.search(r'<point>\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*</point>', text)
     if point_match:
         x, y = float(point_match.group(1)), float(point_match.group(2))
-        # If normalized (0-1), scale to common resolution
-        if x <= 1.0 and y <= 1.0:
+        # If normalized (0-1), scale to common resolution; use max() to avoid
+        # the old bug where (0.5, 1.0) would be missed because y == 1.0 was
+        # treated as a pixel value when x was also checked separately.
+        if max(x, y) <= 1.0:
             x, y = int(x * 1920), int(y * 1080)
         return (int(x), int(y))
 
@@ -163,7 +179,7 @@ def _parse_coordinates(text: str) -> tuple[int, int] | None:
     paren_match = re.search(r'\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)', text)
     if paren_match:
         x, y = float(paren_match.group(1)), float(paren_match.group(2))
-        if x <= 1.0 and y <= 1.0:
+        if max(x, y) <= 1.0:
             x, y = int(x * 1920), int(y * 1080)
         return (int(x), int(y))
 

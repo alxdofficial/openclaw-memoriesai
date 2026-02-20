@@ -9,6 +9,22 @@ from ..types import GroundingResult
 
 log = logging.getLogger(__name__)
 
+# Persistent HTTP client — reused to avoid TLS handshake overhead per call
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=30.0,
+            headers={
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+    return _client
+
 
 class ClaudeCUBackend(GUIAgentBackend):
     """Claude computer_use tool for grounding — lower accuracy but zero-GPU."""
@@ -40,29 +56,24 @@ class ClaudeCUBackend(GUIAgentBackend):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    json=payload,
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["content"][0]["text"].strip()
+            resp = await _get_client().post(
+                "https://api.anthropic.com/v1/messages",
+                json=payload,
+                headers={"x-api-key": api_key},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            text = data["content"][0]["text"].strip()
 
-                # Parse (x, y)
-                match = re.search(r'\(\s*(\d+)\s*,\s*(\d+)\s*\)', text)
-                if match:
-                    return GroundingResult(
-                        x=int(match.group(1)), y=int(match.group(2)),
-                        confidence=0.5, description=description,
-                        element_text=text,
-                    )
-                return None
+            # Parse (x, y)
+            match = re.search(r'\(\s*(\d+)\s*,\s*(\d+)\s*\)', text)
+            if match:
+                return GroundingResult(
+                    x=int(match.group(1)), y=int(match.group(2)),
+                    confidence=0.5, description=description,
+                    element_text=text,
+                )
+            return None
         except Exception as e:
             log.error(f"Claude CU grounding failed: {e}")
             return None

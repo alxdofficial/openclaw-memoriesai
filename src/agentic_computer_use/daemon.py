@@ -674,7 +674,7 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
         wid = desktop.find_window(args["window_name"], display=display)
         if wid:
             desktop.focus_window(wid, display=display)
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.05)
         # Fresh capture needed after focus — fall through to live capture
         loop = asyncio.get_event_loop()
         frame = await loop.run_in_executor(None, capture_screen, display)

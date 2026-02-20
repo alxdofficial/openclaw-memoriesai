@@ -82,10 +82,13 @@ def find_window_at(x: int, y: int, display: str = None) -> int | None:
 
 
 def focus_window(window_id: int, display: str = None) -> bool:
-    """Focus and raise a window."""
-    ok1, _ = _run_xdotool("windowfocus", "--sync", str(window_id), display=display)
-    ok2, _ = _run_xdotool("windowraise", str(window_id), display=display)
-    return ok1 or ok2
+    """Focus and raise a window in a single xdotool call."""
+    ok, _ = _run_xdotool(
+        "windowfocus", "--sync", str(window_id),
+        "windowraise", str(window_id),
+        display=display,
+    )
+    return ok
 
 
 def move_window(window_id: int, x: int, y: int, display: str = None) -> bool:
@@ -122,24 +125,30 @@ def mouse_click(button: int = 1, display: str = None) -> bool:
 
 
 def mouse_click_at(x: int, y: int, button: int = 1, display: str = None) -> bool:
-    """Move mouse to (x, y) and click. Uses --sync to ensure move completes before click."""
-    _run_xdotool("mousemove", "--sync", str(x), str(y), display=display)
-    ok, _ = _run_xdotool("click", str(button), display=display)
+    """Move mouse to (x, y) and click in a single xdotool call."""
+    ok, _ = _run_xdotool(
+        "mousemove", "--sync", str(x), str(y),
+        "click", str(button),
+        display=display,
+    )
     return ok
 
 
 def mouse_double_click(x: int = None, y: int = None, display: str = None) -> bool:
     if x is not None and y is not None:
-        _run_xdotool("mousemove", "--sync", str(x), str(y), display=display)
-    ok, _ = _run_xdotool("click", "--repeat", "2", "1", display=display)
+        ok, _ = _run_xdotool(
+            "mousemove", "--sync", str(x), str(y),
+            "click", "--repeat", "2", "1",
+            display=display,
+        )
+    else:
+        ok, _ = _run_xdotool("click", "--repeat", "2", "1", display=display)
     return ok
 
 
 def mouse_drag(x1: int, y1: int, x2: int, y2: int, button: int = 1, display: str = None) -> bool:
-    _run_xdotool("mousemove", str(x1), str(y1), display=display)
-    _run_xdotool("mousedown", str(button), display=display)
-    _run_xdotool("mousemove", "--sync", str(x2), str(y2), display=display)
-    ok, _ = _run_xdotool("mouseup", str(button), display=display)
+    _run_xdotool("mousemove", str(x1), str(y1), "mousedown", str(button), display=display)
+    ok, _ = _run_xdotool("mousemove", "--sync", str(x2), str(y2), "mouseup", str(button), display=display)
     return ok
 
 

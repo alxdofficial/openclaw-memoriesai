@@ -17,6 +17,22 @@ log = logging.getLogger(__name__)
 _BOX_COLORS = ["#FF3366", "#33AAFF", "#33FF99", "#FFAA33", "#AA33FF",
                "#FF9933", "#FF6633", "#33FFEE", "#FF33AA", "#AAFFAA"]
 
+# Persistent HTTP client for Claude picker — reused to avoid TLS handshake overhead
+_picker_client: httpx.AsyncClient | None = None
+
+
+def _get_picker_client() -> httpx.AsyncClient:
+    global _picker_client
+    if _picker_client is None or _picker_client.is_closed:
+        _picker_client = httpx.AsyncClient(
+            timeout=15.0,
+            headers={
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+    return _picker_client
+
 
 class OmniParserBackend(GUIAgentBackend):
     _yolo = None
@@ -75,28 +91,41 @@ class OmniParserBackend(GUIAgentBackend):
 
         device = next(OmniParserBackend._florence_model.parameters()).device
         dtype = next(OmniParserBackend._florence_model.parameters()).dtype
-        elements = []
 
+        # Collect valid boxes and crops for batched Florence-2 inference
+        valid_boxes = []
+        crops = []
         for (x1, y1, x2, y2) in boxes:
             x1, y1, x2, y2 = max(0, int(x1)), max(0, int(y1)), min(W, int(x2)), min(H, int(y2))
             if x2 <= x1 or y2 <= y1:
                 continue
-            crop = img.crop((x1, y1, x2, y2))
+            valid_boxes.append((x1, y1, x2, y2))
+            crops.append(img.crop((x1, y1, x2, y2)))
+
+        elements = []
+        if crops:
+            # Single batched forward pass instead of N serial passes — much faster on GPU
             inputs = OmniParserBackend._florence_processor(
-                text="<CAPTION>", images=crop, return_tensors="pt"
+                text=["<CAPTION>"] * len(crops),
+                images=crops,
+                return_tensors="pt",
+                padding="longest",
             )
             inputs = {k: (v.to(device, dtype) if v.is_floating_point() else v.to(device))
                       for k, v in inputs.items()}
             with torch.no_grad():
-                ids = OmniParserBackend._florence_model.generate(**inputs, max_new_tokens=40, num_beams=1)
-            caption = OmniParserBackend._florence_processor.batch_decode(
+                ids = OmniParserBackend._florence_model.generate(
+                    **inputs, max_new_tokens=40, num_beams=1
+                )
+            captions = OmniParserBackend._florence_processor.batch_decode(
                 ids, skip_special_tokens=True
-            )[0].strip()
-            elements.append({
-                "bbox": (x1, y1, x2, y2),
-                "cx": (x1 + x2) // 2, "cy": (y1 + y2) // 2,
-                "label": caption or f"element {len(elements) + 1}",
-            })
+            )
+            for i, ((x1, y1, x2, y2), caption) in enumerate(zip(valid_boxes, captions)):
+                elements.append({
+                    "bbox": (x1, y1, x2, y2),
+                    "cx": (x1 + x2) // 2, "cy": (y1 + y2) // 2,
+                    "label": caption.strip() or f"element {i + 1}",
+                })
 
         annotated = img.copy()
         draw = ImageDraw.Draw(annotated)
@@ -132,15 +161,14 @@ class OmniParserBackend(GUIAgentBackend):
             ]}],
         }
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages", json=payload,
-                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
-                             "content-type": "application/json"},
-                )
-                resp.raise_for_status()
-                m = re.search(r'\d+', resp.json()["content"][0]["text"])
-                return int(m.group()) if m else None
+            resp = await _get_picker_client().post(
+                "https://api.anthropic.com/v1/messages",
+                json=payload,
+                headers={"x-api-key": api_key},
+            )
+            resp.raise_for_status()
+            m = re.search(r'\d+', resp.json()["content"][0]["text"])
+            return int(m.group()) if m else None
         except Exception as e:
             log.error(f"OmniParser picker failed: {e}")
             return _label_match(description, elements)
