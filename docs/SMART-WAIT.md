@@ -411,7 +411,12 @@ class AdaptivePoller:
 
 ## Multiplexing Multiple Wait Jobs
 
-When multiple waits are active simultaneously, we use a priority queue:
+> **Note:** The sequential design below was the original spec. The actual implementation
+> now evaluates **all overdue jobs in parallel** via `asyncio.gather()`. See the
+> "Performance Optimizations" section below for the current design.
+
+When multiple waits are active simultaneously, the scheduler evaluates all overdue jobs
+concurrently. The original design (one job per tick) is shown here for reference:
 
 ```python
 import heapq
@@ -527,6 +532,55 @@ def wake_via_file(message: str):
 Add to HEARTBEAT.md: "Check smart-wait-events.json; if present, read and clear it."
 
 **Decision**: Start with Option A (`openclaw system event` CLI). It's purpose-built for this exact use case, requires zero custom OpenClaw code, and wakes the agent within seconds. Three lines of Python.
+
+## Performance Optimizations (Implemented)
+
+The design in "Multiplexing Multiple Wait Jobs" above shows the original sequential design
+where only the most-overdue job was evaluated per loop tick. The actual implementation
+has been significantly optimized:
+
+### Parallel Job Evaluation
+All overdue jobs are evaluated concurrently via `asyncio.gather()` — not one at a time.
+With 2 active waits, total latency = time of the slowest single vision call (not 2× serial).
+
+```python
+overdue = [j for j in self.jobs.values() if j.next_check_at <= now]
+await asyncio.gather(*[self._evaluate_job(j) for j in overdue])
+```
+
+A module-level `asyncio.Lock` (`_CAPTURE_LOCK`) serializes Xlib frame captures
+across concurrent evaluations, since Xlib is not thread-safe.
+
+### Async Frame Capture
+`capture_screen()` (Xlib) and `frame_to_jpeg()` / `frame_to_thumbnail()` (PIL) are
+dispatched to a thread pool via `run_in_executor()`. The event loop stays responsive
+during capture (30–100 ms freed per poll cycle).
+
+### Diff Downsampling
+The pixel-diff gate now decimates frames to ≤320 px wide before comparing numpy arrays —
+~30× fewer cells, same accuracy for change detection. Full-resolution frames are still
+sent to the vision model.
+
+### Persistent HTTP Connections
+All vision backends (Ollama, vLLM, Claude, OpenRouter) use a module-level
+`httpx.AsyncClient` that's reused across all calls. No TLS handshake or TCP connection
+overhead per vision query (saves 100–300 ms for cloud backends).
+
+### Ollama Keep-Alive
+Default `keep_alive` is `"10m"` — the model stays loaded in VRAM between wait
+evaluations. Previously `"0"` caused a 5–30 s cold-start penalty on every call.
+
+### Async Subprocess
+The OpenClaw wake call (`openclaw system event --mode now`) uses
+`asyncio.create_subprocess_exec()` instead of blocking `subprocess.run()`.
+The event loop is no longer frozen for up to 10 s on each resolution.
+
+### OpenRouter Vision Backend
+A new `openrouter` backend routes vision queries to any cloud model.
+Recommended: `google/gemini-2.0-flash-001` at $0.10/$0.40 per million tokens
+(~$0.00022/eval, 10× cheaper than Claude Haiku, no GPU required).
+
+See `docs/PERFORMANCE-OPTIMIZATION.md` for full measurements and cost breakdown.
 
 ## PTY Targets (Current Behavior)
 

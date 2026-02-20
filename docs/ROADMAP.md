@@ -105,13 +105,30 @@
 - [x] Web dashboard served by daemon (no separate process)
 - [x] Task list sidebar with status badges and progress bars
 - [x] Expandable task tree with nested actions, screenshots, lightbox
-- [x] Rich action logs: GUI screenshots, coordinates, confidence scores
-- [x] Live MJPEG screen stream per task (per-task virtual display)
+- [x] Rich action logs: GUI screenshots, coordinates, confidence scores, backend/model used
+- [x] Live polled JPEG screen view per task (2 fps)
+- [x] Replay mode — scrub through recorded frames frame-by-frame
 - [x] Color-coded message feed (agent narration, wait events, system messages)
 - [x] Task control buttons (Pause, Resume, Cancel) — human can free up the LLM
-- [x] Recording controls (start/stop per task)
+- [x] Recording controls (start/stop per task, elapsed timer)
+- [x] Video export — on task complete/cancel, frames encoded to H.264 MP4 via ffmpeg; download button in sidebar
 - [x] Per-task virtual displays (Xvfb isolation via display/manager.py)
 - [x] Stuck detection + automatic LLM wake with resume packets
+
+## Phase 7.5: Pipeline Performance Optimization ← DONE
+
+**Goal**: Reduce latency throughout the SmartWait and capture pipeline.
+
+- [x] HTTP connection pooling — persistent `httpx.AsyncClient` in all vision backends (saves 100–300 ms/call)
+- [x] OpenRouter vision backend — cloud alternative, no GPU required; Gemini 2.0 Flash 10× cheaper than Claude Haiku
+- [x] Async frame capture — `capture_screen()` + `frame_to_jpeg()` off-thread via `run_in_executor`; event loop stays responsive
+- [x] Parallel job evaluation — all overdue wait jobs evaluated concurrently via `asyncio.gather()`; Xlib serialized by `_CAPTURE_LOCK`
+- [x] Ollama `keep_alive` default `"0"` → `"10m"` — eliminates 5–30 s cold-start between calls
+- [x] Pixel-diff downsampling — diff computed on 320 px wide frame instead of full 1920 px (~30× faster)
+- [x] Async subprocess for OpenClaw wake — `asyncio.create_subprocess_exec` replaces blocking `subprocess.run`
+- [x] Dashboard frame buffer rate — 4 fps → 2 fps (halved Xlib load)
+
+See `docs/PERFORMANCE-OPTIMIZATION.md` for full before/after measurements and cost analysis.
 
 ## Phase 7: Context Compaction & LLM Guidance ← DONE
 

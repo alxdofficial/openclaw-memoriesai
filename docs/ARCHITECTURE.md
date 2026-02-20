@@ -12,7 +12,7 @@ Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
 2. **Smart Wait** — vision-based async monitoring with pixel-diff gate + adaptive polling
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
-4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
+4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
 5. **Display Manager** — per-task virtual displays (Xvfb isolation)
 
 ## System Architecture
@@ -58,10 +58,10 @@ Five layers:
 │  ┌─────────▼────────────────────────▼────────────────────┐  │
 │  │              Vision Backend (pluggable)                │  │
 │  │                                                       │  │
-│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐  │  │
-│  │  │ Ollama   │ │ vLLM     │ │ Claude │ │Passthrough│  │  │
-│  │  │(default) │ │(UI-TARS) │ │ (API)  │ │ (no eval) │  │  │
-│  │  └──────────┘ └──────────┘ └────────┘ └───────────┘  │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ ┌────────────┐ │  │
+│  │  │ Ollama   │ │ vLLM     │ │ Claude │ │Passthrough│ │ OpenRouter │ │  │
+│  │  │(default) │ │(UI-TARS) │ │ (API)  │ │ (no eval) │ │(cloud,any) │ │  │
+│  │  └──────────┘ └──────────┘ └────────┘ └───────────┘ └────────────┘ │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                                                              │
 │  ┌──────────────────┐  ┌──────────────────────────────────┐ │
@@ -135,9 +135,13 @@ Vision-based async monitoring. The LLM delegates a visual wait, the daemon monit
 ```
 Target (window or screen)
   │
-  ▼
+  ▼  [run_in_executor — Xlib off-thread, serialized by _CAPTURE_LOCK]
 Frame Grabber → Pixel-Diff Gate → Vision Backend Evaluation → Decision
-                (skip if static)   (evaluate NL condition)
+  │             (320px downsample   (evaluate NL condition)
+  │              before diff, ~30×  persistent HTTP client,
+  │              faster)            no reconnect per call
+  ▼  [run_in_executor — PIL off-thread]
+JPEG / thumbnail encode
 ```
 
 **Adaptive polling**:
@@ -146,18 +150,25 @@ Frame Grabber → Pixel-Diff Gate → Vision Backend Evaluation → Decision
 - Partial match: 0.5-1s burst mode
 - 30s+ static: forced re-evaluation
 
+**Parallel job evaluation**: all overdue wait jobs are evaluated concurrently via `asyncio.gather()`. Vision I/O runs in parallel; Xlib captures are serialized by a module-level `asyncio.Lock` (`_CAPTURE_LOCK`). `_resolve_job` / `_timeout_job` guard against double-resolution from concurrent evaluations.
+
 ### Vision Backend (Pluggable)
 
 Configured via `ACU_VISION_BACKEND`:
 
-| Backend | Model | Use Case |
-|---------|-------|----------|
-| `ollama` (default) | Configurable (`ACU_VISION_MODEL`) | Local evaluation, general purpose |
-| `vllm` | UI-TARS-1.5-7B, Qwen, etc. | Best accuracy for grounding + wait |
-| `claude` | Claude via Anthropic API | Zero-GPU fallback, API cost |
-| `passthrough` | None | No evaluation, returns raw screenshots |
+| Backend | Model | Use Case | Cost |
+|---------|-------|----------|------|
+| `ollama` (default) | Configurable (`ACU_VISION_MODEL`, default `minicpm-v`) | Local, free | Free (GPU) |
+| `vllm` | UI-TARS-1.5-7B, Qwen, etc. | Best accuracy for grounding + wait | Free (GPU) |
+| `claude` | Claude via Anthropic API | Zero-GPU fallback | ~$0.002/eval |
+| `openrouter` | Any model (Gemini Flash, Haiku, etc.) | Cloud, no GPU, cheapest option | ~$0.0002/eval |
+| `passthrough` | None | Debug — no evaluation | Free |
 
 All backends implement `evaluate_condition(prompt, images)` and `check_health()`.
+
+All backends use a **persistent `httpx.AsyncClient`** (module-level singleton) so TLS connections are reused across calls — saves 100–300 ms per cloud call.
+
+**OpenRouter recommendation:** `google/gemini-2.0-flash-001` at $0.10/$0.40 per million tokens (~$0.00022/eval) is 10× cheaper than Claude Haiku and has strong multimodal vision for UI screenshots. Set `OPENROUTER_API_KEY` + `ACU_VISION_BACKEND=openrouter` + `ACU_OPENROUTER_VISION_MODEL=google/gemini-2.0-flash-001`.
 
 ### GUI Agent (NL Grounding)
 
@@ -216,12 +227,14 @@ Background loop in the daemon (`stuck_detection_loop()`, 60s interval) monitors 
 Built-in web UI served by the daemon at `/dashboard`. No separate process.
 
 Components (`dashboard/components/`):
-- **task-list.js** — sidebar with status badges and progress bars
-- **task-tree.js** — expandable plan items → actions → logs with screenshots, coordinates, lightbox
-- **screen-viewer.js** — MJPEG stream + recording controls
+- **task-list.js** — sidebar with status badges and progress bars; **download button** for completed/cancelled task recordings (MP4)
+- **task-tree.js** — expandable plan items → actions → logs with screenshots, coordinates, lightbox; shows which vision model/backend was used per action
+- **screen-viewer.js** — polled JPEG live view (2 fps) + **replay mode** (scrub through recorded frames frame-by-frame) + recording controls (start/stop with elapsed timer)
 - **message-feed.js** — color-coded message feed (agent=blue, user=white, wait=yellow, system=gray/green, errors=red)
 
 Task controls in the tree header: **Pause**, **Resume**, **Cancel** buttons that POST status changes to the daemon.
+
+**Frame recording & video export:** While a task is active the daemon captures JPEG frames at ~2 fps into `~/.agentic-computer-use/recordings/{task_id}/`. On task completion or cancellation, frames are encoded to H.264 MP4 (ffmpeg, CRF 28, 2 fps) and the raw frames are deleted. The MP4 is available for download via the dashboard. Deleting a task also deletes the video. Only failed tasks discard frames immediately (no video created).
 
 ### Database
 
@@ -244,17 +257,20 @@ All environment variables use the `ACU_*` prefix:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ACU_VISION_BACKEND` | `ollama` | Vision backend: ollama, vllm, claude, passthrough |
-| `ACU_VISION_MODEL` | `minicpm-v` | Ollama model name |
+| `ACU_VISION_BACKEND` | `ollama` | Vision backend: ollama, vllm, claude, openrouter, passthrough |
+| `ACU_VISION_MODEL` | `minicpm-v` | Ollama vision model name |
 | `ACU_VLLM_URL` | `http://localhost:8000` | vLLM API endpoint |
 | `ACU_VLLM_MODEL` | `ui-tars-1.5-7b` | vLLM model name |
 | `ACU_CLAUDE_VISION_MODEL` | `claude-sonnet-4-20250514` | Claude vision model |
-| `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu |
-| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — enables cloud UI-TARS grounding |
+| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — for both vision and GUI-TARS grounding |
+| `ACU_OPENROUTER_VISION_MODEL` | `anthropic/claude-haiku-4-5` | OpenRouter model for vision (recommend `google/gemini-2.0-flash-001`) |
+| `OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps vision model in VRAM between calls |
+| `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu, omniparser |
 | `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
 | `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
+| `ACU_DIFF_MAX_WIDTH` | `320` | Downsample width for pixel-diff computation (lower = faster, less accurate) |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
-| `DISPLAY` | `:1` | X11 display for screen capture |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API URL |
+| `DISPLAY` | `:99` | X11 display for screen capture (system shared display) |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama API URL |
 | `ANTHROPIC_API_KEY` | (none) | Required for Claude vision/GUI backends |
