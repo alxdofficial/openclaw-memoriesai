@@ -3,7 +3,6 @@ import asyncio
 import json
 import logging
 import re
-import subprocess
 import time
 from dataclasses import dataclass, field
 
@@ -17,6 +16,11 @@ from .context import JobContext
 from .poller import AdaptivePoller
 
 log = logging.getLogger(__name__)
+
+# Serialize Xlib calls across all parallel job evaluations — Xlib is not thread-safe.
+# This lock is an asyncio.Lock (not a threading.Lock), so only one coroutine at a
+# time enters the capture block, but the event loop is not blocked while waiting.
+_CAPTURE_LOCK = asyncio.Lock()
 
 
 @dataclass
@@ -94,13 +98,16 @@ class WaitEngine:
             return
         self._loop_running = True
         log.info("Wait engine loop started")
+
         while self.jobs:
             now = time.time()
 
-            # Find the most overdue job
-            next_job = min(self.jobs.values(), key=lambda j: j.next_check_at)
+            # Collect all overdue jobs and evaluate them in parallel.
+            # Jobs that aren't due yet are skipped; we sleep until the nearest one.
+            overdue = [j for j in list(self.jobs.values()) if j.next_check_at <= now]
 
-            if next_job.next_check_at > now:
+            if not overdue:
+                next_job = min(self.jobs.values(), key=lambda j: j.next_check_at)
                 wait_time = next_job.next_check_at - now
                 self._wake_event.clear()
                 try:
@@ -109,81 +116,97 @@ class WaitEngine:
                     pass
                 continue
 
-            # Check timeout
-            elapsed = now - next_job.context.started_at
-            if elapsed > next_job.timeout:
-                await self._timeout_job(next_job)
-                continue
-
-            # Capture frame
-            frame = self._capture(next_job)
-            if frame is None:
-                log.warning(f"Job {next_job.id}: frame capture failed")
-                next_job.next_check_at = now + next_job.poller.interval
-                continue
-
-            # Pixel-diff gate
-            if not next_job.diff_gate.should_evaluate(frame):
-                # Force re-eval if static for too long (catches subtle changes diff misses)
-                since_last_vision = now - next_job._last_vision_at if next_job._last_vision_at else now - next_job.context.started_at
-                if since_last_vision >= config.MAX_STATIC_SECONDS:
-                    debug.log_wait_event(next_job.id, "FORCE RE-EVAL", f"static for {since_last_vision:.0f}s (>{config.MAX_STATIC_SECONDS}s), forcing vision check")
-                    # Fall through to vision evaluation below
-                else:
-                    next_job.poller.on_no_change()
-                    next_job.next_check_at = now + next_job.poller.interval
-                    debug.log_diff_gate(next_job.id, False, next_job.diff_gate.last_diff_pct)
-                    log.debug(f"Job {next_job.id}: no change, next in {next_job.poller.interval:.1f}s")
-                    continue
-            else:
-                debug.log_diff_gate(next_job.id, True, next_job.diff_gate.last_diff_pct)
-
-            # Add frame to context
-            jpeg = frame_to_jpeg(frame)
-            thumb = frame_to_thumbnail(frame)
-            next_job.context.add_frame(jpeg, thumb, now)
-
-            # Vision evaluation
-            try:
-                next_job._last_vision_at = time.time()
-                prompt, images = next_job.context.build_prompt(next_job.criteria)
-                response = await evaluate_condition(prompt, images, job_id=next_job.id)
-                verdict, desc = self._parse_verdict(response)
-                next_job.context.add_verdict(verdict, desc, now)
-                log.info(f"Job {next_job.id}: {verdict} — {desc}")
-                debug.log_wait_event(next_job.id, f"VERDICT: {verdict.upper()}", desc)
-                if next_job.task_id:
-                    asyncio.ensure_future(task_mgr.log_wait_verdict(next_job.task_id, next_job.id, verdict, desc))
-
-                if verdict == "resolved":
-                    next_job._partial_streak = 0
-                    await self._resolve_job(next_job, desc)
-                elif verdict == "partial":
-                    next_job._partial_streak += 1
-                    streak = next_job._partial_streak
-                    if streak >= config.PARTIAL_STREAK_RESOLVE:
-                        # N consecutive PARTIALs → treat as resolved (model is being overly conservative)
-                        promote_desc = f"[promoted from {streak}x PARTIAL] {desc}"
-                        debug.log_wait_event(next_job.id, "PARTIAL→RESOLVED", f"streak={streak} >= {config.PARTIAL_STREAK_RESOLVE}: {desc}")
-                        log.info(f"Job {next_job.id}: promoting {streak}x PARTIAL streak to RESOLVED")
-                        await self._resolve_job(next_job, promote_desc)
-                    else:
-                        next_job.poller.on_partial()
-                        debug.log_wait_event(next_job.id, f"PARTIAL streak={streak}/{config.PARTIAL_STREAK_RESOLVE}", desc)
-                else:
-                    next_job._partial_streak = 0
-                    next_job.poller.on_change_no_match()
-            except Exception as e:
-                log.error(f"Job {next_job.id}: evaluation error: {e}")
-                next_job.poller.on_change_no_match()
-
-            next_job.next_check_at = time.time() + next_job.poller.interval
+            # Evaluate all overdue jobs concurrently.
+            # Vision calls (pure async I/O) run in parallel; frame captures are
+            # serialized via _CAPTURE_LOCK to avoid Xlib thread-safety issues.
+            await asyncio.gather(*[self._evaluate_job(j) for j in overdue])
 
         self._loop_running = False
         log.info("Wait engine loop ended (no active jobs)")
 
+    async def _evaluate_job(self, next_job: WaitJob):
+        """Evaluate a single wait job: capture → diff → vision → verdict."""
+        # Guard: job may have been cancelled between the overdue-list snapshot and now
+        if next_job.id not in self.jobs:
+            return
+
+        now = time.time()
+        loop = asyncio.get_event_loop()
+
+        # Check timeout
+        elapsed = now - next_job.context.started_at
+        if elapsed > next_job.timeout:
+            await self._timeout_job(next_job)
+            return
+
+        # Capture frame — serialize across parallel evaluations (Xlib not thread-safe)
+        async with _CAPTURE_LOCK:
+            frame = await loop.run_in_executor(None, self._capture, next_job)
+
+        if frame is None:
+            log.warning(f"Job {next_job.id}: frame capture failed")
+            next_job.next_check_at = now + next_job.poller.interval
+            return
+
+        # Pixel-diff gate
+        if not next_job.diff_gate.should_evaluate(frame):
+            # Force re-eval if static for too long (catches subtle changes diff misses)
+            since_last_vision = now - next_job._last_vision_at if next_job._last_vision_at else now - next_job.context.started_at
+            if since_last_vision >= config.MAX_STATIC_SECONDS:
+                debug.log_wait_event(next_job.id, "FORCE RE-EVAL", f"static for {since_last_vision:.0f}s (>{config.MAX_STATIC_SECONDS}s), forcing vision check")
+                # Fall through to vision evaluation below
+            else:
+                next_job.poller.on_no_change()
+                next_job.next_check_at = now + next_job.poller.interval
+                debug.log_diff_gate(next_job.id, False, next_job.diff_gate.last_diff_pct)
+                log.debug(f"Job {next_job.id}: no change, next in {next_job.poller.interval:.1f}s")
+                return
+        else:
+            debug.log_diff_gate(next_job.id, True, next_job.diff_gate.last_diff_pct)
+
+        # Encode frame to JPEG/thumbnail off the main thread (PIL is slow)
+        jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
+        thumb = await loop.run_in_executor(None, frame_to_thumbnail, frame)
+        next_job.context.add_frame(jpeg, thumb, now)
+
+        # Vision evaluation — pure async I/O, runs concurrently with other jobs
+        try:
+            next_job._last_vision_at = time.time()
+            prompt, images = next_job.context.build_prompt(next_job.criteria)
+            response = await evaluate_condition(prompt, images, job_id=next_job.id)
+            verdict, desc = self._parse_verdict(response)
+            next_job.context.add_verdict(verdict, desc, now)
+            log.info(f"Job {next_job.id}: {verdict} — {desc}")
+            debug.log_wait_event(next_job.id, f"VERDICT: {verdict.upper()}", desc)
+            if next_job.task_id:
+                asyncio.ensure_future(task_mgr.log_wait_verdict(next_job.task_id, next_job.id, verdict, desc))
+
+            if verdict == "resolved":
+                next_job._partial_streak = 0
+                await self._resolve_job(next_job, desc)
+            elif verdict == "partial":
+                next_job._partial_streak += 1
+                streak = next_job._partial_streak
+                if streak >= config.PARTIAL_STREAK_RESOLVE:
+                    # N consecutive PARTIALs → treat as resolved (model is being overly conservative)
+                    promote_desc = f"[promoted from {streak}x PARTIAL] {desc}"
+                    debug.log_wait_event(next_job.id, "PARTIAL→RESOLVED", f"streak={streak} >= {config.PARTIAL_STREAK_RESOLVE}: {desc}")
+                    log.info(f"Job {next_job.id}: promoting {streak}x PARTIAL streak to RESOLVED")
+                    await self._resolve_job(next_job, promote_desc)
+                else:
+                    next_job.poller.on_partial()
+                    debug.log_wait_event(next_job.id, f"PARTIAL streak={streak}/{config.PARTIAL_STREAK_RESOLVE}", desc)
+            else:
+                next_job._partial_streak = 0
+                next_job.poller.on_change_no_match()
+        except Exception as e:
+            log.error(f"Job {next_job.id}: evaluation error: {e}")
+            next_job.poller.on_change_no_match()
+
+        next_job.next_check_at = time.time() + next_job.poller.interval
+
     def _capture(self, job: WaitJob):
-        """Capture frame based on target type."""
+        """Capture frame based on target type. Called via run_in_executor."""
         if job.target_type == "screen":
             return capture_screen(display=job.display)
         elif job.target_type == "window":
@@ -281,6 +304,8 @@ class WaitEngine:
 
     async def _resolve_job(self, job: WaitJob, description: str):
         """Condition met — wake OpenClaw and update linked task."""
+        if job.id not in self.jobs:
+            return  # Already cancelled or resolved by a concurrent evaluation
         job.status = "resolved"
         job.result_message = description
         del self.jobs[job.id]
@@ -314,6 +339,8 @@ class WaitEngine:
 
     async def _timeout_job(self, job: WaitJob):
         """Timeout — report last observation and update linked task."""
+        if job.id not in self.jobs:
+            return  # Already cancelled or resolved by a concurrent evaluation
         last_desc = ""
         if job.context.verdicts:
             last_desc = f" Last observation: {job.context.verdicts[-1].description}"
@@ -355,18 +382,28 @@ class WaitEngine:
         return refs or None
 
     async def _inject_system_event(self, message: str):
-        """Inject a system event into OpenClaw to wake the agent."""
+        """Inject a system event into OpenClaw to wake the agent (async subprocess)."""
         try:
             from .. import config as _cfg
-            result = subprocess.run(
-                [_cfg.OPENCLAW_CLI, "system", "event", "--text", message, "--mode", "now"],
-                capture_output=True, text=True, timeout=10
+            proc = await asyncio.create_subprocess_exec(
+                _cfg.OPENCLAW_CLI, "system", "event", "--text", message, "--mode", "now",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode == 0:
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                log.error("System event injection timed out")
+                debug.log_openclaw_event("system_event", "TIMEOUT", success=False)
+                return
+            if proc.returncode == 0:
                 log.info(f"System event injected: {message[:80]}...")
                 debug.log_openclaw_event("system_event", message, success=True)
             else:
-                log.error(f"System event failed: {result.stderr}")
-                debug.log_openclaw_event("system_event", f"FAILED: {result.stderr}", success=False)
+                err = stderr.decode(errors="replace").strip()
+                log.error(f"System event failed: {err}")
+                debug.log_openclaw_event("system_event", f"FAILED: {err}", success=False)
         except Exception as e:
             log.error(f"System event injection error: {e}")

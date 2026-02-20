@@ -8,6 +8,16 @@ from ..base import VisionBackend
 
 log = logging.getLogger(__name__)
 
+# Persistent client — reused across calls to avoid TCP connection overhead
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=180.0)
+    return _client
+
 
 class OllamaBackend(VisionBackend):
     async def evaluate_condition(
@@ -37,25 +47,25 @@ class OllamaBackend(VisionBackend):
             payload["images"] = encoded_images
 
         start = time.time()
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(f"{config.OLLAMA_URL}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            response_text = data.get("response", "").strip()
-            elapsed_ms = (time.time() - start) * 1000
+        client = _get_client()
+        resp = await client.post(f"{config.OLLAMA_URL}/api/generate", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        response_text = data.get("response", "").strip()
+        elapsed_ms = (time.time() - start) * 1000
 
-            debug.log_vision_response(response_text, elapsed_ms, job_id=job_id)
-            log.debug(f"Vision response ({data.get('total_duration', 0)/1e9:.1f}s): {response_text}")
-            return response_text
+        debug.log_vision_response(response_text, elapsed_ms, job_id=job_id)
+        log.debug(f"Vision response ({data.get('total_duration', 0)/1e9:.1f}s): {response_text}")
+        return response_text
 
     async def check_health(self) -> dict:
         model = config.VISION_MODEL
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{config.OLLAMA_URL}/api/tags")
-                resp.raise_for_status()
-                models = [m["name"] for m in resp.json().get("models", [])]
-                has_model = any(model in m for m in models)
-                return {"ok": True, "backend": "ollama", "models": models, "has_model": has_model, "target_model": model}
+            client = _get_client()
+            resp = await client.get(f"{config.OLLAMA_URL}/api/tags", timeout=5.0)
+            resp.raise_for_status()
+            models = [m["name"] for m in resp.json().get("models", [])]
+            has_model = any(model in m for m in models)
+            return {"ok": True, "backend": "ollama", "models": models, "has_model": has_model, "target_model": model}
         except Exception as e:
             return {"ok": False, "backend": "ollama", "error": str(e)}

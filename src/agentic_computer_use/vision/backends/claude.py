@@ -8,6 +8,23 @@ from ..base import VisionBackend
 
 log = logging.getLogger(__name__)
 
+# Persistent client — reused across calls to avoid TLS handshake overhead
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=120.0,
+            headers={
+                "x-api-key": config.CLAUDE_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+        )
+    return _client
+
 
 class ClaudeBackend(VisionBackend):
     async def evaluate_condition(
@@ -42,23 +59,18 @@ class ClaudeBackend(VisionBackend):
         }
 
         start = time.time()
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                json=payload,
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            response_text = data["content"][0]["text"].strip()
-            elapsed_ms = (time.time() - start) * 1000
+        client = _get_client()
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        response_text = data["content"][0]["text"].strip()
+        elapsed_ms = (time.time() - start) * 1000
 
-            debug.log_vision_response(response_text, elapsed_ms, job_id=job_id)
-            return response_text
+        debug.log_vision_response(response_text, elapsed_ms, job_id=job_id)
+        return response_text
 
     async def check_health(self) -> dict:
         if not config.CLAUDE_API_KEY:

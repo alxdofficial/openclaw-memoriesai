@@ -494,7 +494,7 @@ async def _frame_buffer_loop(display: str) -> None:
                 _frame_buffer_dims[display] = (frame.shape[1], frame.shape[0])
         except Exception:
             pass
-        await asyncio.sleep(0.25)  # ~4fps
+        await asyncio.sleep(0.5)  # ~2fps — halved to reduce Xlib load
 
 
 def _ensure_frame_buffer(display: str) -> None:

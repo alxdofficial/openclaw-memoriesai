@@ -24,11 +24,14 @@ def _get_backend() -> VisionBackend:
     elif name == "claude":
         from .backends.claude import ClaudeBackend
         _backend = ClaudeBackend()
+    elif name == "openrouter":
+        from .backends.openrouter import OpenRouterBackend
+        _backend = OpenRouterBackend()
     elif name == "passthrough":
         from .backends.passthrough import PassthroughBackend
         _backend = PassthroughBackend()
     else:
-        raise ValueError(f"Unknown vision backend: {name}. Use ollama|vllm|claude|passthrough")
+        raise ValueError(f"Unknown vision backend: {name}. Use ollama|vllm|claude|openrouter|passthrough")
 
     return _backend
 

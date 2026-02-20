@@ -36,8 +36,9 @@ VISION_SYSTEM_INSTRUCTIONS = os.environ.get(
 VLLM_URL = os.environ.get("ACU_VLLM_URL", "http://localhost:8000")
 VLLM_MODEL = os.environ.get("ACU_VLLM_MODEL", "ui-tars-1.5-7b")
 
-# OpenRouter (cloud grounding — UI-TARS via API)
+# OpenRouter (cloud vision backend — Claude Haiku, Gemini Flash, etc.)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_VISION_MODEL = os.environ.get("ACU_OPENROUTER_VISION_MODEL", "anthropic/claude-haiku-4-5")
 
 # UI-TARS local via Ollama (used when no OpenRouter key)
 UITARS_OLLAMA_MODEL = os.environ.get("ACU_UITARS_OLLAMA_MODEL", "0000/ui-tars-1.5-7b")
@@ -58,8 +59,8 @@ OMNIPARSER_PICKER_MODEL = os.environ.get("ACU_OMNIPARSER_PICKER_MODEL", "claude-
 OMNIPARSER_BBOX_THRESHOLD = float(os.environ.get("ACU_OMNIPARSER_BBOX_THRESHOLD", "0.05"))
 OMNIPARSER_IOU_THRESHOLD = float(os.environ.get("ACU_OMNIPARSER_IOU_THRESHOLD", "0.1"))
 
-# Ollama model keepalive — "0" = unload immediately after each response (frees VRAM)
-OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "0")
+# Ollama model keepalive — "0" = unload immediately, "10m" = keep loaded for 10 min
+OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "10m")
 
 # Smart Wait confidence / partial-streak thresholds
 RESOLVE_CONFIDENCE_THRESHOLD = float(os.environ.get("ACU_RESOLVE_CONFIDENCE", "0.75"))
@@ -74,6 +75,7 @@ MIN_POLL_INTERVAL = 0.5
 MAX_POLL_INTERVAL = 5.0
 DEFAULT_TIMEOUT = 300  # seconds
 PIXEL_DIFF_THRESHOLD = 0.01  # 1% of pixels must change
+DIFF_MAX_WIDTH = int(os.environ.get("ACU_DIFF_MAX_WIDTH", "320"))  # downsample before diff
 MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
 STUCK_DETECTION_ENABLED = os.environ.get("ACU_STUCK_DETECTION", "0") in ("1", "true", "yes")
 FRAME_MAX_DIM = 1920  # send full resolution — small models miss text at lower res
