@@ -131,6 +131,30 @@ html, body {
   min-width: 0;
 }
 
+.task-video-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+#task-list li:hover .task-video-btn {
+  opacity: 1;
+}
+
+.task-video-btn:hover {
+  color: #58a6ff;
+  background: rgba(88,166,255,0.15);
+}
+
 .task-delete-btn {
   background: none;
   border: none;

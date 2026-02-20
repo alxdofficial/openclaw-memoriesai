@@ -40,7 +40,16 @@ const TaskTree = (() => {
       const label = _WAIT_STATUS_LABEL[act.status] || `wait:${act.status || "active"}`;
       return { senderLabel: label, senderClass: "sender-wait" };
     }
-    if (type === "gui")       return { senderLabel: `gui:${_guiSubAction(act)}`,  senderClass: "sender-gui" };
+    if (type === "gui") {
+      let subLabel = _guiSubAction(act);
+      if (act.output_data) {
+        try {
+          const d = typeof act.output_data === "string" ? JSON.parse(act.output_data) : act.output_data;
+          if (d.backend && d.backend !== "direct") subLabel = d.backend;
+        } catch {}
+      }
+      return { senderLabel: `gui:${subLabel}`, senderClass: "sender-gui" };
+    }
     if (type === "vision")    return { senderLabel: "vision:look",                 senderClass: "sender-vision" };
     if (type === "cli")       return { senderLabel: "cli:exec",                     senderClass: "sender-cli" };
     if (type === "reasoning") return { senderLabel: "llm:reasoning",               senderClass: "sender-agent" };
@@ -335,6 +344,11 @@ const TaskTree = (() => {
     // Click coordinates (gui actions)
     if (obj.x != null && obj.y != null) {
       html += `<div class="action-field"><span class="action-coords">click (${obj.x}, ${obj.y})</span></div>`;
+    }
+
+    // Model/backend
+    if (obj.provider) {
+      html += `<div class="action-field"><span class="field-label">Model</span><span class="field-value">${_esc(obj.provider)}</span></div>`;
     }
 
     // Confidence

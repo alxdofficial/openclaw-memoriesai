@@ -31,3 +31,19 @@ def save_screenshot_from_jpeg(action_id: str, role: str, jpeg_bytes: bytes, thum
         return {}
 
     return {"full": full_name, "thumb": thumb_name}
+
+
+def cleanup_task_screenshots(action_ids: list[str]) -> int:
+    """Delete all screenshot files for the given action IDs. Returns number of files deleted."""
+    count = 0
+    for action_id in action_ids:
+        for role in ("before", "after"):
+            for suffix in ("", "_thumb"):
+                path = config.SCREENSHOTS_DIR / f"{action_id}_{role}{suffix}.jpg"
+                try:
+                    if path.exists():
+                        path.unlink()
+                        count += 1
+                except Exception as e:
+                    log.warning(f"Failed to delete screenshot {path.name}: {e}")
+    return count

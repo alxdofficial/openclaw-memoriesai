@@ -7,11 +7,13 @@ const TaskList = (() => {
   let _selectedId = null;
   let _onSelect = null;
   let _onDelete = null;
+  let _onDownload = null;
 
-  function init(container, onSelect, onDelete) {
+  function init(container, onSelect, onDelete, onDownload) {
     _container = container;
     _onSelect = onSelect;
     _onDelete = onDelete;
+    _onDownload = onDownload;
   }
 
   function setTasks(tasks) {
@@ -55,6 +57,7 @@ const TaskList = (() => {
               <div class="progress-fill" style="width:${task.progress_pct || 0}%"></div>
             </div>
           </div>
+          ${(task.status === "completed" || task.status === "cancelled") ? `<button class="task-video-btn" title="Download recording" data-task-id="${_esc(task.task_id)}">⬇</button>` : ""}
           <button class="task-delete-btn" title="Delete task" data-task-id="${_esc(task.task_id)}">&times;</button>
         </div>
       `;
@@ -69,6 +72,14 @@ const TaskList = (() => {
         e.stopPropagation();
         if (_onDelete) _onDelete(task.task_id, task.name);
       });
+
+      const videoBtn = li.querySelector(".task-video-btn");
+      if (videoBtn) {
+        videoBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (_onDownload) _onDownload(task.task_id);
+        });
+      }
 
       _container.appendChild(li);
     }

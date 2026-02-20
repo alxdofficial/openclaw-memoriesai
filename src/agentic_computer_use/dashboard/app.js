@@ -19,7 +19,7 @@ const App = (() => {
     const screenPlaceholder = document.getElementById("screen-placeholder");
     const filterEl = document.getElementById("task-filter");
 
-    TaskList.init(taskListEl, onTaskSelected, onTaskDelete);
+    TaskList.init(taskListEl, onTaskSelected, onTaskDelete, onTaskVideoDownload);
     TaskTree.init(taskTreeEl);
     ScreenViewer.init(screenImg, screenPlaceholder);
     ScreenViewer.initRecordControls(document.getElementById("record-controls"));
@@ -164,6 +164,30 @@ const App = (() => {
     // Start detail polling (task tree every 2s)
     if (_detailPollTimer) clearInterval(_detailPollTimer);
     _detailPollTimer = setInterval(pollSelectedTask, POLL_DETAIL_MS);
+  }
+
+  // ─── Video download ───────────────────────
+  async function onTaskVideoDownload(taskId) {
+    try {
+      const resp = await fetch(`${API_BASE}/api/tasks/${encodeURIComponent(taskId)}/video`, { method: "HEAD" });
+      if (resp.status === 202) {
+        alert("Recording is still being processed. Try again in a moment.");
+        return;
+      }
+      if (resp.status === 404) {
+        alert("No recording available for this task.");
+        return;
+      }
+      // Trigger download
+      const a = document.createElement("a");
+      a.href = `${API_BASE}/api/tasks/${encodeURIComponent(taskId)}/video`;
+      a.download = `task-${taskId}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Video download error", err);
+    }
   }
 
   // ─── Delete ───────────────────────────────

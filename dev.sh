@@ -63,7 +63,40 @@ cmd_status() {
     fi
 }
 
+ensure_virtual_desktop() {
+    # Virtual desktop services required for :99 display
+    local services=("xvfb-99" "xfce4-99" "xfwm4-99" "x11vnc-99" "novnc-99")
+    local started=0
+
+    for svc in "${services[@]}"; do
+        if ! systemctl is-active --quiet "$svc" 2>/dev/null; then
+            info "Starting $svc..."
+            sudo systemctl start "$svc" 2>/dev/null || true
+            started=1
+        fi
+    done
+
+    # User-level services
+    if ! systemctl --user is-active --quiet openclaw-gateway 2>/dev/null; then
+        info "Starting openclaw-gateway..."
+        systemctl --user start openclaw-gateway 2>/dev/null || true
+        started=1
+    fi
+
+    if [ "$started" -eq 1 ]; then
+        sleep 3  # give XFCE time to initialize
+    fi
+
+    if systemctl is-active --quiet xvfb-99 2>/dev/null; then
+        ok "Virtual desktop :99 is running  (VNC → port 5999)"
+    else
+        color "33" "  Warning: Xvfb :99 not running — live screen may be unavailable"
+    fi
+}
+
 cmd_start() {
+    ensure_virtual_desktop
+
     if session_running; then
         info "Killing existing session '$SESSION'..."
         tmux kill-session -t "$SESSION"
@@ -96,6 +129,8 @@ cmd_start() {
         info "Stop:                    ./dev.sh stop"
         echo ""
         info "Log file (for Claude):   $LOG_FILE"
+        info "VNC desktop (:99):       <server-ip>:5999  (native VNC)"
+        info "noVNC browser view:      http://<server-ip>:6080/vnc.html"
         echo ""
     else
         err "Failed to start tmux session. Check: tmux ls"

@@ -531,6 +531,9 @@ async def delete_task(task_id: str) -> dict:
         rows = await conn.execute_fetchall("SELECT 1 FROM tasks WHERE id = ?", (task_id,))
         if not rows:
             return {"error": f"Task {task_id} not found"}
+        # Collect action IDs before deletion so we can clean up screenshot files
+        action_rows = await conn.execute_fetchall("SELECT id FROM actions WHERE task_id = ?", (task_id,))
+        action_ids = [dict(r)["id"] for r in action_rows]
         # Delete child tables first (no FK cascade in SQLite by default)
         await conn.execute(
             "DELETE FROM action_logs WHERE action_id IN (SELECT id FROM actions WHERE task_id = ?)", (task_id,)
@@ -555,6 +558,20 @@ async def delete_task(task_id: str) -> dict:
             rec_dir = config.DATA_DIR / "recordings" / task_id
             if rec_dir.exists():
                 shutil.rmtree(rec_dir)
+        except Exception:
+            pass
+        try:
+            from ..screenshots import cleanup_task_screenshots
+            deleted = cleanup_task_screenshots(action_ids)
+            if deleted:
+                log.debug(f"Deleted {deleted} screenshot files for task {task_id}")
+        except Exception as e:
+            log.warning(f"Failed to clean up screenshots for task {task_id}: {e}")
+        try:
+            from ..capture.frame_recorder import video_path
+            vp = video_path(task_id)
+            if vp.exists():
+                vp.unlink(missing_ok=True)
         except Exception:
             pass
         debug.log_task(task_id, "DELETED", "hard delete")

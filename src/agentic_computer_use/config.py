@@ -63,7 +63,7 @@ OLLAMA_KEEP_ALIVE = os.environ.get("OLLAMA_KEEP_ALIVE", "0")
 
 # Smart Wait confidence / partial-streak thresholds
 RESOLVE_CONFIDENCE_THRESHOLD = float(os.environ.get("ACU_RESOLVE_CONFIDENCE", "0.75"))
-PARTIAL_STREAK_RESOLVE = int(os.environ.get("ACU_PARTIAL_STREAK_RESOLVE", "3"))
+PARTIAL_STREAK_RESOLVE = int(os.environ.get("ACU_PARTIAL_STREAK_RESOLVE", "2"))
 
 # OpenClaw
 OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
@@ -71,7 +71,7 @@ OPENCLAW_GATEWAY_PORT = int(os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"))
 # Smart Wait defaults
 DEFAULT_POLL_INTERVAL = 2.0  # seconds
 MIN_POLL_INTERVAL = 0.5
-MAX_POLL_INTERVAL = 15.0
+MAX_POLL_INTERVAL = 5.0
 DEFAULT_TIMEOUT = 300  # seconds
 PIXEL_DIFF_THRESHOLD = 0.01  # 1% of pixels must change
 MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
@@ -86,6 +86,13 @@ THUMBNAIL_MAX_DIM = 360
 THUMBNAIL_JPEG_QUALITY = 60
 MAX_CONTEXT_FRAMES = 4
 MAX_CONTEXT_VERDICTS = 3
+
+# Storage management
+# Max MB for continuous frame recordings before oldest task-dirs are pruned (0 = unlimited)
+MAX_RECORDINGS_MB = int(os.environ.get("ACU_MAX_RECORDINGS_MB", "1000"))
+# Keep frame recordings after a task completes (cancelled/failed recordings are always deleted)
+KEEP_RECORDINGS_ON_COMPLETE = os.environ.get("ACU_KEEP_RECORDINGS_ON_COMPLETE", "0") in ("1", "true", "yes")
+
 
 def ensure_data_dir():
     DATA_DIR.mkdir(parents=True, exist_ok=True)

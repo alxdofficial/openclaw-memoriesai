@@ -6,7 +6,8 @@ const ScreenViewer = (() => {
   let _placeholder = null;
   let _currentTaskId = null;
   let _pollTimer = null;
-  let _prevBlobUrl = null;
+  let _prevLiveBlobUrl = null;
+  let _prevReplayBlobUrl = null;
   let _fetching = false;
 
   // Recording state
@@ -153,6 +154,7 @@ const ScreenViewer = (() => {
     _replayMode = false;
     if (_replayBar) _replayBar.classList.add("hidden");
     if (_replayBtn) _replayBtn.classList.remove("active");
+    if (_prevReplayBlobUrl) { URL.revokeObjectURL(_prevReplayBlobUrl); _prevReplayBlobUrl = null; }
     if (_currentTaskId) {
       _fetchFrame();
       _pollTimer = setInterval(_fetchFrame, POLL_MS);
@@ -168,7 +170,7 @@ const ScreenViewer = (() => {
   }
 
   async function _showReplayFrame(idx) {
-    if (!_currentTaskId || !_replayFrames[idx] === undefined) return;
+    if (!_currentTaskId || _replayFrames[idx] === undefined) return;
     const frameN = _replayFrames[idx];
     const url = `/api/tasks/${encodeURIComponent(_currentTaskId)}/frames/${frameN}`;
     try {
@@ -177,8 +179,8 @@ const ScreenViewer = (() => {
       const blob = await resp.blob();
       const blobUrl = URL.createObjectURL(blob);
       if (_img) { _img.src = blobUrl; _img.classList.add("active"); }
-      if (_prevBlobUrl) URL.revokeObjectURL(_prevBlobUrl);
-      _prevBlobUrl = blobUrl;
+      if (_prevReplayBlobUrl) URL.revokeObjectURL(_prevReplayBlobUrl);
+      _prevReplayBlobUrl = blobUrl;
     } catch (e) { /* ignore */ }
   }
 
@@ -194,7 +196,7 @@ const ScreenViewer = (() => {
   }
 
   async function _fetchFrame() {
-    if (_fetching) return; // skip if previous fetch still in flight
+    if (_fetching || _replayMode) return; // skip if in-flight or replaying
     _fetching = true;
     const taskId = _currentTaskId;
     try {
@@ -206,8 +208,9 @@ const ScreenViewer = (() => {
       // Swap via offscreen Image to avoid flicker
       const tmp = new Image();
       tmp.onload = () => {
+        // Discard if task changed or replay started while this was in flight
+        if (_replayMode) { URL.revokeObjectURL(blobUrl); return; }
         if (_currentTaskId !== taskId && !(_currentTaskId === null && taskId === null)) {
-          // Task changed while loading — discard
           URL.revokeObjectURL(blobUrl);
           return;
         }
@@ -216,8 +219,8 @@ const ScreenViewer = (() => {
           _img.classList.add("active");
         }
         if (_placeholder) _placeholder.textContent = "";
-        if (_prevBlobUrl) URL.revokeObjectURL(_prevBlobUrl);
-        _prevBlobUrl = blobUrl;
+        if (_prevLiveBlobUrl) URL.revokeObjectURL(_prevLiveBlobUrl);
+        _prevLiveBlobUrl = blobUrl;
       };
       tmp.onerror = () => URL.revokeObjectURL(blobUrl);
       tmp.src = blobUrl;
@@ -262,7 +265,8 @@ const ScreenViewer = (() => {
     _stopPoll();
     _currentTaskId = null;
     _setIdle();
-    if (_prevBlobUrl) { URL.revokeObjectURL(_prevBlobUrl); _prevBlobUrl = null; }
+    if (_prevLiveBlobUrl) { URL.revokeObjectURL(_prevLiveBlobUrl); _prevLiveBlobUrl = null; }
+    if (_prevReplayBlobUrl) { URL.revokeObjectURL(_prevReplayBlobUrl); _prevReplayBlobUrl = null; }
     if (_img) { _img.src = ""; _img.classList.remove("active"); }
   }
 

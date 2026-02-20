@@ -239,6 +239,10 @@ async def handle_task_update(request: web.Request) -> web.Response:
     status = (args.get("status") or "").strip().lower().replace("canceled", "cancelled")
     if status in ("completed", "cancelled", "failed"):
         frame_recorder.stop(args["task_id"])
+        if status == "failed":
+            frame_recorder.cleanup(args["task_id"])
+        else:
+            asyncio.ensure_future(frame_recorder.create_video(args["task_id"]))
     return web.json_response(result)
 
 
@@ -316,16 +320,38 @@ async def handle_api_task_status(request: web.Request) -> web.Response:
     result = await task_mgr.update_task(task_id=task_id, status=status)
     if status in ("completed", "cancelled", "failed"):
         frame_recorder.stop(task_id)
+        if status == "failed":
+            frame_recorder.cleanup(task_id)
+        else:
+            asyncio.ensure_future(frame_recorder.create_video(task_id))
     return web.json_response(result)
 
 
 async def handle_api_task_delete(request: web.Request) -> web.Response:
     task_id = request.match_info["task_id"]
     frame_recorder.stop(task_id)
+    # Delete video if it exists
+    vp = frame_recorder.video_path(task_id)
+    if vp.exists():
+        vp.unlink(missing_ok=True)
     result = await task_mgr.delete_task(task_id)
     if result.get("ok"):
         return web.json_response(result)
     return web.json_response(result, status=404)
+
+
+async def handle_api_task_video(request: web.Request) -> web.Response:
+    """Download the MP4 recording for a completed/cancelled task."""
+    task_id = request.match_info["task_id"]
+    if frame_recorder.is_encoding(task_id):
+        return web.json_response({"status": "encoding"}, status=202)
+    vp = frame_recorder.video_path(task_id)
+    if not vp.exists():
+        return web.json_response({"error": "No video available"}, status=404)
+    return web.FileResponse(
+        vp,
+        headers={"Content-Disposition": f'attachment; filename="task-{task_id}.mp4"'},
+    )
 
 
 async def handle_api_task_messages(request: web.Request) -> web.Response:
@@ -1068,6 +1094,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks/{task_id}/snapshot", handle_api_task_snapshot)
     app.router.add_get("/api/tasks/{task_id}/frames", handle_api_task_frames)
     app.router.add_get("/api/tasks/{task_id}/frames/{frame_n}", handle_api_task_frame)
+    app.router.add_get("/api/tasks/{task_id}/video", handle_api_task_video)
     app.router.add_get("/api/snapshot", handle_api_snapshot)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)
@@ -1080,6 +1107,23 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks/{task_id}/record/status", handle_record_status)
     app.router.add_static("/dashboard/static", DASHBOARD_DIR)
     return app
+
+
+async def storage_cleanup_loop():
+    """Background loop that enforces ACU_MAX_RECORDINGS_MB by pruning oldest task recordings."""
+    if config.MAX_RECORDINGS_MB <= 0:
+        return
+    max_bytes = config.MAX_RECORDINGS_MB * 1024 * 1024
+    while True:
+        await asyncio.sleep(3600)  # check every hour
+        try:
+            current = frame_recorder.recordings_size_bytes()
+            if current > max_bytes:
+                freed = frame_recorder.prune_oldest_recordings(max_bytes)
+                if freed:
+                    debug.log("STORAGE", f"Pruned {freed // (1024*1024)}MB of old recordings (cap: {config.MAX_RECORDINGS_MB}MB)")
+        except Exception as e:
+            debug.log("ERROR", f"Storage cleanup error: {e}")
 
 
 async def stuck_detection_loop():
@@ -1126,6 +1170,7 @@ def main():
             app['stuck_detector'] = asyncio.create_task(stuck_detection_loop())
         else:
             app['stuck_detector'] = None
+        app['storage_cleanup'] = asyncio.create_task(storage_cleanup_loop())
         # Pre-warm frame buffer for the system display so the dashboard
         # shows a live screen immediately, even before any task is created.
         _ensure_frame_buffer(config.DISPLAY)
@@ -1135,6 +1180,12 @@ def main():
             app['stuck_detector'].cancel()
             try:
                 await app['stuck_detector']
+            except asyncio.CancelledError:
+                pass
+        if app.get('storage_cleanup'):
+            app['storage_cleanup'].cancel()
+            try:
+                await app['storage_cleanup']
             except asyncio.CancelledError:
                 pass
         from .display.manager import cleanup_all
