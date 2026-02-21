@@ -25,10 +25,10 @@ VISION_SYSTEM_INSTRUCTIONS = os.environ.get(
     "ACU_VISION_SYSTEM_INSTRUCTIONS",
     (
         "You are SmartWait, a visual condition evaluator for GUI/terminal screenshots. "
-        "Use visible evidence in the provided images to decide if a wait condition is satisfied. "
-        "Be decisive: if the evidence is reasonably clear, resolve — do not keep watching just to be safe. "
-        "Only keep watching if the evidence is genuinely absent or impossible to read. "
-        "You must follow the output contract in the user prompt exactly."
+        "Look at the screenshot and decide if the stated condition is met. "
+        "Be decisive: answer YES if the evidence is reasonably clear. "
+        "Only answer NO if the evidence is genuinely absent or contradicts the condition. "
+        "Follow the output format in the user prompt exactly."
     ),
 )
 
@@ -36,9 +36,9 @@ VISION_SYSTEM_INSTRUCTIONS = os.environ.get(
 VLLM_URL = os.environ.get("ACU_VLLM_URL", "http://localhost:8000")
 VLLM_MODEL = os.environ.get("ACU_VLLM_MODEL", "ui-tars-1.5-7b")
 
-# OpenRouter (cloud vision backend — Claude Haiku, Gemini Flash, etc.)
+# OpenRouter (cloud vision backend — Gemini Flash Lite, Claude Haiku, etc.)
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_VISION_MODEL = os.environ.get("ACU_OPENROUTER_VISION_MODEL", "anthropic/claude-haiku-4-5")
+OPENROUTER_VISION_MODEL = os.environ.get("ACU_OPENROUTER_VISION_MODEL", "google/gemini-2.0-flash-lite-001")
 
 # UI-TARS local via Ollama (used when no OpenRouter key)
 UITARS_OLLAMA_MODEL = os.environ.get("ACU_UITARS_OLLAMA_MODEL", "0000/ui-tars-1.5-7b")
@@ -78,8 +78,8 @@ PIXEL_DIFF_THRESHOLD = 0.01  # 1% of pixels must change
 DIFF_MAX_WIDTH = int(os.environ.get("ACU_DIFF_MAX_WIDTH", "320"))  # downsample before diff
 MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
 STUCK_DETECTION_ENABLED = os.environ.get("ACU_STUCK_DETECTION", "0") in ("1", "true", "yes")
-FRAME_MAX_DIM = 1920  # send full resolution — small models miss text at lower res
-FRAME_JPEG_QUALITY = 80
+FRAME_MAX_DIM = int(os.environ.get("ACU_FRAME_MAX_DIM", "960"))  # 960px is sufficient for YES/NO condition checks
+FRAME_JPEG_QUALITY = int(os.environ.get("ACU_FRAME_JPEG_QUALITY", "72"))
 # OpenClaw re-encodes images >1200px before forwarding to Claude, causing double-compression.
 # Match that ceiling so images pass through unmodified at our chosen quality.
 DESKTOP_LOOK_MAX_DIM = int(os.environ.get("ACU_DESKTOP_LOOK_DIM", "1200"))

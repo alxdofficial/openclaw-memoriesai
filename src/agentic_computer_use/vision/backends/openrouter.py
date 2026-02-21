@@ -59,7 +59,7 @@ class OpenRouterBackend(VisionBackend):
                 {"role": "system", "content": config.VISION_SYSTEM_INSTRUCTIONS},
                 {"role": "user", "content": content},
             ],
-            "max_tokens": 450,
+            "max_tokens": 150,
             "temperature": 0.1,
         }
 

@@ -15,22 +15,29 @@ def save_screenshot(action_id: str, role: str, frame: np.ndarray) -> dict:
     return save_screenshot_from_jpeg(action_id, role, full_bytes, thumb_bytes)
 
 
-def save_screenshot_from_jpeg(action_id: str, role: str, jpeg_bytes: bytes, thumb_bytes: bytes) -> dict:
-    """Save pre-encoded full + thumbnail JPEGs to disk. Returns {"full": ..., "thumb": ...}."""
+def save_screenshot_from_jpeg(action_id: str, role: str, jpeg_bytes: bytes, thumb_bytes: bytes | None) -> dict:
+    """Save pre-encoded full + optional thumbnail JPEGs to disk. Returns {"full": ..., "thumb": ...}."""
     full_name = f"{action_id}_{role}.jpg"
-    thumb_name = f"{action_id}_{role}_thumb.jpg"
-
     full_path = config.SCREENSHOTS_DIR / full_name
-    thumb_path = config.SCREENSHOTS_DIR / thumb_name
 
     try:
         full_path.write_bytes(jpeg_bytes)
-        thumb_path.write_bytes(thumb_bytes)
     except Exception as e:
         log.error(f"Failed to save screenshot {full_name}: {e}")
         return {}
 
-    return {"full": full_name, "thumb": thumb_name}
+    result = {"full": full_name}
+
+    if thumb_bytes is not None:
+        thumb_name = f"{action_id}_{role}_thumb.jpg"
+        thumb_path = config.SCREENSHOTS_DIR / thumb_name
+        try:
+            thumb_path.write_bytes(thumb_bytes)
+            result["thumb"] = thumb_name
+        except Exception as e:
+            log.warning(f"Failed to save thumbnail {thumb_name}: {e}")
+
+    return result
 
 
 def cleanup_task_screenshots(action_ids: list[str]) -> int:

@@ -18,16 +18,20 @@ agentic-computer-use pipeline, along with a cost analysis of vision backends.
 | Frame capture blocking | Blocks event loop 30–100 ms | Off-thread via `run_in_executor` |
 | JPEG encoding blocking | Blocks event loop 10–50 ms | Off-thread via `run_in_executor` |
 | Multiple active wait jobs | Evaluated **serially** (one at a time) | Evaluated **in parallel** via `asyncio.gather` |
-| Pixel diff computation | Full 1920×1080 numpy array (~6.2M cells) | 320×? downsampled array (~200K cells, 30× faster) |
+| Pixel diff gate | 320px downsampled numpy diff every tick | **Removed** — misses small critical changes |
+| Poll interval | Adaptive 0.5–15 s (based on diff/partial) | **Fixed 1 s** — simpler, predictable |
+| Verdict states | `resolved` / `partial` / `watching` | **Binary YES/NO** — partial removed |
+| Context per job | 4 frames + 3 verdicts + deques | **Single frame** — stateless eval |
 | `openclaw` CLI injection | Blocks event loop for up to 10 s | Async subprocess, event loop unblocked |
 | Dashboard frame buffer | Captured at 4 fps (every 250 ms) | Captured at 2 fps (every 500 ms) |
 | Vision cloud option | None | OpenRouter added (no GPU required) |
-| JPEG + thumbnail encoding | Sequential (thumb waits for jpeg) | Parallel via `asyncio.gather` |
-| Thumbnail downsampling | Full 1920px frame re-downsampled via PIL LANCZOS | Reuses diff gate's 320px frame, no resize needed |
+| Vision model | Local Ollama `minicpm-v` (no GPU required) | `google/gemini-2.0-flash-lite-001` via OpenRouter |
 | Capture lock contention | Global lock — all displays serialized | Per-display lock — different tasks run in parallel |
 | Xlib frame copy | Two allocations: fancy-index + `.copy()` | One allocation: fancy-index only |
 | PIL resize filter | LANCZOS (highest quality, slowest) | BILINEAR (adequate for vision model, 2–3× faster) |
-| Ollama max output tokens | 450 (generous cap) | 250 (response is ~100–150 tokens in practice) |
+| Frame resolution sent to model | 1920px max (full desktop) | **960px max** — sufficient for YES/NO checks |
+| JPEG quality sent to model | 80 | **72** — ~25% smaller payload, indistinguishable |
+| Model max output tokens | 450 | **150** — YES/NO responses are ~20–50 tokens |
 
 ### GUI pipeline
 
@@ -128,30 +132,20 @@ closely-spaced wait jobs.
 
 ---
 
-### Phase 5 — (deferred)
+### Phase 5 — (superseded)
 
-Reducing `FRAME_MAX_DIM` for vision inputs was considered but skipped: small
-vision models (minicpm-v, UI-TARS) miss text at lower resolution. Full 1920px
-frames are still sent to the model. Re-evaluate if you switch to a
-higher-capability model like Gemini 2.0 Flash.
+The original Phase 5 considered reducing `FRAME_MAX_DIM` and was deferred. It was later
+implemented as Phase 15 — see below.
 
 ---
 
-### Phase 6 — Diff Downsampling (`capture/diff.py`)
+### Phase 6 — Diff Gate (removed in Phase 15)
 
-**Problem:** `PixelDiffGate` computed pixel-level differences on the full
-1920×1080 frame — ~6.2 million array cells via numpy every poll cycle.
-
-**Fix:** Frames are decimated to ≤320 px wide (integer stride, ~200K cells)
-before the diff comparison. The downsampled copy is stored as `last_frame`.
-The full-resolution frame is still passed to the vision model when a diff is
-detected.
-
-**Config:** `ACU_DIFF_MAX_WIDTH=320` (default). Increase for higher accuracy
-on scenes with subtle per-pixel changes; decrease to save more CPU.
-
-**Gain:** ~30× reduction in diff computation cost. At 2 s poll interval this
-saves ~15 ms/s of CPU on slow hardware.
+An earlier implementation added a `PixelDiffGate` that skipped vision evaluation when
+< 1% of pixels changed at 320px resolution. This was subsequently **removed entirely**
+(Phase 15) because small but critical changes (status indicator, tiny dialog) don't
+trigger 1% diff threshold. The correctness cost of missing a change outweighs the
+negligible API cost of Gemini Flash Lite at $0.000045/eval.
 
 ---
 
@@ -183,17 +177,12 @@ with wait engine captures on `_CAPTURE_LOCK`.
 
 ---
 
-### Phase 9 — Parallel JPEG + Thumbnail Encoding (`wait/engine.py`)
+### Phase 9 — Parallel JPEG + Thumbnail Encoding (superseded)
 
-**Problem:** After every diff-gate pass, the engine encoded two images
-sequentially — full-res JPEG first, then thumbnail. The thumbnail encode
-couldn't start until the JPEG was done, even though they read from the same
-(immutable) frame and write to separate buffers.
-
-**Fix:** Both dispatched together with `asyncio.gather()` so they run in
-separate thread-pool threads concurrently.
-
-**Gain:** Saves whichever encoding is shorter (~5–15 ms per evaluation).
+Previously the engine encoded two images per evaluation (full JPEG + thumbnail). This was
+parallelized with `asyncio.gather()`. The thumbnail encoding was later removed entirely
+(Phase 15 simplified the engine to encode only the current frame — no history thumbnails),
+making this optimization moot. The parallel capture pattern remains for captures in `_evaluate_job`.
 
 ---
 
@@ -213,19 +202,10 @@ instead of queuing. Single-task setups see no change.
 
 ---
 
-### Phase 11 — Reuse Diff Gate Frame for Thumbnail (`wait/engine.py`)
+### Phase 11 — Reuse Diff Gate Frame for Thumbnail (superseded)
 
-**Problem:** After `diff_gate.should_evaluate(frame)` ran, it threw away its
-~320px downsampled frame. Then `frame_to_thumbnail` re-downsampled the full
-1920px frame again via PIL BILINEAR to produce a ~360px thumbnail.
-
-**Fix:** The diff gate stores its downsampled frame in `self.last_frame` (set
-during `should_evaluate`). The engine now passes that directly to
-`frame_to_thumbnail`. Since the frame is already ~320px — below the 360px
-thumbnail cap — PIL skips the resize entirely and only does the JPEG encode.
-
-**Gain:** Eliminates one full-frame PIL resize per evaluation (~5–10 ms). Also
-reduces peak memory pressure — no second copy of the downsampled data.
+The diff gate and thumbnail history were both removed in Phase 15. This optimization
+is no longer applicable.
 
 ---
 
@@ -264,14 +244,84 @@ at all, so this change only affects thumbnail generation.
 ### Phase 14 — Reduce Ollama `num_predict` (`vision/backends/ollama.py`)
 
 **Problem:** `num_predict: 450` capped Ollama's output at 450 tokens. Actual
-SmartWait responses (brief reasoning + `FINAL_JSON` line) are ~100–150 tokens.
-If the model ever rambles, it burns time and tokens before the cap kicks in.
+SmartWait responses are ~100–150 tokens.
 
-**Fix:** Reduced to `250` — still well above the typical 150-token response,
-but caps runaway generation sooner.
+**Fix:** Reduced to `250`.
 
-**Gain:** Minor in normal operation; defensive against occasional verbose
-model outputs.
+**Gain:** Caps runaway generation sooner; minor in normal operation.
+
+---
+
+### Phase 15 — SmartWait Architecture Simplification (`wait/engine.py`, `wait/context.py`, `config.py`)
+
+**Changes:** A batch of correctness-driven simplifications removed three subsystems:
+
+**15a — Remove pixel diff gate**
+
+The `PixelDiffGate` skipped vision evaluation when < 1% of 320px-downsampled pixels
+changed. Problem: small but critical UI changes (status indicator, tiny dialog, checkmark)
+fall below the threshold and are silently missed. With Gemini Flash Lite at $0.000045/eval,
+polling every 1s for 5 minutes costs $0.013 — the correctness cost of missing a change
+far outweighs this. Removed entirely.
+
+**15b — Remove partial verdict**
+
+The `partial` verdict triggered streak counting and accelerated polling. Removed because:
+- Ambiguous: the model has no better answer for "70% complete" than "not done yet"
+- Added complexity (streak counter, deque) with no measurable benefit
+- **Timeout is the correct fallback.** The LLM set a timeout because it knows how long the task should take. If the condition isn't met by then, the LLM should re-evaluate.
+
+**15c — Remove adaptive polling**
+
+`AdaptivePoller` sped up on partial (now removed) and slowed down on static screens
+(now handled by always evaluating). Replaced with fixed `POLL_INTERVAL = 1.0` s.
+
+**15d — Remove context window history**
+
+`JobContext` previously maintained rolling deques of 4 frames and 3 verdicts. Removed:
+a single screenshot is sufficient for binary YES/NO evaluation; history adds tokens and
+complexity without improving accuracy.
+
+**Gain:** ~40% less code in the engine. Simpler data model. Eliminates false negatives
+from the diff gate. No ambiguous partial states. Predictable 1s polling.
+
+---
+
+### Phase 16 — Reduce Frame Resolution (`config.py`, `vision/backends/openrouter.py`)
+
+**Problem:** SmartWait was sending full 1920px-wide frames to the vision model at JPEG
+quality 80. For binary YES/NO condition evaluation, this is overkill — the model needs
+to identify gross UI state, not read fine text at pixel-perfect fidelity.
+
+**Fix:**
+- `FRAME_MAX_DIM`: 1920 → `960` (env: `ACU_FRAME_MAX_DIM`)
+- `FRAME_JPEG_QUALITY`: 80 → `72` (env: `ACU_FRAME_JPEG_QUALITY`)
+- OpenRouter backend `max_tokens`: 450 → `150` (YES/NO responses are ~20–50 tokens)
+
+**Gain:**
+- ~75% reduction in JPEG payload size (960px at q72 vs 1920px at q80)
+- Faster upload to OpenRouter; lower input token cost for image bytes
+- `max_tokens=150` reduces time-to-first-token cap on verbose model outputs
+
+---
+
+### Phase 17 — Switch to Gemini Flash Lite (`config.py`)
+
+**Problem:** Default OpenRouter model was `anthropic/claude-haiku-4-5` (~$0.0022/eval).
+
+**Fix:** Changed default to `google/gemini-2.0-flash-lite-001` (~$0.000045/eval).
+
+| Model | Cost/eval | Latency |
+|---|---|---|
+| Claude Haiku 4.5 | ~$0.0022 | 400–800 ms |
+| Gemini 2.0 Flash | ~$0.00022 | 300–500 ms |
+| **Gemini Flash Lite 2.0** | **~$0.000045** | **200–400 ms** |
+
+Gemini Flash Lite is purpose-designed for high-volume visual classification — exactly the
+YES/NO screen condition use case. It is ~50× cheaper and ~2× faster than Claude Haiku
+with equivalent accuracy for UI state detection.
+
+**Gain:** 50× cost reduction per evaluation. At 1000 evals/day: $0.045 vs $2.20.
 
 ---
 
@@ -389,79 +439,33 @@ screenshots.
 
 ## Vision Backend Cost Comparison
 
-For SmartWait, each evaluation sends 1–4 JPEG screenshots + a text prompt
-(~200–400 tokens) and receives a structured verdict (~100–200 tokens).
+Each SmartWait evaluation sends 1 JPEG screenshot + ~150 token prompt, receives ~30–50 token YES/NO response.
 
-### Local (Ollama)
-
-| Option | Cost | GPU required | Cold start |
+| Model | Cost/eval | Daily (1000 evals) | Monthly |
 |---|---|---|---|
-| `minicpm-v` / `llava` | Free | Yes (4–8 GB VRAM) | 5–30 s without keep_alive |
-| UI-TARS 7B (vLLM) | Free | Yes (16 GB VRAM) | 5–30 s |
-
-### Cloud via OpenRouter
-
-| Model | Input (per 1M tokens) | Output (per 1M tokens) | Image cost (est.) | Notes |
-|---|---|---|---|---|
-| `google/gemini-2.0-flash-001` | **$0.10** | **$0.40** | ~$0.00011/image | Fastest, cheapest |
-| `anthropic/claude-haiku-4-5` | $1.00 | $5.00 | ~$0.0011/image | Reliable, better at text |
-| `anthropic/claude-sonnet-4-5` | $3.00 | $15.00 | ~$0.003/image | High quality, expensive |
-
-**Estimated cost per SmartWait evaluation** (1 screenshot, 300 input tokens, 150 output tokens):
-
-| Model | Approx. cost |
-|---|---|
-| Gemini 2.0 Flash | ~$0.00022 |
-| Claude Haiku 4.5 | ~$0.0022 |
-| Claude Sonnet 4.5 | ~$0.0066 |
-
-At 1000 wait evaluations per day:
-
-| Model | Daily cost | Monthly cost |
-|---|---|---|
-| Gemini 2.0 Flash | ~$0.22 | ~$6.60 |
-| Claude Haiku 4.5 | ~$2.20 | ~$66 |
-
-### Is OpenRouter more expensive than going direct?
-
-**No — for most cases it's the same price or nearly so.**
-
-- OpenRouter passes through provider pricing with **no markup on the model cost itself**.
-- Platform fee: ~5.5% on credit purchases (e.g., buying $100 of credits costs $5.50 extra).
-- BYOK (bring your own key): OpenRouter now offers the first 1M requests with no additional fee.
-- Gemini 2.0 Flash through OpenRouter is priced identically to Google AI Studio rates.
-- Claude Haiku 4.5 through OpenRouter is priced identically to Anthropic's direct API rates.
-
-**Recommendation:** Use `google/gemini-2.0-flash-001` via OpenRouter for the best cost/speed ratio.
-It is **10× cheaper** than Claude Haiku and has excellent multimodal capability for UI screenshots.
-
-Set in `.env`:
-```bash
-ACU_VISION_BACKEND=openrouter
-OPENROUTER_API_KEY=sk-or-...
-ACU_OPENROUTER_VISION_MODEL=google/gemini-2.0-flash-001
-```
-
----
+| `google/gemini-2.0-flash-lite-001` | ~$0.000045 | ~$0.045 | ~$1.35 |
+| `google/gemini-2.0-flash-001` | ~$0.00022 | ~$0.22 | ~$6.60 |
+| `anthropic/claude-haiku-4-5` | ~$0.0022 | ~$2.20 | ~$66 |
 
 ## Summary — Recommended Config for Production
 
 ```bash
-# Vision backend
+# Vision backend — OpenRouter with Gemini Flash Lite (fastest + cheapest)
 ACU_VISION_BACKEND=openrouter
 OPENROUTER_API_KEY=sk-or-...
-ACU_OPENROUTER_VISION_MODEL=google/gemini-2.0-flash-001
+ACU_OPENROUTER_VISION_MODEL=google/gemini-2.0-flash-lite-001  # default
 
-# SmartWait tuning
-ACU_PARTIAL_STREAK_RESOLVE=2   # was 3 — faster resolution
-ACU_MAX_POLL_INTERVAL=5.0      # was 15s — more responsive
-OLLAMA_KEEP_ALIVE=10m          # avoids cold-start if also using Ollama
+# Frame encoding — 960px, q72 (sufficient for YES/NO condition checks)
+ACU_FRAME_MAX_DIM=960           # default
+ACU_FRAME_JPEG_QUALITY=72       # default
 
-# Diff gate (optional)
-ACU_DIFF_MAX_WIDTH=320         # default — reduce CPU for diff
+# Ollama keep-alive (if also using local Ollama for other tasks)
+OLLAMA_KEEP_ALIVE=10m
 ```
+
+No diff gate, no partial streak, no adaptive polling — all removed. Fixed 1s poll. Binary YES/NO.
 
 ---
 
 *Last updated: 2026-02-21*
-*Commits: d95a610 (SmartWait pipeline phases 1–8), f86e806 (GUI pipeline fixes A–F), a9aae1a (bug fixes + docs), HEAD (SmartWait micro-optimizations phases 9–14)*
+*Commits: d95a610 (phases 1–8), f86e806 (GUI fixes A–F), a9aae1a (micro-opts phases 9–14), HEAD (simplification phases 15–17)*
