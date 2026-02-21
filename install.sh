@@ -228,7 +228,8 @@ ok "Vision model ready: $OLLAMA_MODEL"
 
 # ─── Vision backend selection ──────────────────────────────────
 
-info "Vision backend: ollama (default). Set ACU_VISION_BACKEND=vllm|claude|passthrough to change."
+info "Vision backend: ollama (default). Set ACU_VISION_BACKEND=openrouter|vllm|claude|passthrough to change."
+info "  Recommended: ACU_VISION_BACKEND=openrouter + OPENROUTER_API_KEY=sk-or-... (Gemini Flash Lite, ~\$0.000045/eval)"
 info "GUI agent backend: direct (default). Set ACU_GUI_AGENT_BACKEND=omniparser|uitars|claude_cu to change."
 info "UI-TARS grounding: set OPENROUTER_API_KEY for cloud, or 'ollama pull 0000/ui-tars-1.5-7b' for local."
 info "OmniParser models (~1.1GB) auto-download on first gui_do with ACU_GUI_AGENT_BACKEND=omniparser."

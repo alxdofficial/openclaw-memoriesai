@@ -22,6 +22,6 @@ Use `scrapped` when abandoning an approach. Use `skipped` only when intentionall
 
 **`desktop_look` returns the image directly to you** — you interpret it yourself. After calling it, always narrate what you see via `task_update(message=...)`.
 
-**`smart_wait` is for long-running visual checks** (downloads, renders, builds). Use `window:<name>` not `screen` when possible. The local Ollama model does the vision polling — you just get woken up when done.
+**`smart_wait` is for long-running visual checks** (downloads, renders, builds). Use `window:<name>` not `screen` when possible. A vision model (Gemini Flash Lite via OpenRouter by default) polls every 1s with binary YES/NO — you just get woken up when done or when the timeout fires.
 
 Dashboard: `http://127.0.0.1:18790/dashboard` — Alex monitors this.

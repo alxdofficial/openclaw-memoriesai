@@ -15,9 +15,9 @@ OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
 
 Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
-2. **Smart Wait** — vision-based async monitoring with diff gate + adaptive polling
+2. **Smart Wait** — binary YES/NO vision polling every 1s; timeout is the fallback
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
-4. **Vision** — pluggable backends (Ollama, vLLM, Claude, passthrough)
+4. **Vision** — pluggable backends (OpenRouter, Ollama, vLLM, Claude, passthrough)
 5. **Display Manager** — per-task virtual displays (Xvfb) for isolated screen environments
 
 ## Displays
