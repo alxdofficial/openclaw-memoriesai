@@ -109,7 +109,7 @@ class OmniParserBackend(GUIAgentBackend):
                 text=["<CAPTION>"] * len(crops),
                 images=crops,
                 return_tensors="pt",
-                padding="longest",
+                padding=True,
             )
             inputs = {k: (v.to(device, dtype) if v.is_floating_point() else v.to(device))
                       for k, v in inputs.items()}

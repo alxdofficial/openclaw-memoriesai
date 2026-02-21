@@ -177,28 +177,44 @@ Natural language → screen coordinates → xdotool execution.
 ```
 "click the Export button"
   │
-  ▼
-Screenshot capture → Grounding model → (x, y) coordinates → xdotool click
+  ▼  [run_in_executor — Xlib/PIL off-thread, same pattern as SmartWait]
+Screenshot capture → Grounding backend → (x, y) coordinates → xdotool click
+                     (persistent HTTP client,
+                      no TLS reconnect per call)
 ```
 
-Three backends (`ACU_GUI_AGENT_BACKEND`):
+Four backends (`ACU_GUI_AGENT_BACKEND`):
 
 | Backend | Model | Accuracy | Cost |
 |---------|-------|----------|------|
 | `uitars` | UI-TARS-1.5-7B (OpenRouter cloud or Ollama local) | 61.6% ScreenSpot-Pro | ~$0.0003/call or free |
 | `claude_cu` | Claude computer_use API | ~27.7% | API cost |
+| `omniparser` | YOLO + Florence-2 + Claude Haiku picker | High for icon/element grounding | Free (GPU) + Haiku per pick |
 | `direct` | None (coords required) | N/A | Free |
 
 The `uitars` backend auto-selects mode: if `OPENROUTER_API_KEY` is set, it uses OpenRouter's hosted model (fast, no GPU needed). Otherwise it uses Ollama with per-request `keep_alive` (default 5m) so UI-TARS auto-unloads from VRAM after idle, freeing space for minicpm-v smart_wait polls.
 
+All backends use a **persistent `httpx.AsyncClient`** (module-level singleton) — no TLS reconnect per grounding call. The `uitars` backend maintains two clients (one for OpenRouter, one for Ollama). `omniparser`'s Claude Haiku picker also uses a persistent client.
+
 `gui_do` accepts both NL ("click the Export button") and explicit coords ("click(847, 523)").
+
+**OmniParser pipeline** (`omniparser` backend):
+```
+screenshot → YOLO (detect bounding boxes)
+           → Florence-2 batch caption all crops in one GPU forward pass
+           → numbered overlay image
+           → Claude Haiku: "which element matches the description?" → N
+           → center of box N → (x, y)
+```
 
 ### Desktop Control
 
-`xdotool`-based execution layer for X11/Xvfb:
-- Mouse: click, double-click, right-click, move, drag
-- Keyboard: type text, press keys
-- Windows: list, find, focus, resize, move, close
+`xdotool`-based execution layer for X11/Xvfb. Commands are **chained** in single subprocess calls to reduce spawn overhead:
+- `mouse_click_at(x, y)` → `xdotool mousemove --sync x y click 1` (1 subprocess, was 2)
+- `focus_window(wid)` → `xdotool windowfocus --sync wid windowraise wid` (1 subprocess, was 2)
+- `mouse_drag(x1,y1, x2,y2)` → 2 subprocesses (was 4)
+- Keyboard: type text, press key combos
+- Windows: list, find, resize, move, close
 - Screen: capture, record video clips
 
 ### Display Manager (Per-Task Isolation)
