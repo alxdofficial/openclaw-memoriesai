@@ -22,6 +22,12 @@ agentic-computer-use pipeline, along with a cost analysis of vision backends.
 | `openclaw` CLI injection | Blocks event loop for up to 10 s | Async subprocess, event loop unblocked |
 | Dashboard frame buffer | Captured at 4 fps (every 250 ms) | Captured at 2 fps (every 500 ms) |
 | Vision cloud option | None | OpenRouter added (no GPU required) |
+| JPEG + thumbnail encoding | Sequential (thumb waits for jpeg) | Parallel via `asyncio.gather` |
+| Thumbnail downsampling | Full 1920px frame re-downsampled via PIL LANCZOS | Reuses diff gate's 320px frame, no resize needed |
+| Capture lock contention | Global lock — all displays serialized | Per-display lock — different tasks run in parallel |
+| Xlib frame copy | Two allocations: fancy-index + `.copy()` | One allocation: fancy-index only |
+| PIL resize filter | LANCZOS (highest quality, slowest) | BILINEAR (adequate for vision model, 2–3× faster) |
+| Ollama max output tokens | 450 (generous cap) | 250 (response is ~100–150 tokens in practice) |
 
 ### GUI pipeline
 
@@ -174,6 +180,98 @@ live at 2 fps; humans don't perceive the difference during monitoring.
 
 **Gain:** Halved Xlib load on the system display thread. Reduces contention
 with wait engine captures on `_CAPTURE_LOCK`.
+
+---
+
+### Phase 9 — Parallel JPEG + Thumbnail Encoding (`wait/engine.py`)
+
+**Problem:** After every diff-gate pass, the engine encoded two images
+sequentially — full-res JPEG first, then thumbnail. The thumbnail encode
+couldn't start until the JPEG was done, even though they read from the same
+(immutable) frame and write to separate buffers.
+
+**Fix:** Both dispatched together with `asyncio.gather()` so they run in
+separate thread-pool threads concurrently.
+
+**Gain:** Saves whichever encoding is shorter (~5–15 ms per evaluation).
+
+---
+
+### Phase 10 — Per-Display Capture Lock (`wait/engine.py`)
+
+**Problem:** A single global `asyncio.Lock` (`_CAPTURE_LOCK`) serialized all
+frame captures across all active wait jobs. Jobs on different Xvfb displays
+(e.g., task A on `:100`, task B on `:101`) were forced to queue even though
+their Xlib connections are completely independent.
+
+**Fix:** `_CAPTURE_LOCKS: dict[str, asyncio.Lock]` — one lock per display
+string. Jobs on the same display still serialize (Xlib is not thread-safe per
+connection); jobs on different displays are now fully parallel.
+
+**Gain:** With N concurrent tasks on N displays, captures run in parallel
+instead of queuing. Single-task setups see no change.
+
+---
+
+### Phase 11 — Reuse Diff Gate Frame for Thumbnail (`wait/engine.py`)
+
+**Problem:** After `diff_gate.should_evaluate(frame)` ran, it threw away its
+~320px downsampled frame. Then `frame_to_thumbnail` re-downsampled the full
+1920px frame again via PIL BILINEAR to produce a ~360px thumbnail.
+
+**Fix:** The diff gate stores its downsampled frame in `self.last_frame` (set
+during `should_evaluate`). The engine now passes that directly to
+`frame_to_thumbnail`. Since the frame is already ~320px — below the 360px
+thumbnail cap — PIL skips the resize entirely and only does the JPEG encode.
+
+**Gain:** Eliminates one full-frame PIL resize per evaluation (~5–10 ms). Also
+reduces peak memory pressure — no second copy of the downsampled data.
+
+---
+
+### Phase 12 — Remove Redundant Frame Copy (`capture/screen.py`)
+
+**Problem:** After channel-swapping BGRA → RGB via fancy indexing:
+```python
+return arr[:, :, [2, 1, 0]].copy()
+```
+NumPy fancy indexing (`[:, :, [2, 1, 0]]`) always produces a **new
+contiguous array** — it is never a view. The `.copy()` allocates and memcpys
+the entire frame a second time (~8 MB at 1920×1080) for no reason.
+
+**Fix:** Removed `.copy()`.
+
+**Gain:** Saves one 8 MB allocation + memcpy per frame capture (~5–15 ms).
+
+---
+
+### Phase 13 — BILINEAR Resize for Thumbnails (`capture/screen.py`)
+
+**Problem:** `frame_to_jpeg` used `Image.LANCZOS` for all resizes. LANCZOS is
+the highest-quality PIL filter (multi-lobe sinc) but also the slowest. It was
+applied to thumbnails (360px) sent as historical context to the vision model —
+a context where pixel-perfect interpolation has zero benefit.
+
+**Fix:** Changed to `Image.BILINEAR`. For SmartWait's use case (vision model
+looking at gross screen state), BILINEAR is indistinguishable. Note: for the
+main JPEG encode (`FRAME_MAX_DIM=1920` on 1920px screens) no resize happens
+at all, so this change only affects thumbnail generation.
+
+**Gain:** 2–3× faster PIL resize for thumbnails (~3–8 ms per thumbnail).
+
+---
+
+### Phase 14 — Reduce Ollama `num_predict` (`vision/backends/ollama.py`)
+
+**Problem:** `num_predict: 450` capped Ollama's output at 450 tokens. Actual
+SmartWait responses (brief reasoning + `FINAL_JSON` line) are ~100–150 tokens.
+If the model ever rambles, it burns time and tokens before the cap kicks in.
+
+**Fix:** Reduced to `250` — still well above the typical 150-token response,
+but caps runaway generation sooner.
+
+**Gain:** Minor in normal operation; defensive against occasional verbose
+model outputs.
 
 ---
 
@@ -366,4 +464,4 @@ ACU_DIFF_MAX_WIDTH=320         # default — reduce CPU for diff
 ---
 
 *Last updated: 2026-02-21*
-*Commits: d95a610 (SmartWait pipeline), f86e806 (GUI pipeline)*
+*Commits: d95a610 (SmartWait pipeline phases 1–8), f86e806 (GUI pipeline fixes A–F), a9aae1a (bug fixes + docs), HEAD (SmartWait micro-optimizations phases 9–14)*

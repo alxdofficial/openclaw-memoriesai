@@ -17,10 +17,17 @@ from .poller import AdaptivePoller
 
 log = logging.getLogger(__name__)
 
-# Serialize Xlib calls across all parallel job evaluations — Xlib is not thread-safe.
-# This lock is an asyncio.Lock (not a threading.Lock), so only one coroutine at a
-# time enters the capture block, but the event loop is not blocked while waiting.
-_CAPTURE_LOCK = asyncio.Lock()
+# Per-display asyncio locks — serialize Xlib calls per display, not globally.
+# Jobs on different displays (different task Xvfb instances) don't need to queue
+# behind each other. screen.py also has per-display threading.Locks for the
+# run_in_executor threads; these asyncio.Locks sit above that layer.
+_CAPTURE_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _get_capture_lock(display: str) -> asyncio.Lock:
+    if display not in _CAPTURE_LOCKS:
+        _CAPTURE_LOCKS[display] = asyncio.Lock()
+    return _CAPTURE_LOCKS[display]
 
 
 @dataclass
@@ -139,8 +146,10 @@ class WaitEngine:
             await self._timeout_job(next_job)
             return
 
-        # Capture frame — serialize across parallel evaluations (Xlib not thread-safe)
-        async with _CAPTURE_LOCK:
+        # Capture frame — serialize per display (Xlib not thread-safe per connection).
+        # Jobs on different displays get independent locks and run truly in parallel.
+        display_key = next_job.display or config.DISPLAY
+        async with _get_capture_lock(display_key):
             frame = await loop.run_in_executor(None, self._capture, next_job)
 
         if frame is None:
@@ -164,9 +173,14 @@ class WaitEngine:
         else:
             debug.log_diff_gate(next_job.id, True, next_job.diff_gate.last_diff_pct)
 
-        # Encode frame to JPEG/thumbnail off the main thread (PIL is slow)
-        jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
-        thumb = await loop.run_in_executor(None, frame_to_thumbnail, frame)
+        # Encode frame to JPEG/thumbnail in parallel off the main thread.
+        # For thumbnail we reuse the diff gate's already-downsampled frame (~320px)
+        # instead of re-downsampling from the full 1920px frame — saves a PIL resize.
+        small_frame = next_job.diff_gate.last_frame  # set by should_evaluate() above
+        jpeg, thumb = await asyncio.gather(
+            loop.run_in_executor(None, frame_to_jpeg, frame),
+            loop.run_in_executor(None, frame_to_thumbnail, small_frame if small_frame is not None else frame),
+        )
         next_job.context.add_frame(jpeg, thumb, now)
 
         # Vision evaluation — pure async I/O, runs concurrently with other jobs

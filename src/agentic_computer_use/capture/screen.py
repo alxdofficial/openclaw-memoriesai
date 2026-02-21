@@ -47,8 +47,9 @@ def _x11_capture(window) -> np.ndarray | None:
         data = raw.data
         if geom.depth == 24 or geom.depth == 32:
             arr = np.frombuffer(data, dtype=np.uint8).reshape(geom.height, geom.width, 4)
-            # BGRA → RGB
-            return arr[:, :, [2, 1, 0]].copy()
+            # BGRA → RGB — fancy indexing always produces a new contiguous array,
+            # so .copy() is redundant and wastes an 8 MB memcpy at 1920×1080.
+            return arr[:, :, [2, 1, 0]]
         return None
     except Exception:
         return None
@@ -85,7 +86,7 @@ def frame_to_jpeg(frame: np.ndarray, max_dim: int = None, quality: int = None) -
     img = Image.fromarray(frame)
     ratio = max_dim / max(img.size)
     if ratio < 1:
-        img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
+        img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.BILINEAR)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=quality)
     return buf.getvalue()

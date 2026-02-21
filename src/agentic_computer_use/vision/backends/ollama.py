@@ -39,7 +39,7 @@ class OllamaBackend(VisionBackend):
             "stream": False,
             "keep_alive": config.OLLAMA_KEEP_ALIVE,
             "options": {
-                "num_predict": 450,
+                "num_predict": 250,
                 "temperature": 0.1,
             },
         }
