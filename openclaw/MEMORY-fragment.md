@@ -22,6 +22,8 @@ Use `scrapped` when abandoning an approach. Use `skipped` only when intentionall
 
 **`desktop_look` returns the image directly to you** — you interpret it yourself. After calling it, always narrate what you see via `task_update(message=...)`.
 
+**`gui_do` only accepts natural language** — never pass raw coordinates like `click(x, y)` to it. It uses iterative narrowing (two-pass vision grounding) for precision. For pixel-exact control, use `desktop_action` with coordinates from `desktop_look` or `gui_find`.
+
 **`smart_wait` is for long-running visual checks** (downloads, renders, builds). Use `window:<name>` not `screen` when possible. A vision model (Gemini Flash Lite via OpenRouter by default) polls every 1s with binary YES/NO — you just get woken up when done or when the timeout fires.
 
 Dashboard: `http://127.0.0.1:18790/dashboard` — Alex monitors this.

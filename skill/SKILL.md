@@ -171,11 +171,11 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 - `wait_cancel` — cancel a wait job
 
 ### GUI Agent
-- `gui_do` — execute NL or coordinate action ("click the Export button" or "click(847, 523)")
+- `gui_do` — execute NL action ("click the Export button", "double-click the timeline clip"). ALWAYS natural language — never raw coordinates. Uses iterative narrowing for precision.
 - `gui_find` — locate element by description, return coords without acting
 
 ### Desktop Control
-- `desktop_action` — raw xdotool: click, type, press_key, window management
+- `desktop_action` — explicit pixel coordinates: click(x,y), drag(x1,y1,x2,y2), type, press_key, window management. Use this when you have exact coords from `desktop_look` or `gui_find`.
 - `desktop_look` — returns a screenshot **image** directly to you. Use this to observe the current screen state before deciding your next action. You interpret the image yourself — no local vision model is involved.
 - `video_record` — record screen/window clip
 

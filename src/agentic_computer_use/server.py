@@ -227,11 +227,27 @@ TOOLS = [
     # ── GUI Agent (grounding layer) ────────────────────────────
     Tool(
         name="gui_do",
-        description="Execute a GUI action by natural language or coordinates. NL instructions are grounded to coordinates by the vision model, then executed via xdotool. Examples: 'click the Export button', 'type hello in the search box', 'click(847, 523)'.",
+        description=(
+            "Execute a GUI action using a natural language description. "
+            "UI-TARS grounds the description to screen coordinates with iterative narrowing "
+            "(two-pass zoom-in for precision), then executes via xdotool. "
+            "ALWAYS use natural language — never pass raw coordinates here. "
+            "For explicit pixel-level control use desktop_action instead. "
+            "Examples: 'click the Export button', 'double-click the timeline clip', "
+            "'type hello in the search box', 'right-click the project panel'."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "instruction": {"type": "string", "description": "What to do — NL description or explicit coords like 'click(x, y)'"},
+                "instruction": {
+                    "type": "string",
+                    "description": (
+                        "Natural language description of what to do. "
+                        "Examples: 'click the Save button', 'double-click the video clip at 0:12', "
+                        "'right-click the Effects panel', 'type Project Name in the filename field'. "
+                        "Do NOT pass coordinates — use desktop_action for that."
+                    ),
+                },
                 "task_id": {"type": "string", "description": "Link action to a task (logged under active plan item)"},
                 "window_name": {"type": "string", "description": "Target window (auto-focused before action)"},
             },

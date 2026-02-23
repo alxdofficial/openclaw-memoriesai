@@ -868,36 +868,12 @@ async def handle_video_record(request: web.Request) -> web.Response:
 async def handle_gui_do(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     from .gui.agent import execute_gui_action
-    import re as _re
 
     task_id = args.get("task_id")
     display = await _resolve_task_display(task_id)
-    instruction = args["instruction"]
-
-    # If instruction contains explicit click(x, y) or type(x, y, ...) coordinates,
-    # scale them from image space to screen space so gui_do is consistent with desktop_action.
-    def _scale_click_coords(m):
-        x, y = _img_to_screen(int(m.group(1)), int(m.group(2)), display)
-        return f"click({x}, {y})"
-    instruction = _re.sub(
-        r'click\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)',
-        _scale_click_coords,
-        instruction,
-        flags=_re.IGNORECASE,
-    )
-
-    def _scale_type_coords(m):
-        x, y = _img_to_screen(int(m.group(1)), int(m.group(2)), display)
-        return f"type({x}, {y}, {m.group(3)}"
-    instruction = _re.sub(
-        r'type\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(.+)',
-        _scale_type_coords,
-        instruction,
-        flags=_re.IGNORECASE,
-    )
 
     result = await execute_gui_action(
-        instruction=instruction,
+        instruction=args["instruction"],
         task_id=task_id,
         window_name=args.get("window_name"),
         display=display,

@@ -45,12 +45,19 @@ class UITARSBackend(GUIAgentBackend):
     def provider(self) -> str:
         return "openrouter" if self._use_openrouter else "ollama"
 
-    async def ground(self, description: str, screenshot: bytes) -> GroundingResult | None:
+    async def ground(
+        self,
+        description: str,
+        screenshot: bytes,
+        image_size: tuple[int, int] = (1920, 1080),
+    ) -> GroundingResult | None:
         if self._use_openrouter:
-            return await self._ground_openrouter(description, screenshot)
-        return await self._ground_ollama(description, screenshot)
+            return await self._ground_openrouter(description, screenshot, image_size)
+        return await self._ground_ollama(description, screenshot, image_size)
 
-    async def _ground_openrouter(self, description: str, screenshot: bytes) -> GroundingResult | None:
+    async def _ground_openrouter(
+        self, description: str, screenshot: bytes, image_size: tuple[int, int]
+    ) -> GroundingResult | None:
         b64 = base64.b64encode(screenshot).decode()
         payload = {
             "model": OPENROUTER_MODEL,
@@ -74,7 +81,7 @@ class UITARSBackend(GUIAgentBackend):
             text = data["choices"][0]["message"]["content"].strip()
             log.debug(f"OpenRouter UI-TARS response: {text}")
 
-            coords = _parse_coordinates(text)
+            coords = _parse_coordinates(text, image_size)
             if coords:
                 return GroundingResult(
                     x=coords[0], y=coords[1],
@@ -86,7 +93,9 @@ class UITARSBackend(GUIAgentBackend):
             log.error(f"UI-TARS grounding failed (openrouter): {e}")
             return None
 
-    async def _ground_ollama(self, description: str, screenshot: bytes) -> GroundingResult | None:
+    async def _ground_ollama(
+        self, description: str, screenshot: bytes, image_size: tuple[int, int]
+    ) -> GroundingResult | None:
         b64 = base64.b64encode(screenshot).decode()
         model = config.UITARS_OLLAMA_MODEL
         payload = {
@@ -109,7 +118,7 @@ class UITARSBackend(GUIAgentBackend):
             text = data["message"]["content"].strip()
             log.debug(f"Ollama UI-TARS response: {text}")
 
-            coords = _parse_coordinates(text)
+            coords = _parse_coordinates(text, image_size)
             if coords:
                 return GroundingResult(
                     x=coords[0], y=coords[1],
@@ -162,17 +171,23 @@ class UITARSBackend(GUIAgentBackend):
             return {"ok": False, "backend": "uitars", "provider": "ollama", "error": str(e)}
 
 
-def _parse_coordinates(text: str) -> tuple[int, int] | None:
-    """Parse coordinates from model output. Handles (x, y) and <point>x, y</point> formats."""
+def _parse_coordinates(
+    text: str,
+    image_size: tuple[int, int] = (1920, 1080),
+) -> tuple[int, int] | None:
+    """Parse coordinates from model output. Handles (x, y) and <point>x, y</point> formats.
+
+    Normalized [0, 1] coordinates are scaled by image_size so callers can pass
+    the actual screenshot dimensions rather than assuming 1920×1080.
+    """
+    w, h = image_size
+
     # Try <point>x, y</point> format
     point_match = re.search(r'<point>\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*</point>', text)
     if point_match:
         x, y = float(point_match.group(1)), float(point_match.group(2))
-        # If normalized (0-1), scale to common resolution; use max() to avoid
-        # the old bug where (0.5, 1.0) would be missed because y == 1.0 was
-        # treated as a pixel value when x was also checked separately.
         if max(x, y) <= 1.0:
-            x, y = int(x * 1920), int(y * 1080)
+            x, y = x * w, y * h
         return (int(x), int(y))
 
     # Try (x, y) format
@@ -180,7 +195,7 @@ def _parse_coordinates(text: str) -> tuple[int, int] | None:
     if paren_match:
         x, y = float(paren_match.group(1)), float(paren_match.group(2))
         if max(x, y) <= 1.0:
-            x, y = int(x * 1920), int(y * 1080)
+            x, y = x * w, y * h
         return (int(x), int(y))
 
     return None

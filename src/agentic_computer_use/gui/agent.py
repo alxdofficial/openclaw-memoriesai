@@ -1,4 +1,4 @@
-"""GUI agent orchestrator — NL instruction → ground → execute → log."""
+"""GUI agent orchestrator — NL instruction → ground → iterative narrow → execute → log."""
 import json
 import re
 import asyncio
@@ -9,6 +9,10 @@ from ..capture.screen import capture_screen, capture_window, find_window_by_name
 from ..screenshots import save_screenshot
 from .base import GUIAgentBackend
 from .types import GroundingResult
+
+# Iterative narrowing: after initial grounding, crop this radius (screen px) around
+# the predicted point and re-run grounding on the zoomed crop for sub-pixel refinement.
+_NARROW_CROP_RADIUS = 300  # px in screen space
 
 log = logging.getLogger(__name__)
 
@@ -39,19 +43,54 @@ def _get_backend() -> GUIAgentBackend:
     return _backend
 
 
-def _parse_explicit_coords(instruction: str) -> tuple[str, int, int] | None:
-    """Parse explicit coordinate instructions like 'click(847, 523)' or 'click at 847, 523'."""
-    # click(x, y) or click(x,y)
-    m = re.match(r'click\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)', instruction, re.IGNORECASE)
-    if m:
-        return ("click", int(m.group(1)), int(m.group(2)))
+async def _iterative_narrow(
+    backend: GUIAgentBackend,
+    instruction: str,
+    frame,
+    initial: GroundingResult,
+    loop,
+) -> GroundingResult:
+    """Crop around the initial prediction and re-ground for sub-element precision.
 
-    # type(x, y, "text")
-    m = re.match(r'type\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*["\'](.+?)["\']\s*\)', instruction, re.IGNORECASE)
-    if m:
-        return ("type", int(m.group(1)), int(m.group(2)))
+    After UI-TARS gives a first (x, y) estimate, we crop a _NARROW_CROP_RADIUS px
+    box around it and re-run grounding on that zoomed image. The model sees the
+    target element much larger, so small buttons / trim handles / sliders are
+    identified more precisely. The crop-local coordinates are then mapped back
+    to full screen space.
 
-    return None
+    Falls back to the original result if the refinement call fails or returns None.
+    """
+    screen_h, screen_w = frame.shape[:2]
+    x0, y0 = initial.x, initial.y
+
+    # Build crop bounds, clamped to screen
+    x1 = max(0, x0 - _NARROW_CROP_RADIUS)
+    y1 = max(0, y0 - _NARROW_CROP_RADIUS)
+    x2 = min(screen_w, x0 + _NARROW_CROP_RADIUS)
+    y2 = min(screen_h, y0 + _NARROW_CROP_RADIUS)
+    crop_w = x2 - x1
+    crop_h = y2 - y1
+
+    if crop_w < 20 or crop_h < 20:
+        return initial  # degenerate crop near screen edge — skip
+
+    crop_frame = frame[y1:y2, x1:x2]
+    # Crop is small (≤600px each side); frame_to_jpeg won't resize it — just compresses.
+    crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame)
+
+    refined = await backend.ground(instruction, crop_jpeg, image_size=(crop_w, crop_h))
+    if refined is None:
+        log.debug("Iterative narrowing: refinement returned None, keeping initial prediction")
+        return initial
+
+    # Map crop-local pixel coords → full screen coords
+    return GroundingResult(
+        x=x1 + refined.x,
+        y=y1 + refined.y,
+        confidence=refined.confidence,
+        description=refined.description,
+        element_text=refined.element_text,
+    )
 
 
 async def execute_gui_action(
@@ -60,9 +99,11 @@ async def execute_gui_action(
     window_name: str = None,
     display: str = None,
 ) -> dict:
-    """Execute a GUI action from NL or explicit coordinates.
+    """Execute a GUI action from a natural language instruction.
 
-    Flow: parse instruction → capture screen → ground (if NL) → execute → return result.
+    Flow: capture screen → ground (NL → coordinates) → iterative narrow → execute → log.
+    All grounding goes through the configured backend (uitars, claude_cu, omniparser).
+    Raw coordinate strings are no longer accepted — use desktop_action for that.
     """
     # Focus target window if specified
     if window_name:
@@ -73,29 +114,6 @@ async def execute_gui_action(
         else:
             return {"ok": False, "error": f"Window '{window_name}' not found"}
 
-    # Try explicit coordinates first
-    explicit = _parse_explicit_coords(instruction)
-    if explicit:
-        action_type, x, y = explicit
-        # Auto-focus window at target coordinates if no window was pre-focused
-        if not window_name:
-            wid = desktop.find_window_at(x, y, display=display)
-            if wid:
-                desktop.focus_window(wid, display=display)
-                await asyncio.sleep(0.05)
-        if action_type == "click":
-            ok = desktop.mouse_click_at(x, y, display=display)
-            return {"ok": ok, "action": "click", "x": x, "y": y, "grounded": False}
-        elif action_type == "type":
-            desktop.mouse_click_at(x, y, display=display)
-            await asyncio.sleep(0.05)
-            # Extract text from instruction
-            m = re.search(r'["\'](.+?)["\']', instruction)
-            text = m.group(1) if m else ""
-            ok = desktop.type_text(text, display=display)
-            return {"ok": ok, "action": "type", "x": x, "y": y, "text": text, "grounded": False}
-
-    # NL instruction — need grounding
     backend = _get_backend()
     loop = asyncio.get_event_loop()
 
@@ -115,17 +133,20 @@ async def execute_gui_action(
     jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
     screen_h, screen_w = frame.shape[:2]
 
-    # Ground the instruction
-    grounding = await backend.ground(instruction, jpeg)
+    # Initial grounding — pass actual screen dimensions so normalized coords scale correctly
+    grounding = await backend.ground(instruction, jpeg, image_size=(screen_w, screen_h))
 
     if grounding is None:
         return {
             "ok": False,
             "error": f"Could not locate element: {instruction}",
-            "hint": "Try explicit coordinates with click(x, y) or use a grounding-capable backend (uitars, claude_cu)",
+            "hint": "Rephrase the description, or use desktop_action with explicit coordinates",
             "backend": config.GUI_AGENT_BACKEND,
             "provider": backend.provider,
         }
+
+    # Iterative narrowing — crop around initial prediction and re-ground for precision
+    grounding = await _iterative_narrow(backend, instruction, frame, grounding, loop)
 
     # Execute based on instruction intent
     action = _infer_action(instruction)
@@ -221,7 +242,8 @@ async def find_gui_element(
         return {"found": False, "error": "Failed to capture screen"}
 
     jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
-    grounding = await backend.ground(description, jpeg)
+    screen_h, screen_w = frame.shape[:2]
+    grounding = await backend.ground(description, jpeg, image_size=(screen_w, screen_h))
 
     if grounding is None:
         return {
@@ -229,7 +251,7 @@ async def find_gui_element(
             "description": description,
             "backend": config.GUI_AGENT_BACKEND,
             "provider": backend.provider,
-            "hint": "Element not found. Try a different description or use a grounding-capable backend.",
+            "hint": "Element not found. Try a different description.",
         }
 
     return {

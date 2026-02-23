@@ -33,7 +33,12 @@ class ClaudeCUBackend(GUIAgentBackend):
     def provider(self) -> str:
         return "anthropic"
 
-    async def ground(self, description: str, screenshot: bytes) -> GroundingResult | None:
+    async def ground(
+        self,
+        description: str,
+        screenshot: bytes,
+        image_size: tuple[int, int] = (1920, 1080),
+    ) -> GroundingResult | None:
         api_key = config.CLAUDE_API_KEY
         if not api_key:
             log.error("ANTHROPIC_API_KEY not set for Claude CU backend")

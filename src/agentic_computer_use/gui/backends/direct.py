@@ -6,7 +6,12 @@ from ..types import GroundingResult
 class DirectBackend(GUIAgentBackend):
     """No visual grounding — only works with explicit coordinates."""
 
-    async def ground(self, description: str, screenshot: bytes) -> GroundingResult | None:
+    async def ground(
+        self,
+        description: str,
+        screenshot: bytes,
+        image_size: tuple[int, int] = (1920, 1080),
+    ) -> GroundingResult | None:
         """Direct backend cannot ground NL descriptions — returns None."""
         return None
 

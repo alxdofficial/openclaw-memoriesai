@@ -173,7 +173,12 @@ class OmniParserBackend(GUIAgentBackend):
             log.error(f"OmniParser picker failed: {e}")
             return _label_match(description, elements)
 
-    async def ground(self, description: str, screenshot: bytes) -> GroundingResult | None:
+    async def ground(
+        self,
+        description: str,
+        screenshot: bytes,
+        image_size: tuple[int, int] = (1920, 1080),
+    ) -> GroundingResult | None:
         loop = asyncio.get_event_loop()
         try:
             elements, annotated = await loop.run_in_executor(
