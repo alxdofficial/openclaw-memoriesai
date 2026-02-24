@@ -20,16 +20,28 @@ Training-free. Works as a wrapper around any existing grounding model. 23%+ accu
 ```
 1. Capture full screen (960px JPEG, screen-resolution coords)
 2. UI-TARS ground(instruction, full_jpeg, image_size=(screen_w, screen_h))
-   → initial (x, y) in screen space
+   → initial (x, y) in screen space                 [pass 0 — full frame]
 3. Crop 300px radius around (x, y), clamped to screen bounds
 4. UI-TARS ground(instruction, crop_jpeg, image_size=(crop_w, crop_h))
-   → (x_local, y_local) in crop-local space
-5. x_final = crop_x1 + x_local
-   y_final = crop_y1 + y_local
-6. Execute click/drag/type at (x_final, y_final)
+   → (x_local, y_local) in crop-local space          [pass 1 — 300px]
+5. x1 = crop_x1 + x_local, y1 = crop_y1 + y_local
+6. Crop 150px radius around (x1, y1)
+7. UI-TARS ground(instruction, crop2_jpeg, image_size=(crop2_w, crop2_h))
+   → (x_local2, y_local2)                            [pass 2 — 150px]
+8. x_final = crop2_x1 + x_local2
+   y_final = crop2_y1 + y_local2
+9. Execute click/drag/type at (x_final, y_final)
 ```
 
-The second pass sees a ~600×600px zoomed crop instead of the full 960px screen. A 30px button that occupied 1.5% of the full image now occupies 5% of the crop — much easier to localize precisely.
+Three total passes. Each round, the target element appears at progressively higher scale:
+
+| Pass | Crop size | Element scale (30px button) |
+|---|---|---|
+| 0 — full frame | ~960×540px | 1.5% of image |
+| 1 — 300px radius | ≤600×600px | ~5% of image |
+| 2 — 150px radius | ≤300×300px | ~10% of image |
+
+The 150px third pass is critical for DaVinci Resolve timeline handles (2-4px wide targets).
 
 ### Coordinate space correctness
 
@@ -40,10 +52,10 @@ The second pass sees a ~600×600px zoomed crop instead of the full 960px screen.
 ### Configuration
 
 ```python
-_NARROW_CROP_RADIUS = 300  # px in screen space (gui/agent.py)
+_NARROW_RADII: list[int] = [300, 150]  # gui/agent.py
 ```
 
-Increase for larger targets (e.g., panels, windows). Decrease for dense UIs where the first pass is usually accurate (reduces false narrowing). A value of 300px means the crop is at most 600×600px, well under the 960px max_dim so no JPEG resize occurs.
+Each entry adds one refinement pass. `[300, 150]` gives the 3-pass pipeline above. To get the original 2-pass behaviour use `[300]`. Increase the first radius for larger targets (panels, windows); the 150px second radius is tuned for timeline handles and can be removed if the model is already precise enough on your display resolution.
 
 ---
 
@@ -94,7 +106,7 @@ This eliminates the most common source of incorrect clicks: the main LLM halluci
 ### Phase 2 — Next
 
 - [ ] **GUI-Actor Verifier integration**: After iterative narrowing, score the final (x, y) with `microsoft/GUI-Actor-Verifier-2B`. If score < threshold, retry with a rephrased description.
-- [ ] **RegionFocus multi-round**: Extend to 3 rounds instead of 2 — full frame → 300px crop → 150px crop. Especially valuable for DaVinci Resolve timeline handles (2-4px wide).
+- [x] **RegionFocus multi-round**: 3 passes — full frame → 300px crop → 150px crop. Configurable via `_NARROW_RADII`. Especially valuable for DaVinci Resolve timeline handles (2-4px wide).
 
 ### Phase 3 — Training required
 

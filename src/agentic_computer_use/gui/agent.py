@@ -10,9 +10,12 @@ from ..screenshots import save_screenshot
 from .base import GUIAgentBackend
 from .types import GroundingResult
 
-# Iterative narrowing: after initial grounding, crop this radius (screen px) around
-# the predicted point and re-run grounding on the zoomed crop for sub-pixel refinement.
-_NARROW_CROP_RADIUS = 300  # px in screen space
+# Iterative narrowing radii (screen px).  Each entry adds one refinement pass:
+#   full frame → 300px crop → 150px crop
+# Inspired by RegionFocus (ICCV 2025, arXiv:2505.00684).  Three passes give +28%
+# accuracy over single-shot on UI-TARS; the 150px third pass is critical for
+# 2-4px timeline handles in DaVinci Resolve.
+_NARROW_RADII: list[int] = [300, 150]
 
 log = logging.getLogger(__name__)
 
@@ -50,47 +53,58 @@ async def _iterative_narrow(
     initial: GroundingResult,
     loop,
 ) -> GroundingResult:
-    """Crop around the initial prediction and re-ground for sub-element precision.
+    """Multi-round crop-and-reground for sub-element precision (RegionFocus style).
 
-    After UI-TARS gives a first (x, y) estimate, we crop a _NARROW_CROP_RADIUS px
-    box around it and re-run grounding on that zoomed image. The model sees the
-    target element much larger, so small buttons / trim handles / sliders are
-    identified more precisely. The crop-local coordinates are then mapped back
-    to full screen space.
+    Starting from the initial full-frame prediction, each round crops _NARROW_RADII[i]
+    pixels around the current best estimate and re-grounds on the zoomed crop.
+    Crop-local coordinates are accumulated back to full-screen space after each pass.
 
-    Falls back to the original result if the refinement call fails or returns None.
+    Default: two refinement rounds — 300px then 150px.
+      Pass 0 (full frame, 960px wide) → initial (x, y)
+      Pass 1 (≤600×600px crop)        → refined to ~5× scale
+      Pass 2 (≤300×300px crop)        → refined to ~10× scale
+                                         critical for 2-4px timeline handles
+
+    Falls back to the best result so far if any round returns None.
     """
     screen_h, screen_w = frame.shape[:2]
-    x0, y0 = initial.x, initial.y
+    current = initial
 
-    # Build crop bounds, clamped to screen
-    x1 = max(0, x0 - _NARROW_CROP_RADIUS)
-    y1 = max(0, y0 - _NARROW_CROP_RADIUS)
-    x2 = min(screen_w, x0 + _NARROW_CROP_RADIUS)
-    y2 = min(screen_h, y0 + _NARROW_CROP_RADIUS)
-    crop_w = x2 - x1
-    crop_h = y2 - y1
+    for round_idx, radius in enumerate(_NARROW_RADII):
+        x0, y0 = current.x, current.y
 
-    if crop_w < 20 or crop_h < 20:
-        return initial  # degenerate crop near screen edge — skip
+        # Crop bounds in full-screen space, clamped to screen
+        x1 = max(0, x0 - radius)
+        y1 = max(0, y0 - radius)
+        x2 = min(screen_w, x0 + radius)
+        y2 = min(screen_h, y0 + radius)
+        crop_w = x2 - x1
+        crop_h = y2 - y1
 
-    crop_frame = frame[y1:y2, x1:x2]
-    # Crop is small (≤600px each side); frame_to_jpeg won't resize it — just compresses.
-    crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame)
+        if crop_w < 20 or crop_h < 20:
+            log.debug("Iterative narrowing round %d: degenerate crop (%dx%d), stopping", round_idx + 1, crop_w, crop_h)
+            break
 
-    refined = await backend.ground(instruction, crop_jpeg, image_size=(crop_w, crop_h))
-    if refined is None:
-        log.debug("Iterative narrowing: refinement returned None, keeping initial prediction")
-        return initial
+        crop_frame = frame[y1:y2, x1:x2]
+        crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame)
 
-    # Map crop-local pixel coords → full screen coords
-    return GroundingResult(
-        x=x1 + refined.x,
-        y=y1 + refined.y,
-        confidence=refined.confidence,
-        description=refined.description,
-        element_text=refined.element_text,
-    )
+        refined = await backend.ground(instruction, crop_jpeg, image_size=(crop_w, crop_h))
+        if refined is None:
+            log.debug("Iterative narrowing round %d: backend returned None, keeping previous prediction", round_idx + 1)
+            break
+
+        # Map crop-local coords → full-screen coords
+        current = GroundingResult(
+            x=x1 + refined.x,
+            y=y1 + refined.y,
+            confidence=refined.confidence,
+            description=refined.description,
+            element_text=refined.element_text,
+        )
+        log.debug("Iterative narrowing round %d (radius=%dpx): (%d,%d) → (%d,%d)",
+                  round_idx + 1, radius, initial.x, initial.y, current.x, current.y)
+
+    return current
 
 
 async def execute_gui_action(
