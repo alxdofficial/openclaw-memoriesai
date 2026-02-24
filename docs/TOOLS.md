@@ -117,15 +117,17 @@ Cancel an active wait job.
 
 ### `gui_do`
 
-Execute a GUI action by natural language or explicit coordinates.
+Execute a GUI action from a natural language instruction.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `instruction` | string | yes | NL description or `click(x, y)` |
+| `instruction` | string | yes | Natural language only — e.g. "click the Export button" |
 | `task_id` | string | no | Link action to a task |
 | `window_name` | string | no | Target window (auto-focused) |
 
-NL instructions are grounded to coordinates by the vision model (UI-TARS or Claude CU), then executed via xdotool. Explicit coordinates bypass grounding. Pass `task_id` to target the task's per-task virtual display.
+The instruction is grounded to screen coordinates by the vision backend (UI-TARS via OpenRouter by default) using iterative narrowing — 3 passes (full frame → 300px crop → 150px crop) for precision on small targets. Pass `task_id` to target the task's per-task virtual display.
+
+**Never pass raw coordinates to `gui_do`.** Use `desktop_action` with explicit `x`/`y` for pixel-exact control.
 
 ### `gui_find`
 

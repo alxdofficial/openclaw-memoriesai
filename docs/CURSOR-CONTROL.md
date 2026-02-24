@@ -79,7 +79,7 @@ This eliminates the most common source of incorrect clicks: the main LLM halluci
 | Model | What it does | Available |
 |---|---|---|
 | **Iterative Narrowing** (arXiv:2411.13591) | Zoom-in wrapper around any grounding model; +23% accuracy | Training-free, implemented here |
-| **GUI-Actor-7B + Verifier-2B** (Microsoft, NeurIPS 2025) | Attention-based grounding + re-ranking verifier | [HuggingFace: microsoft/GUI-Actor-7B-Qwen2.5-VL](https://huggingface.co/microsoft/GUI-Actor-7B-Qwen2.5-VL) |
+| **GUI-Actor-7B + Verifier-2B** (Microsoft, NeurIPS 2025) | Attention-based grounding + re-ranking verifier | HuggingFace only — no hosted API, requires local GPU |
 | **UGround-V1** (OSU, ICLR 2025 Oral) | Click-only grounding, 2B/7B/72B | [HuggingFace: osunlp/UGround](https://huggingface.co/osunlp/UGround) |
 | **RegionFocus** (ICCV 2025, arXiv:2505.00684) | Iterative zoom with bounding box map; +28% on UI-TARS | Paper only (no weights) |
 | **ShowUI-2B** (CVPR 2025 Best Paper) | Click grounding, Qwen2-VL based | [HuggingFace: showlab/ShowUI-2B](https://huggingface.co/showlab/ShowUI-2B) |
@@ -103,10 +103,10 @@ This eliminates the most common source of incorrect clicks: the main LLM halluci
 - [x] Implement iterative narrowing (two-pass zoom) in `execute_gui_action`
 - [x] Fix `_parse_coordinates` to use actual image dimensions
 
-### Phase 2 — Next
+### Phase 2 — Done
 
-- [ ] **GUI-Actor Verifier integration**: After iterative narrowing, score the final (x, y) with `microsoft/GUI-Actor-Verifier-2B`. If score < threshold, retry with a rephrased description.
 - [x] **RegionFocus multi-round**: 3 passes — full frame → 300px crop → 150px crop. Configurable via `_NARROW_RADII`. Especially valuable for DaVinci Resolve timeline handles (2-4px wide).
+- ~~**GUI-Actor Verifier** (`microsoft/GUI-Actor-Verifier-2B`)~~: dropped — weights are HuggingFace-only, no hosted API, requires local GPU. Not worth the complexity given iterative narrowing already handles most cases.
 
 ### Phase 3 — Training required
 
@@ -190,4 +190,4 @@ To reconstruct drag trajectories: find sequences of `"move"` events between `"cl
 
 ---
 
-*Last updated: 2026-02-23*
+*Last updated: 2026-02-24*

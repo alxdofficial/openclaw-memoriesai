@@ -10,7 +10,7 @@ OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
 
 Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
-2. **Smart Wait** — vision-based async monitoring with pixel-diff gate + adaptive polling
+2. **Smart Wait** — binary YES/NO vision polling every 1s; no diff gate, no adaptive logic
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
 5. **Display Manager** — per-task virtual displays (Xvfb isolation)
@@ -48,8 +48,8 @@ Five layers:
 │  │  Task Manager       │  │  Wait Engine                  │  │
 │  │                     │  │                               │  │
 │  │  tasks              │  │  Wait job queue               │  │
-│  │  ├── plan_items     │  │  Pixel-diff gate              │  │
-│  │  │   ├── actions    │  │  Adaptive polling             │  │
+│  │  ├── plan_items     │  │  1s fixed poll                │  │
+│  │  │   ├── actions    │  │  Binary YES/NO eval           │  │
 │  │  │   │   └── logs   │  │  Condition eval (via Vision)  │  │
 │  │  │   └── ...        │  │  Wake dispatch → OpenClaw     │  │
 │  │  └── ...            │  │                               │  │
@@ -135,22 +135,13 @@ Vision-based async monitoring. The LLM delegates a visual wait, the daemon monit
 ```
 Target (window or screen)
   │
-  ▼  [run_in_executor — Xlib off-thread, serialized by _CAPTURE_LOCK]
-Frame Grabber → Pixel-Diff Gate → Vision Backend Evaluation → Decision
-  │             (320px downsample   (evaluate NL condition)
-  │              before diff, ~30×  persistent HTTP client,
-  │              faster)            no reconnect per call
-  ▼  [run_in_executor — PIL off-thread]
-JPEG / thumbnail encode
+  ▼  [run_in_executor — Xlib off-thread, serialized per display by _CAPTURE_LOCKS]
+Frame Grabber → JPEG encode (960px max, quality 72) → Vision Backend (YES/NO) → Decision
+                [run_in_executor — PIL off-thread]    persistent HTTP client,
+                                                       no reconnect per call
 ```
 
-**Adaptive polling**:
-- Static screen (no pixel diff): 5-10s intervals
-- Changing screen: 1-2s intervals
-- Partial match: 0.5-1s burst mode
-- 30s+ static: forced re-evaluation
-
-**Parallel job evaluation**: all overdue wait jobs are evaluated concurrently via `asyncio.gather()`. Vision I/O runs in parallel; Xlib captures are serialized by a module-level `asyncio.Lock` (`_CAPTURE_LOCK`). `_resolve_job` / `_timeout_job` guard against double-resolution from concurrent evaluations.
+**Fixed 1s poll**: no pixel-diff gate, no adaptive intervals, no partial verdict. Every second, all overdue jobs are evaluated concurrently via `asyncio.gather()`. Xlib captures are serialized per display via `_CAPTURE_LOCKS: dict[str, asyncio.Lock]` — jobs on different Xvfb displays capture in parallel. `_resolve_job` / `_timeout_job` guard against double-resolution.
 
 ### Vision Backend (Pluggable)
 
@@ -168,7 +159,7 @@ All backends implement `evaluate_condition(prompt, images)` and `check_health()`
 
 All backends use a **persistent `httpx.AsyncClient`** (module-level singleton) so TLS connections are reused across calls — saves 100–300 ms per cloud call.
 
-**OpenRouter recommendation:** `google/gemini-2.0-flash-001` at $0.10/$0.40 per million tokens (~$0.00022/eval) is 10× cheaper than Claude Haiku and has strong multimodal vision for UI screenshots. Set `OPENROUTER_API_KEY` + `ACU_VISION_BACKEND=openrouter` + `ACU_OPENROUTER_VISION_MODEL=google/gemini-2.0-flash-001`.
+**Default recommendation:** `google/gemini-2.0-flash-lite-001` (~$0.000045/eval) — designed for high-volume image classification, ideal for binary YES/NO screen polling. Set `OPENROUTER_API_KEY` + `ACU_VISION_BACKEND=openrouter`. Step up to `google/gemini-2.0-flash-001` (~$0.00022/eval) if you need stronger OCR or complex scene understanding.
 
 ### GUI Agent (NL Grounding)
 
@@ -196,7 +187,7 @@ The `uitars` backend auto-selects mode: if `OPENROUTER_API_KEY` is set, it uses 
 
 All backends use a **persistent `httpx.AsyncClient`** (module-level singleton) — no TLS reconnect per grounding call. The `uitars` backend maintains two clients (one for OpenRouter, one for Ollama). `omniparser`'s Claude Haiku picker also uses a persistent client.
 
-`gui_do` accepts both NL ("click the Export button") and explicit coords ("click(847, 523)").
+`gui_do` accepts **natural language only** — never raw coordinates. The instruction goes through iterative narrowing (3 passes: full frame → 300px crop → 150px crop) for precision on small targets. Use `desktop_action` for pixel-exact control.
 
 **OmniParser pipeline** (`omniparser` backend):
 ```

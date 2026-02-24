@@ -17,17 +17,15 @@
 
 ### 2a: Infrastructure
 - [x] Set up Python project structure (MCP server skeleton)
-- [x] MiniCPM-o deployment (Ollama, RTX 3070, 1.6s warm inference)
 - [x] Xvfb setup (headless Ubuntu server — :99 with fluxbox WM)
 - [x] Screen capture module (X11 via python-xlib, 67ms/frame)
-- [x] Pixel-diff gate (numpy, 1% threshold)
+- [x] OpenRouter backend (Gemini Flash Lite, ~$0.000045/eval — replaces local GPU model)
 
 ### 2b: Core Wait Loop
 - [x] Wait job queue (SQLite-backed)
-- [x] Frame capture → diff gate → model evaluation pipeline
-- [x] Adaptive polling (speed up on PARTIAL, slow down on static)
+- [x] Fixed 1s poll — binary YES/NO, no diff gate, no adaptive logic, no context window
 - [x] Timeout handling
-- [x] Job context windows (rolling frame history + verdicts)
+- [x] Parallel job evaluation (asyncio.gather, per-display capture locks)
 
 ### 2c: OpenClaw Integration
 - [x] MCP server exposing `smart_wait` tool (+ 6 more tools)
@@ -51,8 +49,7 @@
 - [x] Hierarchical model: Task → Plan Items → Actions → Logs
 
 ### 3b: Distillation
-- [x] Running summary generation (MiniCPM-o)
-- [x] On-demand query answering
+- [x] On-demand query answering (via vision backend)
 - [x] Plan progress heuristic tracking
 
 ### 3c: Integration
@@ -140,6 +137,19 @@ See `docs/PERFORMANCE-OPTIMIZATION.md` for full before/after measurements and co
 - [x] Stuck detection loop (60s interval, 5min threshold, cooldown)
 - [x] `[task_stuck_resume]` wake event with full resume context
 
+## Phase 8: Cursor Control ← DONE
+
+**Goal**: Eliminate coordinate hallucination from the main LLM; improve GUI grounding accuracy on small targets.
+
+- [x] Remove raw coordinate input from `gui_do` — NL only, no `click(x, y)` passthrough
+- [x] Fix `_parse_coordinates()` in UI-TARS backend to use actual image dimensions (was hardcoded 1920×1080)
+- [x] Iterative narrowing — 3-pass zoom: full frame → 300px crop → 150px crop (`_NARROW_RADII`)
+- [ ] ShowUI-π style visuomotor policy for drag trajectories — **blocked: weights not released**
+
+See `docs/CURSOR-CONTROL.md` for research landscape, training data, and roadmap.
+
+---
+
 ## Future Ideas
 
 - **Multi-machine federation**: Share procedural memory across devices
@@ -154,7 +164,7 @@ See `docs/PERFORMANCE-OPTIMIZATION.md` for full before/after measurements and co
 |-----------|-----------|-----------|
 | MCP Server | Python (`mcp[cli]`) | Best MCP SDK support, rich ML ecosystem |
 | Database | SQLite | Zero-config, single-file, sufficient scale |
-| Vision Model | MiniCPM-o 4.5 via Ollama | Local, free, Gemini-level quality |
+| Vision Model | Gemini 2.0 Flash Lite via OpenRouter | Cloud, ~$0.000045/eval, no GPU required |
 | Virtual Display | Xvfb | Headless server — no physical monitor |
 | Screen Capture | ffmpeg + python-xlib | Reads from Xvfb virtual framebuffer |
 | Video Indexing | Memories AI API | Alex's company, advanced video comprehension |
@@ -165,16 +175,13 @@ See `docs/PERFORMANCE-OPTIMIZATION.md` for full before/after measurements and co
 
 ## Hardware Requirements
 
-**Minimum (CPU-only, quantized):**
-- 8 GB RAM (5 GB for model, 3 GB for system)
+**Minimum (no GPU — default config):**
+- 4 GB RAM
 - Any modern x86_64 CPU
+- `OPENROUTER_API_KEY` — all vision and GUI grounding via cloud (~$0.00005/eval)
 - 500 MB disk for daemon + DB
 
-**Recommended (GPU):**
-- NVIDIA GPU with 8+ GB VRAM
+**With local GPU (optional):**
+- NVIDIA GPU with 8+ GB VRAM for running UI-TARS or vision model locally
 - 16 GB system RAM
-- For best performance: RTX 3060 or better
-
-**Alex's server (alxdws2):**
-- Ubuntu Server (headless) — will need X11/Xvfb for screen capture if no physical display
-- Need to check GPU availability
+- `ACU_GUI_AGENT_BACKEND=uitars` + `ACU_VISION_BACKEND=ollama`
