@@ -41,6 +41,45 @@ All `desktop_action`, `gui_do`, `desktop_look`, and `smart_wait` calls that incl
 | Web forms, dialogs, popups | `gui_do` | Visual interaction required |
 | Status monitoring | `smart_wait` with window target | Vision handles any app |
 | Scripting, automation | CLI/exec | Structured output |
+| Web browsing and research | `gui_do` / `desktop_look` | See below |
+
+## Browser interaction — visual only
+
+**Always interact with browsers visually.** This is the primary way to use the browser with DETM.
+
+- Use `desktop_look` to see what's on screen, then `gui_do` or `desktop_action` to click, scroll, and type
+- Use `gui_do("click the search bar")`, `gui_do("scroll down")`, `gui_do("click the first result")` etc.
+- Read content by looking at the screenshot — not by extracting it programmatically
+
+**Never use:**
+- Browser developer tools or the console (`F12`, `Ctrl+Shift+I`)
+- JavaScript execution in the browser (`document.querySelector`, `window.location`, etc.)
+- DOM inspection or scraping via CLI tools (`curl`, `wget` for HTML parsing, `lynx`, `w3m`)
+- Browser extension APIs or CDP/Playwright/Selenium automation
+
+The entire point is to interact the way a human would — looking at the screen and clicking. If you find yourself wanting to run JS or scrape HTML, stop and use `desktop_look` + `gui_do` instead.
+
+**Typical browser workflow:**
+```
+→ desktop_look(task_id=<id>)          # see the current browser state
+→ gui_do("click the address bar", task_id=<id>)
+→ desktop_action(action="type", text="https://youtube.com", task_id=<id>)
+→ desktop_action(action="press_key", text="Return", task_id=<id>)
+→ smart_wait(target="window:browser", wake_when="page has loaded", task_id=<id>)
+→ desktop_look(task_id=<id>)          # see what loaded
+→ gui_do("click the search bar", task_id=<id>)
+→ desktop_action(action="type", text="fitness supplement creators", task_id=<id>)
+→ desktop_action(action="press_key", text="Return", task_id=<id>)
+→ smart_wait(target="window:browser", wake_when="search results have loaded", task_id=<id>)
+→ desktop_look(task_id=<id>)          # read results from the screenshot
+→ task_update(task_id=<id>, message="Search results show: ...")
+```
+
+**Scrolling to read more:**
+```
+→ gui_do("scroll down", task_id=<id>)
+→ desktop_look(task_id=<id>)          # see what's now visible
+```
 
 ## Task lifecycle pattern
 
