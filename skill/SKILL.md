@@ -52,6 +52,25 @@ desktop_look(task_id=<id>)
 
 Without a task: the human cannot cancel you, the dashboard shows nothing, there is no recovery if you get stuck.
 
+**2. Log every desktop/GUI action with `task_log_action` — before you do it.**
+Every `desktop_look`, `desktop_action`, `gui_do`, and `smart_wait` call MUST be preceded by a `task_log_action`. This is what populates the dashboard action tree with screenshots and detail. Without it, the human sees empty plan items and cannot inspect what you did.
+
+```
+# WRONG — action with no log entry:
+gui_do("click the search bar", task_id=<id>)
+
+# RIGHT — log first, then act:
+task_log_action(task_id=<id>, action_type="gui", summary="Clicking LinkedIn search bar to search for TechCrunch AI reporters", status="started")
+gui_do("click the search bar", task_id=<id>)
+task_update(task_id=<id>, message="Clicked search bar. Now typing search query.")
+
+task_log_action(task_id=<id>, action_type="vision", summary="Taking screenshot to read search results", status="started")
+desktop_look(task_id=<id>)
+task_update(task_id=<id>, message="Can see 8 reporter profiles in results: ...")
+```
+
+Every GUI action = one `task_log_action` before + one `task_update` after. No exceptions.
+
 **2. Pass `task_id` to every desktop/GUI/wait call.**
 Every `desktop_look`, `desktop_action`, `gui_do`, and `smart_wait` call must include `task_id=<id>`. This is how DETM tracks what you're doing and links screenshots to your plan.
 
