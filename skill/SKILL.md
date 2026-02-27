@@ -32,6 +32,41 @@ task_register(name="Edit video", plan=[...], metadata={"isolated_display": true,
 
 All `desktop_action`, `gui_do`, `desktop_look`, and `smart_wait` calls that include `task_id` automatically target the correct display. No need to manage DISPLAY env vars manually.
 
+## HARD RULES — no exceptions
+
+These are not guidelines. Violating them breaks observability, cancellation, and debugging.
+
+**1. Always create a task before touching the desktop.**
+`task_register` MUST be your first call for any work that involves `desktop_look`, `desktop_action`, `gui_do`, or `smart_wait`. No exceptions. Even a single screenshot requires a task.
+
+```
+# WRONG — never do this:
+desktop_look()
+gui_do("click the search bar")
+
+# RIGHT — always do this first:
+task_register(name="Find reporters on LinkedIn", plan=["Search LinkedIn", "Collect profiles", "Write to sheet"])
+task_item_update(task_id=<id>, ordinal=0, status="active")
+desktop_look(task_id=<id>)
+```
+
+Without a task: the human cannot cancel you, the dashboard shows nothing, there is no recovery if you get stuck.
+
+**2. Pass `task_id` to every desktop/GUI/wait call.**
+Every `desktop_look`, `desktop_action`, `gui_do`, and `smart_wait` call must include `task_id=<id>`. This is how DETM tracks what you're doing and links screenshots to your plan.
+
+**3. Check task status after each plan item.**
+After completing a plan item, check if the human has cancelled or paused the task before continuing:
+
+```
+task_item_update(task_id=<id>, ordinal=N, status="completed")
+status = task_update(task_id=<id>, query="status")  # check before continuing
+if status is cancelled or paused → stop immediately
+task_item_update(task_id=<id>, ordinal=N+1, status="active")
+```
+
+**Why cancel requires your cooperation:** When the human clicks Cancel in the dashboard, it sets your task status to "cancelled" in the database — but it does NOT interrupt your current tool call. You will only see the cancellation on your next DETM call. This means: if you stop checking status between plan items, the human has no way to stop you. Check every time.
+
 ## When to use GUI vs CLI
 
 | Scenario | Prefer | Why |
