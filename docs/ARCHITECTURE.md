@@ -79,8 +79,8 @@ Six layers:
 │  ┌──────────────────┐  ┌──────────────────────────────────┐ │
 │  │  Display Manager  │  │  Stuck Detection Loop            │ │
 │  │                   │  │                                  │ │
-│  │  Per-task Xvfb    │  │  60s check interval              │ │
-│  │  displays (:100+) │  │  Wake OpenClaw via system event  │ │
+│  │  Shared :99       │  │  60s check interval              │ │
+│  │  display          │  │  Wake OpenClaw via system event  │ │
 │  │  Xlib caching     │  │  Resume packet with context      │ │
 │  └──────────────────┘  └──────────────────────────────────┘ │
 │                                                              │
@@ -272,7 +272,7 @@ All environment variables use the `ACU_*` prefix:
 | `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu, omniparser |
 | `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
 | `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
-| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3.1-flash-lite-preview` | OpenRouter live_ui model |
+| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | OpenRouter live_ui model |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
 | `DISPLAY` | `:99` | Shared X11 display (all tasks) |

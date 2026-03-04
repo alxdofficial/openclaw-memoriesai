@@ -213,7 +213,7 @@ Delegate a multi-step UI workflow to a live vision model. The model sees the scr
 
 Returns `success`, `summary`, `actions_taken`, `session_id`. The session is recorded to disk (frames + events + audio) and viewable in the dashboard via the "Live" button or replay viewer.
 
-**Active provider**: OpenRouter request-response VLM (default model: `google/gemini-3.1-flash-lite-preview`).
+**Active provider**: OpenRouter request-response VLM (default model: `google/gemini-3-flash-preview`). Screenshots include ruler overlays for precise coordinate estimation.
 
 ---
 

@@ -166,7 +166,7 @@ Use when you know the next action but not what comes after — i.e. you need to 
 ```
 
 ### Tier 3 — `live_ui` (delegated multi-step sequence)
-Use when you have a chain of actions that a live AI vision model can handle without needing you in the loop for every step. The model watches the screen, takes actions, and calls `done()` or `escalate()` when finished.
+Use when you have a chain of actions that a vision model can handle without needing you in the loop for every step. The model sees a fresh screenshot after every action with ruler overlays for precise coordinate estimation and cursor position verification. It takes actions and calls `done()` or `escalate()` when finished. Typically completes multi-step flows in under 2 minutes.
 
 **Use this when:**
 - The workflow has many steps and `gui_do` + `desktop_look` round-trips would be too slow
@@ -462,7 +462,7 @@ When you receive this event, use the resume packet to orient yourself and contin
 
 ## live_ui — autonomous multi-step UI navigation
 
-`live_ui` delegates a complete UI workflow to a vision AI model. The model watches screenshots and executes actions autonomously until the task is done or it needs to escalate. The active provider is configurable (Gemini Live streaming, or near-realtime OpenRouter VLM loop).
+`live_ui` delegates a complete UI workflow to a vision AI model. The model sees a screenshot after every action, decides the next step, and executes it — repeating until the task is done or it escalates. It draws ruler overlays on screenshots for precise coordinate estimation and verifies cursor position after each action. Uses OpenRouter with a configurable VLM (default: `google/gemini-3-flash-preview`).
 
 ### When to use
 
