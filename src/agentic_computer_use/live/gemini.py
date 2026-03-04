@@ -222,7 +222,7 @@ class GeminiLiveProvider(LiveUIProvider):
             client = genai.Client(vertexai=True, project=project, location=location)
 
         live_config = types.LiveConnectConfig(
-            response_modalities=["AUDIO"],
+            response_modalities=["AUDIO", "TEXT"],
             tools=[types.Tool(function_declarations=_TOOL_DECLARATIONS)],
             system_instruction=types.Content(parts=[types.Part(text=system_text)]),
         )
