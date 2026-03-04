@@ -1,6 +1,6 @@
 ## Desktop & GUI Automation — DETM Workflow (Always Use This)
 
-Any task involving desktop apps, GUI interaction, visual monitoring, or Xvfb displays **must** use the `agentic-computer-use` (DETM) skill. Do not use raw shell X11 tricks or improvise — DETM handles per-task displays, vision, and dashboarding.
+Any task involving desktop apps, GUI interaction, visual monitoring, or the desktop display **must** use the `agentic-computer-use` (DETM) skill. Do not use raw shell X11 tricks or improvise — DETM handles display capture, vision, and dashboarding.
 
 **Mandatory workflow for desktop tasks:**
 1. `task_register(name="...", plan=[...])` — always start with a plan

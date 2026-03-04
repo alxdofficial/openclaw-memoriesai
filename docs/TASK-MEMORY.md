@@ -121,7 +121,7 @@ CREATE TABLE wait_jobs (
 | `last_wait_state` | string | watching, resolved, timeout, cancelled, error |
 | `last_wait_event_at` | float | Epoch seconds of last wait event |
 | `last_stuck_alert_at` | float | Epoch seconds of last stuck alert (cooldown) |
-| `display` | string | Per-task Xvfb display string (e.g., ":100") |
+| `display` | string | Display string (always `:99` — shared system display) |
 | `display_num` | int | Display number |
 | `display_resolution` | string | e.g., "1280x720" |
 

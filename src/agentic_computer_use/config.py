@@ -52,7 +52,7 @@ CLAUDE_VISION_MODEL = os.environ.get("ACU_CLAUDE_VISION_MODEL", "claude-sonnet-4
 MAVI_API_KEY = os.environ.get("MAVI_API_KEY", "")
 
 # Live UI vision/control — OpenRouter-backed screenshot → tool → observe loop
-# google/gemini-3.1-flash-lite-preview — fastest, lowest-cost (launched 2026-03-03)
+# google/gemini-3-flash-preview — strong agentic/tool use, good balance of speed and accuracy
 # google/gemini-3-flash-preview — stronger agentic/tool use but heavier
 OPENROUTER_LIVE_MODEL = os.environ.get("ACU_OPENROUTER_LIVE_MODEL", "google/gemini-3-flash-preview")
 

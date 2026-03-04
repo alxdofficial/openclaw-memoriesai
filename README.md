@@ -1,6 +1,6 @@
 # agentic-computer-use
 
-Desktop Environment Task Manager (DETM) — an MCP server with hierarchical task tracking, smart visual waiting, GUI automation with NL grounding, pluggable vision backends, shared or isolated virtual displays, and a live web dashboard. All local-first.
+Desktop Environment Task Manager (DETM) — an MCP server with hierarchical task tracking, smart visual waiting, GUI automation with NL grounding, pluggable vision backends, live UI delegation, and a web dashboard. All local-first.
 
 ## Quick Install
 
@@ -50,7 +50,7 @@ Five layers:
 ### Task Management (Hierarchical)
 | Tool | Description |
 |------|-------------|
-| `task_register` | Create task with plan items. Shares system display by default; `metadata={"isolated_display": true}` for private Xvfb. |
+| `task_register` | Create task with plan items. All tasks share the system display (`:99`). |
 | `task_update` | Post message (narration), change status, query state |
 | `task_item_update` | Update plan item status (pending/active/completed/failed/skipped/**scrapped**). Scrapped items appear struck-through and collapsed in the dashboard. |
 | `task_plan_append` | Append new plan items to an existing task. Use after scrapping to add revised steps. |
@@ -267,22 +267,7 @@ Files are named `{action_id}_{role}.jpg` and `{action_id}_{role}_thumb.jpg`. The
 
 ## Display Architecture
 
-Tasks default to the **shared system display** (`:99` by default). All tasks on the same machine see and control the same screen. This is intentional for single-agent workflows — no display allocation overhead, and the live dashboard view always reflects the real desktop.
-
-**Opt-in isolation** — if a task needs its own private Xvfb, pass `metadata={"isolated_display": true}` to `task_register`:
-
-```bash
-# Via MCP tool:
-task_register(name="Edit video", plan=[...], metadata={"isolated_display": true})
-
-# Override resolution (default 1280x720):
-task_register(name="Edit video", plan=[...], metadata={"isolated_display": true, "display_width": 1920, "display_height": 1080})
-
-# The task's display is stored in metadata as "display" (e.g., ":100")
-# All tools that accept task_id automatically target the correct display
-```
-
-Isolated displays are released automatically when a task reaches a terminal status (completed, failed, cancelled).
+All tasks share a **single system display** (`:99` by default). All tasks on the same machine see and control the same screen — the same desktop visible in VNC and in the dashboard live view. No per-task display allocation overhead.
 
 ### Headless server setup
 
@@ -324,7 +309,7 @@ When enabled, the daemon monitors active tasks for inactivity and posts a stuck 
 The file `skill/SKILL.md` is the prompt that teaches OpenClaw's LLM how to use DETM tools. It covers:
 - Tool reference and lifecycle patterns
 - When to use GUI vs CLI
-- Shared vs isolated display usage
+- Three-tier GUI interaction (desktop_look, gui_do, live_ui)
 - Scrapping plan items and appending revised steps
 - Narration requirements (writing reasoning to task history)
 - Dashboard awareness (the human can cancel tasks)

@@ -109,7 +109,7 @@
 - [x] Task control buttons (Pause, Resume, Cancel) — human can free up the LLM
 - [x] Recording controls (start/stop per task, elapsed timer)
 - [x] Video export — on task complete/cancel, frames encoded to H.264 MP4 via ffmpeg; download button in sidebar
-- [x] Per-task virtual displays (Xvfb isolation via display/manager.py)
+- [x] Shared system display (single :99, visible in VNC + dashboard)
 - [x] Stuck detection + automatic LLM wake with resume packets
 
 ## Phase 7.5: Pipeline Performance Optimization ← DONE

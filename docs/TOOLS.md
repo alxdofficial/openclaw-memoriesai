@@ -144,7 +144,7 @@ Locate a UI element without acting. Returns coordinates.
 
 ### `desktop_action`
 
-Raw xdotool control. Pass `task_id` to target the task's per-task virtual display.
+Raw xdotool control. Pass `task_id` to link the action to a task.
 
 | Action | Params | Description |
 |--------|--------|-------------|

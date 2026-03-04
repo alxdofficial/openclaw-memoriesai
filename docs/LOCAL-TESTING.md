@@ -36,17 +36,17 @@ testing and inspection.
 - Good for inspecting dashboard rendering of task hierarchy and action details.
 
 `acu_scenario_live_screen.py`
-- Creates an isolated display and opens a deterministic clock fixture in a browser app window.
+- Opens a deterministic clock fixture on the shared display in a browser app window.
 - Registers a dedicated test page with live task snapshot, task summary, messages, debug tail, and cleanup.
 - Good for visually checking snapshot freshness without opening the DETM dashboard.
 
 `acu_scenario_smart_wait.py`
-- Creates an isolated display and opens a fixture page that flips from `STATE: WAITING` to `STATE: READY`.
+- Opens a fixture page on the shared display that flips from `STATE: WAITING` to `STATE: READY`.
 - By default it also calls `smart_wait` directly so you can inspect wait linkage and logs.
 - Writes request/result JSON and fixed before/after snapshots into the run artifact directory.
 
 `acu_scenario_live_ui.py`
-- Creates an isolated display and opens a deterministic form page.
+- Opens a deterministic form page on the shared display.
 - By default it calls `live_ui` with a precise instruction so you can inspect session replay, task actions, and logs.
 - The test portal gives you a stable task snapshot and artifact list; the DETM dashboard still remains useful for replaying the recorded live_ui session itself.
 
@@ -60,7 +60,7 @@ testing and inspection.
 
 ## Notes
 
-- The browser fixture uses an isolated task display by default for the live-screen, smart-wait, and live-ui scenarios.
+- All test scenarios use the shared system display (`:99`).
 - The fixture page is a local `file://` HTML page, so there is no extra server process.
 - The scripts intentionally leave windows open after setup so you can inspect them in the portal or dashboard.
 - The test portal is started automatically on `127.0.0.1:18891` when needed.

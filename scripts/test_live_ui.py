@@ -8,7 +8,7 @@ Usage:
   PYTHONPATH=src python3 scripts/test_live_ui.py
 
 Optional env vars:
-  ACU_OPENROUTER_LIVE_MODEL  — override model (default: google/gemini-3.1-flash-lite-preview)
+  ACU_OPENROUTER_LIVE_MODEL  — override model (default: google/gemini-3-flash-preview)
   DISPLAY                    — X display to capture (default: :99)
   INSTRUCTION                — override the test instruction
   CONTEXT                    — optional extra context passed separately from the instruction
@@ -29,8 +29,8 @@ logging.basicConfig(
 logging.getLogger("aiohttp").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 
-from agentic_computer_use.live import get_provider
-from agentic_computer_use.live.session import LiveUISession
+from agentic_computer_use.live_ui import get_provider
+from agentic_computer_use.live_ui.session import LiveUISession
 
 DISPLAY = os.environ.get("DISPLAY", ":99")
 INSTRUCTION = os.environ.get(
