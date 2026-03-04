@@ -1,13 +1,19 @@
 """xdotool-based GUI action execution — shared across live providers."""
 import logging
 import os
-import re
 import subprocess
+import time
 
 log = logging.getLogger(__name__)
 
 _MOUSE_BUTTON = {"left": "1", "middle": "2", "right": "3"}
 _SCROLL_BUTTON = {"up": "4", "down": "5", "left": "6", "right": "7"}
+
+# Steps and per-step delay for smooth mouse animation.
+# 10 steps × 18 ms ≈ 180 ms total — fast enough to feel instant, slow enough
+# to be visible as a glide in the live frame stream.
+_SMOOTH_STEPS = 10
+_SMOOTH_STEP_MS = 0.018
 
 
 def _xdotool(args: list, display: str, timeout: int = 5) -> str:
@@ -28,6 +34,36 @@ def _xdotool(args: list, display: str, timeout: int = 5) -> str:
         return "error: timeout"
 
 
+def _smooth_mousemove(x: int, y: int, display: str) -> str:
+    """Glide the cursor to (x, y) via incremental steps so the motion is visible in frames."""
+    env = {**os.environ, "DISPLAY": display}
+    # Get current position
+    cx, cy = x, y  # fallback: treat as if already there
+    try:
+        loc = subprocess.run(
+            ["xdotool", "getmouselocation"],
+            capture_output=True, text=True, timeout=2, env=env,
+        )
+        parts = loc.stdout.strip().split()
+        cx = int(parts[0].split(":")[1])
+        cy = int(parts[1].split(":")[1])
+    except Exception:
+        pass
+
+    steps = _SMOOTH_STEPS
+    for i in range(1, steps + 1):
+        ix = cx + (x - cx) * i // steps
+        iy = cy + (y - cy) * i // steps
+        subprocess.run(
+            ["xdotool", "mousemove", str(ix), str(iy)],
+            capture_output=True, timeout=2, env=env,
+        )
+        if i < steps:
+            time.sleep(_SMOOTH_STEP_MS)
+
+    return "ok"
+
+
 def _normalize_key(key: str) -> str:
     """Normalize modifier key case for xdotool: Ctrl+c → ctrl+c."""
     modifiers = {"ctrl", "alt", "shift", "super", "meta"}
@@ -37,17 +73,20 @@ def _normalize_key(key: str) -> str:
 
 def execute_action(name: str, args: dict, display: str) -> str:
     """Execute a named GUI action via xdotool. Returns 'ok' or an error string."""
+    if name == "move_mouse":
+        x, y = int(args["x"]), int(args["y"])
+        return _smooth_mousemove(x, y, display)
+
     if name == "click":
         x, y = int(args["x"]), int(args["y"])
         btn = _MOUSE_BUTTON.get(str(args.get("button", "left")), "1")
-        return _xdotool(["mousemove", "--sync", str(x), str(y), "click", btn], display)
+        _smooth_mousemove(x, y, display)
+        return _xdotool(["click", btn], display)
 
     if name == "double_click":
         x, y = int(args["x"]), int(args["y"])
-        return _xdotool(
-            ["mousemove", "--sync", str(x), str(y), "click", "--repeat", "2", "1"],
-            display,
-        )
+        _smooth_mousemove(x, y, display)
+        return _xdotool(["click", "--repeat", "2", "1"], display)
 
     if name == "type_text":
         text = args.get("text", "")
@@ -62,7 +101,7 @@ def execute_action(name: str, args: dict, display: str) -> str:
         direction = args.get("direction", "down")
         amount = max(1, int(args.get("amount", 3)))
         btn = _SCROLL_BUTTON.get(direction, "5")
-        _xdotool(["mousemove", "--sync", str(x), str(y)], display)
+        _smooth_mousemove(x, y, display)
         return _xdotool(["click", "--repeat", str(amount), btn], display)
 
     log.warning(f"Unknown live action: {name}")

@@ -4,7 +4,7 @@ import os
 import io
 import threading
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from .. import config
 from ..display.manager import get_xlib_display
 
@@ -77,6 +77,54 @@ def capture_screen(display: str = None) -> np.ndarray | None:
             return _x11_capture(root)
         except Exception:
             return None
+
+
+def get_mouse_position(display: str) -> tuple[int, int] | None:
+    """Return current mouse cursor position via xdotool, or None on failure."""
+    try:
+        result = subprocess.run(
+            ["xdotool", "getmouselocation"],
+            capture_output=True, text=True, timeout=2,
+            env={**os.environ, "DISPLAY": display},
+        )
+        # Output: "x:123 y:456 screen:0 window:12345"
+        parts = result.stdout.strip().split()
+        x = int(parts[0].split(":")[1])
+        y = int(parts[1].split(":")[1])
+        return x, y
+    except Exception:
+        return None
+
+
+def draw_cursor_overlay(frame: np.ndarray, cx: int, cy: int) -> np.ndarray:
+    """Draw a large, high-visibility cursor indicator (red circle + crosshair) on the frame."""
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img, "RGBA")
+    r = 16
+    L = 28
+    # White halo ring
+    draw.ellipse([cx - r - 3, cy - r - 3, cx + r + 3, cy + r + 3], outline=(255, 255, 255, 255), width=3)
+    # Filled red circle (semi-transparent so the target is still visible beneath)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(220, 40, 40, 180))
+    # White crosshair (thick)
+    draw.line([cx - L, cy, cx + L, cy], fill=(255, 255, 255, 255), width=3)
+    draw.line([cx, cy - L, cx, cy + L], fill=(255, 255, 255, 255), width=3)
+    # Red crosshair (thin, on top)
+    draw.line([cx - L, cy, cx + L, cy], fill=(220, 40, 40, 255), width=1)
+    draw.line([cx, cy - L, cx, cy + L], fill=(220, 40, 40, 255), width=1)
+    return np.array(img.convert("RGB"))
+
+
+def capture_screen_with_cursor(display: str = None) -> np.ndarray | None:
+    """Capture the full desktop and draw a visible cursor overlay."""
+    display = display or config.DISPLAY
+    frame = capture_screen(display=display)
+    if frame is None:
+        return None
+    pos = get_mouse_position(display)
+    if pos:
+        frame = draw_cursor_overlay(frame, pos[0], pos[1])
+    return frame
 
 
 def frame_to_jpeg(frame: np.ndarray, max_dim: int = None, quality: int = None) -> bytes:

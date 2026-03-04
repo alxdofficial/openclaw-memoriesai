@@ -36,6 +36,7 @@ Your job: complete the given instruction by observing screenshots and taking act
 All coordinates must be integers in the range x=[0,{width}], y=[0,{height}].
 
 Available tools:
+  move_mouse(x, y)                    — move cursor WITHOUT clicking (for verification)
   click(x, y, button="left")          — move mouse and click
   double_click(x, y)                  — double-click
   type_text(text)                     — type text (click the field first!)
@@ -45,7 +46,16 @@ Available tools:
   done(summary, success)              — call when the instruction is complete
   escalate(reason)                    — call when you cannot proceed
 
-Rules:
+Cursor precision — follow this workflow before EVERY click:
+1. Call move_mouse(x, y) to position the cursor at your intended target.
+2. Observe the next screenshot — the cursor is shown as a RED CIRCLE with crosshair.
+3. Check: is the red circle centred on the correct element?
+   - YES → call click(x, y) (same coordinates).
+   - NO  → call move_mouse(x2, y2) with corrected coordinates, re-check, then click.
+Repeat the move/check cycle up to 3 times until the cursor is precisely placed.
+Never click without first verifying cursor position via move_mouse.
+
+General rules:
 - Study each screenshot carefully before acting.
 - Click a text field before typing into it.
 - After each action, wait for the next screenshot to verify the result.
@@ -55,6 +65,22 @@ Rules:
 """
 
 _TOOL_DECLARATIONS = [
+    types.FunctionDeclaration(
+        name="move_mouse",
+        description=(
+            "Move the cursor to screen coordinates WITHOUT clicking. "
+            "Use this to verify cursor position before clicking — the cursor "
+            "will appear as a red circle in the next screenshot."
+        ),
+        parameters=types.Schema(
+            type="OBJECT",
+            properties={
+                "x": types.Schema(type="INTEGER", description="X pixel coordinate"),
+                "y": types.Schema(type="INTEGER", description="Y pixel coordinate"),
+            },
+            required=["x", "y"],
+        ),
+    ),
     types.FunctionDeclaration(
         name="click",
         description="Move mouse and click at screen coordinates.",
@@ -282,11 +308,11 @@ class GeminiLiveProvider(LiveUIProvider):
 async def _send_frames(live_session, display: str, stop: asyncio.Event,
                        interval: float, session=None) -> None:
     """Capture and stream JPEG frames to Gemini until stop is set."""
-    from ..capture.screen import capture_screen, frame_to_jpeg
+    from ..capture.screen import capture_screen_with_cursor, frame_to_jpeg
 
     while not stop.is_set():
         try:
-            frame = capture_screen(display=display)
+            frame = capture_screen_with_cursor(display=display)
             if frame is not None:
                 jpeg = frame_to_jpeg(frame, max_dim=1280, quality=72)
                 if session:
