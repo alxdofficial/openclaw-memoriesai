@@ -1015,7 +1015,7 @@ html, body {
 
 .lsv-event {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 8px;
   padding: 4px 12px;
   cursor: pointer;
@@ -1051,9 +1051,8 @@ html, body {
 .lsv-event-text {
   font-size: 11px;
   color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-word;
   flex: 1;
   min-width: 0;
 }

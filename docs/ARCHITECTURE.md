@@ -13,7 +13,7 @@ Six layers:
 2. **Smart Wait** — vision-based condition polling with adaptive intervals
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
-5. **Live UI** — real-time multimodal session delegation (Gemini Live, OpenRouter, Qwen)
+5. **Live UI** — iterative OpenRouter-backed multimodal session delegation
 6. **Display** — single shared display `:99` (XFCE desktop, visible via VNC)
 
 ## System Architecture
@@ -272,12 +272,7 @@ All environment variables use the `ACU_*` prefix:
 | `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu, omniparser |
 | `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
 | `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
-| `ACU_LIVE_UI_PROVIDER` | `gemini` | live_ui provider: gemini, openrouter, qwen |
-| `ACU_GEMINI_LIVE_MODEL` | `gemini-2.0-flash-live-001` | Gemini Live model |
-| `GEMINI_API_KEY` | (none) | Required for Gemini live_ui provider |
 | `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3.1-flash-lite-preview` | OpenRouter live_ui model |
-| `ACU_QWEN_LIVE_MODEL` | `qwen3-omni-flash-realtime` | Qwen live_ui model |
-| `LIVE_UI_FRAME_INTERVAL` | `0.5` | Seconds between frames sent to live_ui provider |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
 | `DISPLAY` | `:99` | Shared X11 display (all tasks) |

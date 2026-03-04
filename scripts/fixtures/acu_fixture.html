@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ACU Fixture</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --panel: #fffdfa;
+      --ink: #1f1d1a;
+      --muted: #6d675f;
+      --accent: #0f766e;
+      --warn: #d97706;
+      --good: #15803d;
+      --bad: #b91c1c;
+      --line: #d9d0c1;
+      --shadow: 0 18px 40px rgba(0,0,0,0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at top left, rgba(15,118,110,0.10), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(217,119,6,0.10), transparent 30%),
+        var(--bg);
+      color: var(--ink);
+    }
+
+    .wrap {
+      width: min(1080px, calc(100vw - 48px));
+      margin: 24px auto;
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 44px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 22px;
+    }
+
+    p, li, label, button, input, textarea {
+      font-size: 20px;
+      line-height: 1.35;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .hero {
+      min-height: 520px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 18px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 24px;
+      font-weight: 700;
+      width: fit-content;
+    }
+
+    .status-badge.waiting { color: var(--warn); }
+    .status-badge.ready { color: var(--good); }
+    .status-badge.complete { color: var(--good); }
+    .status-badge.locked { color: var(--bad); }
+
+    .big-clock {
+      font-size: 86px;
+      letter-spacing: -0.04em;
+      margin: 24px 0 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .subclock {
+      font-size: 28px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    button {
+      border: 1px solid var(--ink);
+      background: var(--ink);
+      color: #fff;
+      border-radius: 14px;
+      padding: 14px 18px;
+      min-width: 190px;
+      cursor: pointer;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--ink);
+    }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    button:not(:disabled):active {
+      transform: translateY(1px);
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: #fff;
+      margin-top: 10px;
+    }
+
+    .stack > * + * {
+      margin-top: 18px;
+    }
+
+    .log-list {
+      margin: 0;
+      padding-left: 22px;
+      color: var(--muted);
+      font-size: 18px;
+      max-height: 420px;
+      overflow: auto;
+    }
+
+    .event {
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 8px;
+    }
+
+    .pulse {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 rgba(0,0,0,0.08);
+      animation: pulse 1.2s ease-out infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.8); opacity: 0.9; }
+      70% { transform: scale(1.3); opacity: 0.2; }
+      100% { transform: scale(0.8); opacity: 0.9; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card hero">
+      <div>
+        <div class="muted" id="fixture-mode">ACU fixture</div>
+        <h1 id="title">Fixture</h1>
+        <p id="subtitle" class="muted"></p>
+      </div>
+
+      <div id="main-panel"></div>
+    </section>
+
+    <aside class="card stack">
+      <div>
+        <h2>Inspection Notes</h2>
+        <p class="muted" id="notes"></p>
+      </div>
+
+      <div>
+        <h2>Event Trail</h2>
+        <ol class="log-list" id="event-log"></ol>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(window.location.search);
+    const mode = qs.get("mode") || "clock";
+    const eventLog = document.getElementById("event-log");
+
+    function logEvent(text) {
+      const li = document.createElement("li");
+      li.className = "event";
+      li.textContent = `${new Date().toLocaleTimeString("en-GB")}: ${text}`;
+      eventLog.prepend(li);
+    }
+
+    function setMeta(title, subtitle, notes) {
+      document.getElementById("fixture-mode").textContent = `ACU fixture: ${mode}`;
+      document.getElementById("title").textContent = title;
+      document.getElementById("subtitle").textContent = subtitle;
+      document.getElementById("notes").textContent = notes;
+    }
+
+    function statusHtml(text, cls) {
+      return `<div class="status-badge ${cls}"><span class="pulse"></span>${text}</div>`;
+    }
+
+    function mountClock() {
+      setMeta(
+        "Live Screen Clock",
+        "Use this to eyeball task snapshot staleness in the dashboard.",
+        "The big clock updates every 100ms. If the dashboard is fresh, you should see the seconds and tenths rolling forward with only minor lag."
+      );
+
+      const main = document.getElementById("main-panel");
+      main.innerHTML = `
+        ${statusHtml("CLOCK RUNNING", "ready")}
+        <div class="big-clock" id="clock"></div>
+        <div class="subclock" id="clock-sub"></div>
+      `;
+
+      const render = () => {
+        const now = new Date();
+        document.getElementById("clock").textContent =
+          now.toLocaleTimeString("en-GB", { hour12: false }) +
+          `.${String(Math.floor(now.getMilliseconds() / 100))}`;
+        document.getElementById("clock-sub").textContent =
+          `epoch-ms ${Date.now()} | repaint ${(performance.now() / 1000).toFixed(2)}s`;
+      };
+      render();
+      setInterval(render, 100);
+      logEvent("Clock fixture started");
+    }
+
+    function mountWait() {
+      const autoReady = parseFloat(qs.get("auto_ready_seconds") || "8");
+      let ready = false;
+
+      setMeta(
+        "Smart Wait Target",
+        "This page flips from WAITING to READY after a short delay.",
+        "Point smart_wait at this window and wait for the READY badge. The countdown is purely visual and deterministic."
+      );
+
+      const main = document.getElementById("main-panel");
+      main.innerHTML = `
+        <div id="wait-status">${statusHtml("STATE: WAITING", "waiting")}</div>
+        <div class="big-clock" id="countdown"></div>
+        <div class="subclock" id="wait-sub"></div>
+        <div class="button-row">
+          <button class="secondary" id="manual-ready">Set READY Now</button>
+        </div>
+      `;
+
+      function markReady(reason) {
+        if (ready) return;
+        ready = true;
+        document.getElementById("wait-status").innerHTML = statusHtml("STATE: READY", "ready");
+        document.getElementById("wait-sub").textContent = `READY visible (${reason})`;
+        logEvent(`Fixture became READY via ${reason}`);
+      }
+
+      const start = Date.now();
+      const timer = setInterval(() => {
+        if (ready) {
+          clearInterval(timer);
+          return;
+        }
+        const remaining = Math.max(0, autoReady - ((Date.now() - start) / 1000));
+        document.getElementById("countdown").textContent = remaining.toFixed(1);
+        document.getElementById("wait-sub").textContent = `Auto-ready in ${remaining.toFixed(1)} seconds`;
+        if (remaining <= 0) markReady("timer");
+      }, 100);
+
+      document.getElementById("manual-ready").addEventListener("click", () => markReady("manual click"));
+      logEvent(`Wait fixture started with ${autoReady.toFixed(1)}s countdown`);
+    }
+
+    function mountForm() {
+      let enabled = false;
+
+      setMeta(
+        "Live UI Form",
+        "Exercise click, type, and confirmation flows on a deterministic page.",
+        "Recommended live_ui goal: click Enable Editing, type the requested passphrase, then click Complete Workflow."
+      );
+
+      const expected = qs.get("expected_text") || "open sesame";
+      const main = document.getElementById("main-panel");
+      main.innerHTML = `
+        <div id="form-status">${statusHtml("WORKFLOW LOCKED", "locked")}</div>
+        <div class="stack" style="margin-top:24px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div style="border:2px solid var(--line);border-radius:18px;padding:18px;background:#fffcf8">
+              <div class="muted" style="font-size:15px;letter-spacing:0.12em;text-transform:uppercase">Step 1</div>
+              <div style="font-size:32px;font-weight:700;margin-top:6px">Enable editing</div>
+              <div style="margin-top:10px;color:var(--muted)">Click the dark button below before you type anything.</div>
+            </div>
+            <div style="border:2px solid var(--line);border-radius:18px;padding:18px;background:#f8fffc">
+              <div class="muted" style="font-size:15px;letter-spacing:0.12em;text-transform:uppercase">Step 2</div>
+              <div style="font-size:32px;font-weight:700;margin-top:6px">Type the passphrase</div>
+              <div style="margin-top:10px;color:var(--muted)">Enter the exact text shown below, then complete the workflow.</div>
+            </div>
+          </div>
+
+          <div class="button-row" style="margin-top:6px">
+            <button id="enable-btn" style="min-width:320px;padding:20px 28px;font-size:30px;font-weight:700;background:#1c1917;border-color:#1c1917">Enable Editing</button>
+            <button class="secondary" id="complete-btn" disabled style="min-width:320px;padding:20px 28px;font-size:30px;font-weight:700;border-width:2px">Complete Workflow</button>
+          </div>
+
+          <div>
+            <label for="secret">Enter passphrase exactly:</label>
+            <div style="margin-top:6px;font-size:34px;font-weight:700;padding:10px 14px;border:2px dashed var(--line);border-radius:14px;width:fit-content;background:#fff">${expected}</div>
+            <input id="secret" placeholder="type passphrase here" disabled style="margin-top:16px;font-size:28px;padding:18px 20px;border-width:2px">
+          </div>
+
+          <div class="subclock" id="form-sub">Input disabled until Enable Editing is clicked.</div>
+        </div>
+      `;
+
+      const secret = document.getElementById("secret");
+      const enableBtn = document.getElementById("enable-btn");
+      const completeBtn = document.getElementById("complete-btn");
+      const status = document.getElementById("form-status");
+      const sub = document.getElementById("form-sub");
+
+      function refresh() {
+        const textOk = secret.value.trim() === expected;
+        completeBtn.disabled = !(enabled && textOk);
+        if (!enabled) {
+          status.innerHTML = statusHtml("WORKFLOW LOCKED", "locked");
+          sub.textContent = "Input disabled until Enable Editing is clicked.";
+        } else if (!textOk) {
+          status.innerHTML = statusHtml("EDITING ENABLED", "waiting");
+          sub.textContent = "Type the exact passphrase, then Complete Workflow becomes available.";
+        } else {
+          status.innerHTML = statusHtml("READY TO COMPLETE", "ready");
+          sub.textContent = "Exact passphrase detected. Complete Workflow is now enabled.";
+        }
+      }
+
+      enableBtn.addEventListener("click", () => {
+        enabled = true;
+        secret.disabled = false;
+        secret.focus();
+        logEvent("Enable Editing clicked");
+        refresh();
+      });
+
+      secret.addEventListener("input", () => {
+        logEvent(`Input changed to "${secret.value}"`);
+        refresh();
+      });
+
+      completeBtn.addEventListener("click", () => {
+        status.innerHTML = statusHtml("WORKFLOW COMPLETE", "complete");
+        sub.textContent = `Completed with passphrase "${secret.value}"`;
+        enableBtn.disabled = true;
+        completeBtn.disabled = true;
+        secret.disabled = true;
+        logEvent("Workflow marked complete");
+      });
+
+      refresh();
+      logEvent(`Form fixture started; expected text is "${expected}"`);
+    }
+
+    if (mode === "wait") mountWait();
+    else if (mode === "form") mountForm();
+    else mountClock();
+  </script>
+</body>
+</html>

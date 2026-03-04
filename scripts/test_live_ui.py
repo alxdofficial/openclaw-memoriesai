@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Standalone test for the Gemini Live UI provider.
-Runs without the DETM daemon — just connects to Gemini Live and executes one instruction.
+Standalone test for the OpenRouter live_ui provider.
+Runs without the DETM daemon and executes one instruction against the current display.
 
 Usage:
   cd /home/alex/openclaw-memoriesai
   PYTHONPATH=src python3 scripts/test_live_ui.py
 
 Optional env vars:
-  ACU_GEMINI_LIVE_MODEL  — override model (default: gemini-2.0-flash-live-001)
-  DISPLAY                — X display to capture (default: :99)
-  INSTRUCTION            — override the test instruction
+  ACU_OPENROUTER_LIVE_MODEL  — override model (default: google/gemini-3.1-flash-lite-preview)
+  DISPLAY                    — X display to capture (default: :99)
+  INSTRUCTION                — override the test instruction
+  CONTEXT                    — optional extra context passed separately from the instruction
 """
 import asyncio
 import os
@@ -34,14 +35,17 @@ from agentic_computer_use.live.session import LiveUISession
 DISPLAY = os.environ.get("DISPLAY", ":99")
 INSTRUCTION = os.environ.get(
     "INSTRUCTION",
-    "Take one look at the screen and call done() with a one-sentence description of what you see.",
+    "Use the visible UI to complete the requested task. Only call done after the requested completion state is visible on screen.",
 )
-TIMEOUT = int(os.environ.get("TIMEOUT", "30"))
+CONTEXT = os.environ.get("CONTEXT", "")
+TIMEOUT = int(os.environ.get("TIMEOUT", "120"))
 
 
 async def main():
     print(f"Display  : {DISPLAY}")
     print(f"Instruction: {INSTRUCTION}")
+    if CONTEXT:
+        print(f"Context  : {CONTEXT}")
     print(f"Timeout  : {TIMEOUT}s")
     print()
 
@@ -50,18 +54,20 @@ async def main():
         session_id=str(uuid.uuid4()),
         task_id=None,
         instruction=INSTRUCTION,
-        context="",
+        context=CONTEXT,
         timeout=TIMEOUT,
     )
     from agentic_computer_use import config
     provider = get_provider()
-    print(f"Provider  : {config.LIVE_UI_PROVIDER}")
+    print("Provider  : openrouter")
+    print(f"Model     : {config.OPENROUTER_LIVE_MODEL}")
 
     result = await provider.run(
         instruction=INSTRUCTION,
         timeout=TIMEOUT,
         task_id=None,
         display=DISPLAY,
+        context=CONTEXT,
         session=session,
     )
 

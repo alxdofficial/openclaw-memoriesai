@@ -138,6 +138,38 @@ async def handle_wait_status(request: web.Request) -> web.Response:
                 "elapsed_seconds": round(elapsed),
                 "poll_interval": job.poll_interval,
             })
+        conn = await db.get_db()
+        try:
+            rows = await conn.execute_fetchall(
+                "SELECT * FROM wait_jobs WHERE id = ? LIMIT 1",
+                (wait_id,),
+            )
+        finally:
+            await conn.close()
+        if rows:
+            job = dict(rows[0])
+            elapsed = None
+            try:
+                start_ts = datetime.fromisoformat(job["created_at"]).timestamp()
+                end_iso = job.get("resolved_at") or db.now_iso()
+                end_ts = datetime.fromisoformat(end_iso).timestamp()
+                elapsed = round(max(0.0, end_ts - start_ts))
+            except Exception:
+                elapsed = None
+            payload = {
+                "wait_id": job["id"],
+                "status": job["status"],
+                "target": f"{job['target_type']}:{job['target_id']}",
+                "criteria": job["criteria"],
+                "poll_interval": job["poll_interval"],
+            }
+            if elapsed is not None:
+                payload["elapsed_seconds"] = elapsed
+            if job.get("result_message"):
+                payload["detail"] = job["result_message"]
+            if job.get("resolved_at"):
+                payload["resolved_at"] = job["resolved_at"]
+            return web.json_response(payload)
         return web.json_response({"error": f"Wait job {wait_id} not found"}, status=404)
 
     jobs = []
@@ -371,6 +403,7 @@ async def handle_health(request: web.Request) -> web.Response:
         "vision_backend": config.VISION_BACKEND,
         "gui_agent_backend": config.GUI_AGENT_BACKEND,
         "gui_agent_provider": gui_backend.provider,
+        "live_ui_model": config.OPENROUTER_LIVE_MODEL,
         "active_wait_jobs": len(wait_engine.jobs),
         "data_dir": str(config.DATA_DIR),
         "display": config.DISPLAY,
@@ -975,21 +1008,24 @@ async def handle_live_ui(request: web.Request) -> web.Response:
 
     result["session_id"] = session_id
 
-    if task_id and not result.get("error"):
+    if task_id:
         import json as _json
         actions = result.get("actions_taken", 0)
-        summary = result.get("summary", "")
         status = "completed" if result.get("success") else "failed"
         input_data = _json.dumps({
             "session_id": session_id,
             "instruction": instruction[:200],
             "timeout": timeout,
         })
+        summary = result.get("summary") or result.get("error") or "live_ui finished without a summary"
         asyncio.ensure_future(task_mgr.log_action(
             task_id, "gui",
             f"live_ui ({actions} actions): {instruction[:100]}",
             input_data=input_data,
-            output_data=_json.dumps(result),
+            output_data=_json.dumps({
+                **result,
+                "summary": summary,
+            }),
             status=status,
         ))
 

@@ -32,7 +32,7 @@ _PRICING: list[tuple[str, float, float]] = [
     ("google/gemini-flash",          0.10,   0.40),
     # OpenRouter — ByteDance UI-TARS
     ("bytedance/ui-tars",            0.40,   0.40),
-    # Gemini Live (Google AI Dev) — approximate; SDK doesn't expose token counts
+    # live_ui provider usage — provider-specific token accounting may be approximate
     ("gemini-2.5-flash",             0.15,   0.60),
     ("gemini-2.0-flash-live",        0.10,   0.40),
     ("gemini-live",                  0.10,   0.40),

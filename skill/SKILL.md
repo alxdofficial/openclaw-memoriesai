@@ -462,7 +462,7 @@ When you receive this event, use the resume packet to orient yourself and contin
 
 ## live_ui — autonomous multi-step UI navigation
 
-`live_ui` delegates a complete UI workflow to a live AI vision model (Gemini Live). The model watches a stream of screenshots and executes actions autonomously until the task is done or it needs to escalate.
+`live_ui` delegates a complete UI workflow to a vision AI model. The model watches screenshots and executes actions autonomously until the task is done or it needs to escalate. The active provider is configurable (Gemini Live streaming, or near-realtime OpenRouter VLM loop).
 
 ### When to use
 

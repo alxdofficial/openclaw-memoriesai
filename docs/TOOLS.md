@@ -213,10 +213,7 @@ Delegate a multi-step UI workflow to a live vision model. The model sees the scr
 
 Returns `success`, `summary`, `actions_taken`, `session_id`. The session is recorded to disk (frames + events + audio) and viewable in the dashboard via the "Live" button or replay viewer.
 
-**Active provider** (`ACU_LIVE_UI_PROVIDER`, default: `gemini`):
-- `gemini` — Gemini Live API, real-time streaming, model: `gemini-2.0-flash-live-001`
-- `openrouter` — request-response VLM via OpenRouter (near-realtime)
-- `qwen` — Qwen3-Omni Realtime via WebSocket
+**Active provider**: OpenRouter request-response VLM (default model: `google/gemini-3.1-flash-lite-preview`).
 
 ---
 

@@ -2,7 +2,7 @@
 
 One action per turn: the model calls a single tool, sees a fresh screenshot of the result,
 then decides the next action. No streaming audio. Works with any OpenRouter vision model
-that supports function calling (default: google/gemini-3.1-flash-lite-preview).
+that supports function calling.
 """
 import asyncio
 import base64
@@ -20,45 +20,50 @@ log = logging.getLogger(__name__)
 
 _OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
+# Seconds to wait after each GUI action before capturing the next screenshot.
+# Gives the browser/OS time to process events and repaint.
+_SETTLE = {
+    "move_mouse":   0.0,   # smooth animation already ~180ms
+    "click":        0.08,
+    "double_click": 0.08,
+    "type_text":    0.05,
+    "key_press":    0.05,
+    "scroll":       0.08,
+}
+
 _SYSTEM_PROMPT = """\
-You are a UI automation agent controlling a Linux desktop ({width}x{height} pixels).
-Complete the given instruction by observing screenshots and calling tools.
+You control a {width}x{height} Linux desktop. Complete the instruction by calling tools.
 
-COORDINATES: x and y are pixel coordinates.
-  Top-left is (0, 0). Bottom-right is ({width}, {height}).
-  The cursor appears as a RED CIRCLE with crosshair in every screenshot.
+Coordinates: (0, 0) is top-left, ({max_x}, {max_y}) is bottom-right.
+Red tick marks along the edges show pixel positions every 100px — use them to estimate coordinates.
+The red circle with crosshairs marks the current cursor position.
 
-Rules:
-- Call EXACTLY ONE tool per turn. After each action you will receive a fresh screenshot
-  showing what actually happened — use it to decide your next action.
-- NEVER call done() unless you have seen a screenshot confirming the task is complete.
-- NEVER assume an action succeeded — always verify in the next screenshot.
-- Use move_mouse first to see where the cursor lands; adjust x/y and repeat until
-  the red circle sits on the target, then click.
-- Click a text field before typing into it.
-- Call escalate() for: login walls, CAPTCHAs, missing credentials, unexpected blockers.
-- Act immediately — do not narrate or explain.
+After every action, check the screenshot to verify what actually happened.
+The cursor is often NOT where you expect — look at the red circle to see where it really is.
+If the cursor landed in the wrong spot, adjust with another move_mouse before proceeding.
+Always move_mouse to the center of a target element first, verify the red circle is on it, then click.
+
+One tool call per turn. Each response includes a fresh screenshot labeled [current screenshot] — this is the live state of the screen right now. Only call done() after the screenshot confirms the task is complete.
 """
 
+_THOUGHT_PROP = {
+    "thought": {"type": "string", "description": "Brief reasoning about what you see and will do next."},
+}
 _COORD_PROPS = {
     "x": {"type": "integer", "description": "X pixel coordinate"},
     "y": {"type": "integer", "description": "Y pixel coordinate"},
 }
 
-# OpenAI-format tool definitions (pixel coordinates — model sees screenshots directly)
 _TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "move_mouse",
-            "description": (
-                "Move cursor to (x, y) WITHOUT clicking. Cursor appears as a red circle "
-                "in the next screenshot. Repeat with adjusted x/y to home in on the target."
-            ),
+            "description": "Move cursor to (x, y) without clicking. Use to verify aim before clicking.",
             "parameters": {
                 "type": "object",
-                "properties": _COORD_PROPS,
-                "required": ["x", "y"],
+                "properties": {**_THOUGHT_PROP, **_COORD_PROPS},
+                "required": ["thought", "x", "y"],
             },
         },
     },
@@ -66,14 +71,15 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "click",
-            "description": "Move mouse and click at (x, y).",
+            "description": "Click at (x, y).",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    **_THOUGHT_PROP,
                     **_COORD_PROPS,
                     "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Default: left"},
                 },
-                "required": ["x", "y"],
+                "required": ["thought", "x", "y"],
             },
         },
     },
@@ -84,8 +90,8 @@ _TOOLS = [
             "description": "Double-click at (x, y).",
             "parameters": {
                 "type": "object",
-                "properties": _COORD_PROPS,
-                "required": ["x", "y"],
+                "properties": {**_THOUGHT_PROP, **_COORD_PROPS},
+                "required": ["thought", "x", "y"],
             },
         },
     },
@@ -93,11 +99,11 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "type_text",
-            "description": "Type text at the focused input field. Click the field first.",
+            "description": "Type text into the focused input field.",
             "parameters": {
                 "type": "object",
-                "properties": {"text": {"type": "string"}},
-                "required": ["text"],
+                "properties": {**_THOUGHT_PROP, "text": {"type": "string"}},
+                "required": ["thought", "text"],
             },
         },
     },
@@ -105,11 +111,11 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "key_press",
-            "description": "Press a key or key combination: Return, Tab, Escape, BackSpace, ctrl+c, etc.",
+            "description": "Press a key or combination: Return, Tab, Escape, BackSpace, ctrl+a, ctrl+c, etc.",
             "parameters": {
                 "type": "object",
-                "properties": {"key": {"type": "string"}},
-                "required": ["key"],
+                "properties": {**_THOUGHT_PROP, "key": {"type": "string"}},
+                "required": ["thought", "key"],
             },
         },
     },
@@ -117,15 +123,16 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "scroll",
-            "description": "Scroll at (x, y).",
+            "description": "Scroll at (x, y) in a direction.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    **_THOUGHT_PROP,
                     **_COORD_PROPS,
                     "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
                     "amount": {"type": "integer", "description": "Scroll steps (default 3)"},
                 },
-                "required": ["x", "y", "direction"],
+                "required": ["thought", "x", "y", "direction"],
             },
         },
     },
@@ -133,14 +140,15 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "done",
-            "description": "Signal that the instruction has been completed.",
+            "description": "Signal task completion.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    **_THOUGHT_PROP,
                     "summary": {"type": "string", "description": "What was accomplished"},
                     "success": {"type": "boolean"},
                 },
-                "required": ["summary", "success"],
+                "required": ["thought", "summary", "success"],
             },
         },
     },
@@ -148,16 +156,14 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "escalate",
-            "description": (
-                "Signal that you cannot proceed — human intervention needed. "
-                "Use for: login walls, CAPTCHAs, missing credentials, unexpected blockers."
-            ),
+            "description": "Signal that you cannot proceed and need human help.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    **_THOUGHT_PROP,
                     "reason": {"type": "string"},
                 },
-                "required": ["reason"],
+                "required": ["thought", "reason"],
             },
         },
     },
@@ -176,13 +182,52 @@ def _get_display_size(display: str) -> tuple[int, int]:
         return _cfg.DEFAULT_TASK_DISPLAY_WIDTH, _cfg.DEFAULT_TASK_DISPLAY_HEIGHT
 
 
+def _draw_ruler(img):
+    """Draw tick marks along edges every 100px to help the model estimate coordinates."""
+    from PIL import ImageDraw, ImageFont
+    draw = ImageDraw.Draw(img, "RGBA")
+    w, h = img.size
+    tick_len = 12
+    color = (180, 0, 0, 160)
+    label_color = (180, 0, 0, 200)
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+    except Exception:
+        font = ImageFont.load_default()
+
+    for x in range(0, w, 100):
+        draw.line([(x, 0), (x, tick_len)], fill=color, width=1)
+        draw.line([(x, h - tick_len), (x, h)], fill=color, width=1)
+        if x > 0:
+            draw.text((x + 2, 1), str(x), fill=label_color, font=font)
+
+    for y in range(0, h, 100):
+        draw.line([(0, y), (tick_len, y)], fill=color, width=1)
+        draw.line([(w - tick_len, y), (w, y)], fill=color, width=1)
+        if y > 0:
+            draw.text((1, y + 1), str(y), fill=label_color, font=font)
+
+    return img
+
+
 def _capture_jpeg_b64(display: str, session=None) -> str:
-    """Capture screenshot, record to session, return base64-encoded JPEG."""
-    from ..capture.screen import capture_screen_with_cursor, frame_to_jpeg
+    """Capture screenshot with ruler overlay, record to session, return base64."""
+    import io
+    from PIL import Image
+    from ..capture.screen import capture_screen_with_cursor
     try:
         frame = capture_screen_with_cursor(display=display)
         if frame is not None:
-            jpeg = frame_to_jpeg(frame, max_dim=1280, quality=72)
+            img = Image.fromarray(frame)
+            ratio = 1280 / max(img.size)
+            if ratio < 1:
+                img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.BILINEAR)
+            img = img.convert("RGBA")
+            img = _draw_ruler(img)
+            img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=72)
+            jpeg = buf.getvalue()
             if session:
                 session.record_frame(jpeg)
             return base64.b64encode(jpeg).decode()
@@ -191,13 +236,42 @@ def _capture_jpeg_b64(display: str, session=None) -> str:
     return ""
 
 
+def _bounds_check(name: str, args: dict, width: int, height: int) -> str | None:
+    """Return an error string if coordinates are out of bounds, else None."""
+    if name in ("move_mouse", "click", "double_click", "scroll"):
+        x = int(args.get("x", 0))
+        y = int(args.get("y", 0))
+        if x < 0 or x >= width or y < 0 or y >= height:
+            return f"error: ({x}, {y}) is outside the {width}x{height} display"
+    return None
+
+
+def _extract_model_text(msg: dict) -> str:
+    """Extract concise assistant text from an OpenRouter message."""
+    content = msg.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = str(part.get("text") or "").strip()
+                if text:
+                    parts.append(text)
+        if parts:
+            return "\n".join(parts)
+    for key in ("reasoning", "thinking"):
+        text = str(msg.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
 
 class OpenRouterVLMProvider(LiveUIProvider):
     """
     Near-realtime UI automation via OpenRouter VLM API.
 
-    Loop: screenshot → chat completion with tools → execute tool calls → repeat.
-    No streaming audio; fastest round-trip is ~0.5–1.5s per turn.
+    Loop: screenshot → chat completion with tools → execute tool call → repeat.
     """
 
     async def run(
@@ -217,19 +291,24 @@ class OpenRouterVLMProvider(LiveUIProvider):
         width, height = _get_display_size(display)
         sid = session.id[:8] if session else "--------"
 
-        system_text = _SYSTEM_PROMPT.format(width=width, height=height)
+        system_text = _SYSTEM_PROMPT.format(width=width, height=height, max_x=width - 1, max_y=height - 1)
         if context:
-            system_text += f"\n\nAdditional context:\n{context}"
+            system_text += f"\n\nContext:\n{context}"
 
-        _dbg.log("LIVE", f"[{sid}] OpenRouter near-realtime: model={model} task={task_id} timeout={timeout}s")
+        _dbg.log("LIVE", f"[{sid}] OpenRouter near-realtime: model={model} display={display} {width}x{height} task={task_id} timeout={timeout}s")
 
-        MAX_TURNS = 40
-        # Keep a sliding window of messages to prevent context overflow.
-        # Each turn adds ~3 messages (assistant+tool+user with screenshot).
-        # Keep system + first instruction + last CONTEXT_WINDOW messages.
-        CONTEXT_WINDOW = 30  # ~10 turns of history
+        import time as _time
+        t_start = _time.time()
+
+        MAX_TURNS = 60
+        MAX_FORMAT_RETRIES = 10
+        CONTEXT_WINDOW = 30
         actions_taken = 0
-        last_usage_data = None  # track last API response for usage recording
+        action_turns = 0
+        format_retries = 0
+        last_usage_data = None
+        cursor_x: int | None = None
+        cursor_y: int | None = None
         messages: list[dict] = [{"role": "system", "content": system_text}]
 
         # First user message: instruction + initial screenshot
@@ -249,9 +328,10 @@ class OpenRouterVLMProvider(LiveUIProvider):
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             try:
                 async with asyncio.timeout(timeout):
-                    for turn in range(MAX_TURNS):
+                    while action_turns < MAX_TURNS and format_retries < MAX_FORMAT_RETRIES:
                         t0 = asyncio.get_running_loop().time()
-                        _dbg.log("LIVE", f"[{sid}] turn={turn + 1} → {model}")
+                        turn_no = action_turns + format_retries + 1
+                        _dbg.log("LIVE", f"[{sid}] turn={turn_no} actions={action_turns} retries={format_retries}")
 
                         resp = await client.post(
                             f"{_OPENROUTER_BASE}/chat/completions",
@@ -265,12 +345,13 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "model": model,
                                 "messages": messages,
                                 "tools": _TOOLS,
-                                "tool_choice": "auto",
-                                "parallel_tool_calls": False,  # one action at a time
+                                "tool_choice": "required",
+                                "parallel_tool_calls": False,
                             },
                         )
 
-                        elapsed = (asyncio.get_running_loop().time() - t0) * 1000
+                        t_api = asyncio.get_running_loop().time()
+                        api_ms = (t_api - t0) * 1000
                         if resp.status_code != 200:
                             err = f"OpenRouter HTTP {resp.status_code}: {resp.text[:300]}"
                             _dbg.log("LIVE", f"[{sid}] API error: {err}")
@@ -280,31 +361,26 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         data = resp.json()
                         last_usage_data = data
+                        _dbg.log("LIVE", f"[{sid}] raw_response: {json.dumps(data)[:2000]}")
                         choice = data["choices"][0]
                         msg = choice["message"]
                         tool_calls = msg.get("tool_calls") or []
 
-                        _dbg.log("LIVE", f"[{sid}] turn={turn + 1} {elapsed:.0f}ms {len(tool_calls)} tool call(s)")
-
-                        # Capture reasoning/thinking if present
-                        reasoning = msg.get("reasoning") or msg.get("thinking") or ""
-                        if reasoning and session:
-                            session.record_model_text(reasoning)
-                            _dbg.log("LIVE", f"[{sid}] reasoning: {reasoning[:120]}")
-
                         if not tool_calls:
-                            text = msg.get("content") or ""
-                            _dbg.log("LIVE", f"[{sid}] text-only: {text[:200]}")
-                            if text and session:
-                                session.record_model_text(text)
-                            messages.append({"role": "assistant", "content": text or ""})
-                            messages.append({"role": "user", "content": "You must call a tool now."})
+                            _dbg.log("LIVE", f"[{sid}] no tool call ({api_ms:.0f}ms)")
+                            messages.append({"role": "assistant", "content": _extract_model_text(msg) or ""})
+                            messages.append({"role": "user", "content": "Call a tool."})
+                            format_retries += 1
                             continue
 
-                        # Enforce one tool call (parallel_tool_calls:false should guarantee this,
-                        # but guard in case the model or proxy ignores it)
                         tc = tool_calls[0]
-                        messages.append(msg)
+                        format_retries = 0
+                        narration = _extract_model_text(msg)
+                        messages.append({
+                            "role": "assistant",
+                            "content": narration or "",
+                            "tool_calls": [tc],
+                        })
 
                         fn_name = tc["function"]["name"]
                         try:
@@ -313,18 +389,23 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             fn_args = {}
                         tc_id = tc["id"]
 
-                        _dbg.log("LIVE", f"[{sid}] tool_call: {fn_name}({', '.join(f'{k}={v}' for k, v in fn_args.items())})")
+                        thought = fn_args.pop("thought", "") or narration
+                        if thought:
+                            _dbg.log("LIVE", f"[{sid}] thought: {thought[:120]}")
+                            if session:
+                                session.record_model_text(thought)
+                        _dbg.log("LIVE", f"[{sid}] {fn_name}({', '.join(f'{k}={v}' for k, v in fn_args.items())})")
 
                         if session:
                             session.record_tool_call(fn_name, fn_args, tc_id)
 
-                        # ── Terminal actions ──────────────────────────────────
+                        # ── Terminal actions ─────────────────────────────
                         if fn_name == "done":
                             success = bool(fn_args.get("success", True))
                             summary = str(fn_args.get("summary", ""))
                             if session:
                                 session.record_done(success, summary)
-                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": "acknowledged"})
+                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
                             _dbg.log("LIVE", f"[{sid}] done: success={success} actions={actions_taken} — {summary[:80]}")
                             _record_usage(model, task_id, data)
                             return {
@@ -333,13 +414,15 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "escalated": False,
                                 "escalation_reason": "",
                                 "actions_taken": actions_taken,
+                                "session_id": session.id if session else "",
+                                "elapsed_s": round(_time.time() - t_start, 1),
                             }
 
                         if fn_name == "escalate":
                             reason = str(fn_args.get("reason", ""))
                             if session:
                                 session.record_escalate(reason)
-                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": "acknowledged"})
+                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
                             _dbg.log("LIVE", f"[{sid}] escalate: {reason[:120]}")
                             _record_usage(model, task_id, data)
                             return {
@@ -348,25 +431,56 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "escalation_reason": reason,
                                 "summary": f"Escalated: {reason}",
                                 "actions_taken": actions_taken,
+                                "session_id": session.id if session else "",
+                                "elapsed_s": round(_time.time() - t_start, 1),
                             }
 
-                        # ── GUI action — execute, then take a fresh screenshot ─
-                        action_result = await asyncio.get_running_loop().run_in_executor(
-                            None, execute_action, fn_name, fn_args, display
-                        )
+                        # ── GUI action ───────────────────────────────────
+                        action_turns += 1
+
+                        # Bounds check
+                        bounds_err = _bounds_check(fn_name, fn_args, width, height)
+                        if bounds_err:
+                            _dbg.log("LIVE", f"[{sid}] {bounds_err}")
+                            if session:
+                                session.record_tool_response(fn_name, tc_id, bounds_err)
+                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": bounds_err})
+                            # No screenshot needed — nothing changed on screen
+                            continue
+
+                        # Execute
+                        t_exec0 = asyncio.get_running_loop().time()
+                        action_result = execute_action(fn_name, fn_args, display)
+                        t_exec1 = asyncio.get_running_loop().time()
                         actions_taken += 1
+
+                        # Track cursor position
+                        if fn_name in ("move_mouse", "click", "double_click", "scroll"):
+                            cursor_x = int(fn_args.get("x", 0))
+                            cursor_y = int(fn_args.get("y", 0))
+
                         if session:
                             session.record_tool_response(fn_name, tc_id, action_result)
 
-                        # Tool result
                         messages.append({"role": "tool", "tool_call_id": tc_id, "content": action_result})
 
-                        # Fresh screenshot so the model sees what actually happened
+                        # Settle + screenshot
+                        settle = _SETTLE.get(fn_name, 0.08)
+                        await asyncio.sleep(settle)
+
+                        t_shot0 = asyncio.get_running_loop().time()
                         screenshot_b64 = await asyncio.get_running_loop().run_in_executor(
                             None, _capture_jpeg_b64, display, session
                         )
+                        t_shot1 = asyncio.get_running_loop().time()
+                        _dbg.log(
+                            "LIVE",
+                            f"[{sid}] timing: api={api_ms:.0f}ms exec={1000*(t_exec1-t_exec0):.0f}ms settle={settle*1000:.0f}ms shot={1000*(t_shot1-t_shot0):.0f}ms",
+                        )
+
+                        cursor_info = f" Cursor at ({cursor_x}, {cursor_y})." if cursor_x is not None else ""
                         observe_content: list[dict] = [
-                            {"type": "text", "text": f"Result: {action_result}. Here is the current screen. Take the next action."},
+                            {"type": "text", "text": f"{action_result}.{cursor_info} [current screenshot]"},
                         ]
                         if screenshot_b64:
                             observe_content.append({
@@ -375,21 +489,42 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             })
                         messages.append({"role": "user", "content": observe_content})
 
-                        # Sliding window: keep system msg + first instruction + last N messages
+                        # Sliding window — keep system + first instruction + last N messages.
+                        # Strip images from all but the latest user message to save tokens.
                         if len(messages) > CONTEXT_WINDOW + 2:
                             messages = messages[:2] + messages[-(CONTEXT_WINDOW):]
+                        for msg in messages[2:-1]:  # skip system, instruction, and latest
+                            if isinstance(msg.get("content"), list):
+                                msg["content"] = [c for c in msg["content"] if c.get("type") != "image_url"]
 
-                    _dbg.log("LIVE", f"[{sid}] Max turns ({MAX_TURNS}) reached — actions={actions_taken}")
+                    if format_retries >= MAX_FORMAT_RETRIES:
+                        _dbg.log("LIVE", f"[{sid}] max format retries — actions={actions_taken}")
+                        if session:
+                            session.record_error("max format retries")
+                        if last_usage_data:
+                            _record_usage(model, task_id, last_usage_data)
+                        return {
+                            "success": False,
+                            "summary": "Model failed to produce tool calls",
+                            "error": "max format retries",
+                            "actions_taken": actions_taken,
+                            "session_id": session.id if session else "",
+                            "elapsed_s": round(_time.time() - t_start, 1),
+                        }
+
+                    _dbg.log("LIVE", f"[{sid}] max turns ({MAX_TURNS}) — actions={actions_taken}")
                     if last_usage_data:
                         _record_usage(model, task_id, last_usage_data)
                     return {
                         "success": False,
                         "summary": f"Reached max {MAX_TURNS} turns without completion",
                         "actions_taken": actions_taken,
+                        "session_id": session.id if session else "",
+                        "elapsed_s": round(_time.time() - t_start, 1),
                     }
 
             except asyncio.TimeoutError:
-                _dbg.log("LIVE", f"[{sid}] Timeout after {timeout}s — actions={actions_taken}")
+                _dbg.log("LIVE", f"[{sid}] timeout {timeout}s — actions={actions_taken}")
                 if session:
                     session.record_error(f"timeout after {timeout}s")
                 if last_usage_data:
@@ -399,15 +534,17 @@ class OpenRouterVLMProvider(LiveUIProvider):
                     "summary": f"Timed out after {timeout}s",
                     "error": f"timeout after {timeout}s",
                     "actions_taken": actions_taken,
+                    "session_id": session.id if session else "",
+                    "elapsed_s": round(_time.time() - t_start, 1),
                 }
             except Exception as e:
-                _dbg.log("LIVE", f"[{sid}] Exception: {e}")
+                _dbg.log("LIVE", f"[{sid}] exception: {e}")
                 log.error(f"OpenRouter live error: {e}", exc_info=True)
                 if session:
                     session.record_error(str(e))
                 if last_usage_data:
                     _record_usage(model, task_id, last_usage_data)
-                return {"error": str(e), "success": False, "actions_taken": actions_taken}
+                return {"error": str(e), "success": False, "actions_taken": actions_taken, "session_id": session.id if session else "", "elapsed_s": round(_time.time() - t_start, 1)}
 
 
 def _record_usage(model: str, task_id: str | None, data: dict) -> None:

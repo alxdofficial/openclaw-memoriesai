@@ -10,7 +10,7 @@ const LiveSessionViewer = (() => {
 
   // ── Color mapping for event types ────────────────────────────
   const _TYPE_STYLE = {
-    model_text:     { cls: "lsv-sender sender-agent",  label: "llm:narrate" },
+    model_text:     { cls: "lsv-sender sender-agent",  label: "llm:thought" },
     tool_call:      { cls: "lsv-sender sender-gui",    label: null },  // label set dynamically
     tool_response:  { cls: "lsv-sender sender-tool",   label: "result" },
     done:           { cls: "lsv-sender sender-vision",  label: "done" },
@@ -365,19 +365,27 @@ const LiveSessionViewer = (() => {
     _modal.addEventListener("click", e => { if (e.target === _modal) _close(); });
     document.addEventListener("keydown", _escHandler);
 
-    // Jump to live edge: start SSE/audio from current file sizes (not from beginning)
+    // Pre-populate with existing events, then SSE for new ones
     let eventsFrom = 0, audioFrom = 0;
     try {
       const r = await fetch(`/api/live_sessions/${encodeURIComponent(sessionId)}`);
       if (r.ok) {
         const data = await r.json();
-        // Use events_size and audio_size if provided by server
         eventsFrom = data.events_size || 0;
         audioFrom = data.audio_size || 0;
         // Show the latest frame immediately
         const frameImg = _modal.querySelector("#lsv-live-frame");
         if (frameImg && data.frame_count > 0) {
           frameImg.src = `/api/live_sessions/${encodeURIComponent(sessionId)}/frames/${data.frame_count - 1}`;
+        }
+        // Pre-populate feed with existing events so nothing is lost on reopen
+        const feedEvents = (data.events || []).filter(e => e.type !== "frame" && e.type !== "instruction");
+        if (feedEvents.length > 0) {
+          const feedEl = _modal.querySelector("#lsv-feed");
+          if (feedEl) {
+            feedEl.innerHTML = _renderFeed(feedEvents, []);
+            feedEl.lastElementChild?.scrollIntoView({ block: "nearest" });
+          }
         }
       }
     } catch (e) { /* proceed with offset 0 */ }

@@ -28,6 +28,35 @@ err()   { color "31" "✗ $*"; exit 1; }
 
 session_running() { tmux has-session -t "$SESSION" 2>/dev/null; }
 
+build_run_cmd() {
+    local env_parts=(
+        "ACU_DEBUG=1"
+        "DISPLAY=${DISPLAY:-:99}"
+        "PYTHONPATH=$REPO_DIR/src"
+    )
+    local passthrough_vars=(
+        ACU_DATA_DIR
+        ACU_OPENROUTER_API_KEY
+        ACU_OPENROUTER_LIVE_MODEL
+        ACU_OPENROUTER_VISION_MODEL
+        ACU_VISION_BACKEND
+        ACU_GUI_AGENT_BACKEND
+        OPENROUTER_API_KEY
+        OLLAMA_URL
+        OPENCLAW_GATEWAY_PORT
+    )
+    local var=""
+    for var in "${passthrough_vars[@]}"; do
+        if [ "${!var+x}" = x ]; then
+            env_parts+=("$var=${!var}")
+        fi
+    done
+
+    printf 'env '
+    printf '%q ' "${env_parts[@]}"
+    printf '%q ' "$VENV" -m agentic_computer_use.daemon
+}
+
 # ── subcommands ───────────────────────────────────────────────────────────────
 
 cmd_stop() {
@@ -111,7 +140,7 @@ cmd_start() {
 
     mkdir -p "$(dirname "$LOG_FILE")"
 
-    RUN_CMD="ACU_DEBUG=1 DISPLAY=${DISPLAY:-:99} PYTHONPATH=$REPO_DIR/src $VENV -m agentic_computer_use.daemon"
+    RUN_CMD="$(build_run_cmd)"
 
     tmux new-session -d -s "$SESSION" -x 220 -y 50 \; \
         send-keys "$RUN_CMD" Enter

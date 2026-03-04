@@ -12,7 +12,7 @@ cd openclaw-memoriesai
 
 The installer handles:
 - Python venv + dependencies
-- Ollama + vision model
+- Ollama + vision model (only when `ACU_VISION_BACKEND` is unset or `ollama`; skipped for cloud backends)
 - System packages (xdotool, ffmpeg, fluxbox, Xvfb, scrot)
 - Display detection: uses real X display if present, otherwise sets up Xvfb + x11vnc + noVNC (systemd services)
 - Systemd service for the DETM daemon (auto-start, auto-restart)
@@ -45,7 +45,7 @@ Five layers:
                                        └──────────────────────────────┘
 ```
 
-## Tools (21)
+## Tools (24)
 
 ### Task Management (Hierarchical)
 | Tool | Description |
@@ -80,6 +80,12 @@ Five layers:
 | `desktop_action` | Raw xdotool: click, type, keys, windows |
 | `desktop_look` | Returns screenshot image + text content with pixel dimensions. Served from pre-captured frame buffer (~0ms latency). No local vision model involved — you interpret the image directly. |
 | `video_record` | Record screen/window clip |
+
+### Live AI Delegation
+| Tool | Description |
+|------|-------------|
+| `live_ui` | Delegate a multi-step UI workflow to an OpenRouter-hosted vision model. The model sees the current screen, emits one tool call at a time, and iteratively acts via xdotool until done or escalating. Requires `OPENROUTER_API_KEY`. |
+| `mavi_understand` | Record a screen clip, upload to Memories.AI (MAVI), then answer a question about the video. Useful for reviewing what happened on screen. Requires `MAVI_API_KEY`. |
 
 ### System
 | Tool | Description |
@@ -211,9 +217,11 @@ open http://localhost:18790/dashboard
   - Purple: Plan changes (`LLM -> plan`)
   - Red: Stuck alerts (`System -> alert`)
 - **Live screen viewer** — always shows the live system display (`:99`) even when no task is selected. Polled JPEG snapshots at 500ms (replaces the previous MJPEG stream).
-- **Replay mode** — scrub through auto-recorded frames for any task
+- **Replay mode** — scrub through auto-recorded frames for any task; scrubber syncs to audio playback position
 - **Recording controls** — start/stop manual screen recording per task
-- **Poll intervals** — task list: 1s; selected task detail: 500ms
+- **Live session monitor** — when `live_ui` is running, a pulsing "● Live" button appears on the task card. Click to open a live modal with real-time SSE event feed, auto-updating frame display, and streaming PCM audio via Web Audio API
+- **AI API usage stats** — cost tracking panel at the bottom of the dashboard: total cost, requests, input/output tokens; per-model breakdown table with proportional cost bars; daily cost bar chart; time filter (today / 7d / 30d / all time)
+- **Poll intervals** — task list: 1s; selected task detail: 500ms; live sessions: 2s; usage stats: 30s
 
 ### Dashboard API endpoints
 
@@ -239,6 +247,13 @@ open http://localhost:18790/dashboard
 | `/api/recordings/{filename}` | GET | Serve recording files |
 | `/api/waits` | GET | Active wait jobs |
 | `/api/health` | GET | Health check |
+| `/api/usage/stats` | GET | AI API usage stats (`?since=1\|7\|30` days or empty for all time) |
+| `/api/live_sessions/active` | GET | Map of `task_id → session_id` for running `live_ui` sessions |
+| `/api/live_sessions/{id}` | GET | Session events list |
+| `/api/live_sessions/{id}/events/stream` | GET | SSE stream of new events (tails `events.jsonl`) |
+| `/api/live_sessions/{id}/frames/{n}` | GET | JPEG frame from live session |
+| `/api/live_sessions/{id}/audio` | GET | Session audio as WAV (live or complete) |
+| `/api/live_sessions/{id}/audio/stream` | GET | Chunked raw PCM stream (24kHz mono Int16-LE) |
 
 ### Screenshots
 
@@ -338,6 +353,8 @@ When updating tools or behavior, keep SKILL.md in sync — it's what the LLM act
 | `ACU_DESKTOP_LOOK_QUALITY` | `72` | JPEG quality for desktop_look images |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `ANTHROPIC_API_KEY` | -- | Required for Claude vision/GUI backends |
+| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3.1-flash-lite-preview` | OpenRouter model used by `live_ui` |
+| `MAVI_API_KEY` | -- | Memories.AI API key — required for `mavi_understand` |
 
 ## Repository Layout
 
@@ -349,6 +366,8 @@ src/agentic_computer_use/
   db.py                  # SQLite schema + helpers
   debug.py               # Colored debug logging
   screenshots.py         # Screenshot file management
+  usage.py               # AI API cost tracking (usage_events table, pricing table, get_stats)
+  mavi.py                # Memories.AI video comprehension (mavi_understand tool impl)
   task/
     manager.py           # Hierarchical task CRUD, stuck detection, resume packets
   wait/
@@ -367,15 +386,23 @@ src/agentic_computer_use/
     __init__.py          # Pluggable vision backend interface
   video/
     recorder.py          # Screen recording (ffmpeg)
+  live/
+    __init__.py          # Provider factory (live_ui tool entry point)
+    base.py              # Abstract LiveProvider base class
+    session.py           # LiveSession: event log, frame saving, PCM audio recording
+    actions.py           # xdotool action execution for live providers
+    openrouter.py        # OpenRouter live_ui provider (screenshot -> one tool call -> observe)
   dashboard/
     index.html           # Dashboard HTML
     style.css            # Dark terminal theme
     app.js               # Main app: polling, fetch helpers, wiring
     components/
-      task-list.js       # Sidebar task list with delete button
+      task-list.js       # Sidebar task list; Live button for active live_ui sessions
       task-tree.js       # Expandable plan item tree; scrapped items, action sender tags
       screen-viewer.js   # Polled JPEG viewer (500ms); replay mode; recording controls
       message-feed.js    # Color-coded message feed
+      live-session-viewer.js  # Live monitor modal (SSE feed + Web Audio PCM); replay audio-frame sync
+      usage-stats.js     # AI API usage panel (cards, daily chart, per-model table)
 
 skill/
   SKILL.md               # LLM prompt — teaches OpenClaw how to use DETM
@@ -412,9 +439,10 @@ ACU_DEBUG=1 detm-daemon                 # Start with debug logging
 
 | Path | Contents |
 |------|----------|
-| `~/.agentic-computer-use/data.db` | SQLite database (tasks, plan_items, actions, action_logs, task_messages, wait_jobs) |
+| `~/.agentic-computer-use/data.db` | SQLite database (tasks, plan_items, actions, action_logs, task_messages, wait_jobs, usage_events) |
 | `~/.agentic-computer-use/screenshots/` | Action screenshots (before/after for GUI and wait actions) |
 | `~/.agentic-computer-use/recordings/` | Screen recordings |
+| `~/.agentic-computer-use/live_sessions/{id}/` | Live session data: `events.jsonl`, `frames/`, `audio.pcm`, `audio.wav` |
 | `~/.agentic-computer-use/logs/debug.log` | Debug log (when ACU_DEBUG=1) |
 
 ## Tests

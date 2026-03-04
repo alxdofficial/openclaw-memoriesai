@@ -212,19 +212,23 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
 fi
 ok "System dependencies ready"
 
-# ─── Install Ollama + model ────────────────────────────────────
+# ─── Install Ollama + model (optional, only if no cloud backend configured) ──
 
-if ! command -v ollama &>/dev/null; then
-    info "Installing Ollama..."
-    curl -fsSL https://ollama.com/install.sh | sh
-fi
-ok "Ollama installed: $(ollama --version 2>/dev/null || echo 'unknown')"
+if [ -z "${ACU_VISION_BACKEND:-}" ] || [ "${ACU_VISION_BACKEND:-}" = "ollama" ]; then
+    if ! command -v ollama &>/dev/null; then
+        info "Installing Ollama (default vision backend)..."
+        curl -fsSL https://ollama.com/install.sh | sh
+    fi
+    ok "Ollama installed: $(ollama --version 2>/dev/null || echo 'unknown')"
 
-if ! ollama list 2>/dev/null | grep -q "$OLLAMA_MODEL"; then
-    info "Pulling vision model ($OLLAMA_MODEL)... this may take a few minutes."
-    ollama pull "$OLLAMA_MODEL"
+    if ! ollama list 2>/dev/null | grep -q "$OLLAMA_MODEL"; then
+        info "Pulling vision model ($OLLAMA_MODEL)... this may take a few minutes."
+        ollama pull "$OLLAMA_MODEL"
+    fi
+    ok "Vision model ready: $OLLAMA_MODEL"
+else
+    info "Skipping Ollama install (ACU_VISION_BACKEND=${ACU_VISION_BACKEND})"
 fi
-ok "Vision model ready: $OLLAMA_MODEL"
 
 # ─── Vision backend selection ──────────────────────────────────
 

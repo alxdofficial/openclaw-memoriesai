@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 LIVE_SESSIONS_DIR = config.DATA_DIR / "live_sessions"
 
-# Gemini Live sends PCM: 16-bit signed, mono, 24 kHz
+# Session audio is stored as 16-bit signed PCM, mono, 24 kHz when present
 AUDIO_SAMPLE_RATE = 24000
 AUDIO_SAMPLE_WIDTH = 2   # bytes (16-bit)
 AUDIO_CHANNELS = 1

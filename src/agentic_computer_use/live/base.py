@@ -6,7 +6,7 @@ class LiveUIProvider(ABC):
     """
     A stateful live session that watches the screen and takes actions.
 
-    Implementors: GeminiLiveProvider, OpenAIRealtimeProvider, QwenOmniProvider, ...
+    Implementor: OpenRouterVLMProvider.
     """
 
     @abstractmethod
