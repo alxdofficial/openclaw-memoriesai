@@ -222,7 +222,7 @@ class GeminiLiveProvider(LiveUIProvider):
             client = genai.Client(vertexai=True, project=project, location=location)
 
         live_config = types.LiveConnectConfig(
-            response_modalities=["AUDIO", "TEXT"],
+            response_modalities=["AUDIO"],
             tools=[types.Tool(function_declarations=_TOOL_DECLARATIONS)],
             system_instruction=types.Content(parts=[types.Part(text=system_text)]),
         )
@@ -395,12 +395,18 @@ async def _handle_response(response, live_session, display: str, session=None) -
 
     if response.server_content:
         model_turn = response.server_content.model_turn
+        turn_complete = response.server_content.turn_complete
+        if turn_complete:
+            log.info(f"Gemini Live turn_complete received")
         for part in (model_turn.parts if model_turn else []):
             if part.text and part.text.strip():
                 text = part.text.strip()
-                log.debug(f"Gemini Live text: {text[:200]}")
+                log.info(f"Gemini Live text: {text[:200]}")
                 if session:
                     session.record_model_text(text)
+
+    if response.go_away:
+        log.info(f"Gemini Live go_away received: {response.go_away}")
 
     return None
 
