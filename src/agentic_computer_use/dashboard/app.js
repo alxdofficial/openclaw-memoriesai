@@ -23,6 +23,7 @@ const App = (() => {
     TaskTree.init(taskTreeEl);
     ScreenViewer.init(screenImg, screenPlaceholder);
     ScreenViewer.initRecordControls(document.getElementById("record-controls"));
+    UsageStats.init(document.getElementById("usage-stats"));
 
     // Wire up tree expand callback → fetches action details
     TaskTree.onExpandItem((taskId, ordinal) => {

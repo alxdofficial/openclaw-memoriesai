@@ -81,6 +81,14 @@ class UITARSBackend(GUIAgentBackend):
             text = data["choices"][0]["message"]["content"].strip()
             log.debug(f"OpenRouter UI-TARS response: {text}")
 
+            from ... import usage as _usage
+            _u = data.get("usage", {})
+            _usage.record_nowait(
+                provider="openrouter", model=OPENROUTER_MODEL,
+                input_tokens=_u.get("prompt_tokens", 0),
+                output_tokens=_u.get("completion_tokens", 0),
+            )
+
             coords = _parse_coordinates(text, image_size)
             if coords:
                 return GroundingResult(

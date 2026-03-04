@@ -69,6 +69,13 @@ class ClaudeBackend(VisionBackend):
         response_text = data["content"][0]["text"].strip()
         elapsed_ms = (time.time() - start) * 1000
 
+        from ... import usage as _usage
+        _usage.record_nowait(
+            provider="anthropic", model=model,
+            input_tokens=data.get("usage", {}).get("input_tokens", 0),
+            output_tokens=data.get("usage", {}).get("output_tokens", 0),
+        )
+
         debug.log_vision_response(response_text, elapsed_ms, job_id=job_id)
         return response_text
 

@@ -9,6 +9,22 @@ const TaskList = (() => {
   let _onDelete = null;
   let _onDownload = null;
 
+  // task_id → session_id for currently-running live_ui sessions
+  let _activeSessions = {};
+
+  async function _pollActiveSessions() {
+    try {
+      const r = await fetch("/api/live_sessions/active");
+      if (r.ok) {
+        const prev = JSON.stringify(_activeSessions);
+        _activeSessions = (await r.json()).sessions || {};
+        if (JSON.stringify(_activeSessions) !== prev) render();
+      }
+    } catch (e) {}
+  }
+  setInterval(_pollActiveSessions, 2000);
+  _pollActiveSessions();
+
   function init(container, onSelect, onDelete, onDownload) {
     _container = container;
     _onSelect = onSelect;
@@ -49,6 +65,8 @@ const TaskList = (() => {
         ? `<span class="badge badge-agent">${_esc(task.agent_id)}</span>`
         : "";
 
+      const liveSessionId = _activeSessions[task.task_id];
+
       li.innerHTML = `
         <div class="task-list-row">
           <div class="task-list-info">
@@ -62,10 +80,19 @@ const TaskList = (() => {
               <div class="progress-fill" style="width:${task.progress_pct || 0}%"></div>
             </div>
           </div>
+          ${liveSessionId ? `<button class="task-live-btn" data-session-id="${_esc(liveSessionId)}" title="Connect to live session">&#9679; Live</button>` : ""}
           ${(task.status === "completed" || task.status === "cancelled") ? `<button class="task-video-btn" title="Download recording" data-task-id="${_esc(task.task_id)}">⬇</button>` : ""}
           <button class="task-delete-btn" title="Delete task" data-task-id="${_esc(task.task_id)}">&times;</button>
         </div>
       `;
+
+      const liveBtn = li.querySelector(".task-live-btn");
+      if (liveBtn) {
+        liveBtn.addEventListener("click", e => {
+          e.stopPropagation();
+          LiveSessionViewer.openLive(liveBtn.dataset.sessionId);
+        });
+      }
 
       li.querySelector(".task-list-info").addEventListener("click", () => {
         _selectedId = task.task_id;

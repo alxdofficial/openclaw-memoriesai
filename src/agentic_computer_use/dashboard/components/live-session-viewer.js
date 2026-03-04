@@ -5,6 +5,7 @@ const LiveSessionViewer = (() => {
   let _modal = null;
   let _frameTimestamps = [];   // [{n, ts}] sorted by n
   let _feedEventEls = [];      // [{ts, el}] sorted by ts — for frame→event sync
+  let _sessionStartedAt = null; // ts of instruction event — for audio-frame sync
 
   // ── Color mapping for event types ────────────────────────────
   const _TYPE_STYLE = {
@@ -49,7 +50,14 @@ const LiveSessionViewer = (() => {
   }
 
   function _close() {
-    if (_modal) { _modal.remove(); _modal = null; }
+    if (_modal) {
+      if (_modal._es) { _modal._es.close(); _modal._es = null; }
+      if (_modal._audioReader) { _modal._audioReader.cancel(); _modal._audioReader = null; }
+      if (_modal._audioCtx) { _modal._audioCtx.close(); _modal._audioCtx = null; }
+      _modal.remove();
+      _modal = null;
+    }
+    document.removeEventListener("keydown", _escHandler);
   }
 
   // ── Fetch ────────────────────────────────────────────────────
@@ -80,6 +88,8 @@ const LiveSessionViewer = (() => {
     // Store for bidirectional sync
     _frameTimestamps = frameTimestamps;
     _feedEventEls = [];
+    const instrEv = events.find(e => e.type === "instruction");
+    _sessionStartedAt = instrEv ? instrEv.ts : null;
 
     // ── Modal container ─────────────────────────────────────────
     _modal = document.createElement("div");
@@ -151,6 +161,16 @@ const LiveSessionViewer = (() => {
     }
 
     document.body.appendChild(_modal);
+
+    // Audio timeupdate → frame sync
+    const audioEl = _modal.querySelector(".lsv-audio");
+    if (audioEl && _sessionStartedAt && _frameTimestamps.length > 0) {
+      audioEl.addEventListener("timeupdate", () => {
+        const targetTs = _sessionStartedAt + audioEl.currentTime;
+        const n = _nearestFrame(targetTs, _frameTimestamps);
+        if (n >= 0) _setFrame(n, { skipEventSync: false, skipAudioSync: true });
+      });
+    }
   }
 
   // ── Feed ─────────────────────────────────────────────────────
@@ -256,6 +276,21 @@ const LiveSessionViewer = (() => {
     if (scrubber) scrubber.value = clamped;
     if (label) label.textContent = `${clamped + 1} / ${total}`;
 
+    // Audio-frame sync: seek audio to match frame timestamp
+    if (!opts.skipAudioSync && _sessionStartedAt && _frameTimestamps.length > 0) {
+      const frameEntry = _frameTimestamps.find(f => f.n === clamped)
+        || _frameTimestamps[Math.min(clamped, _frameTimestamps.length - 1)];
+      if (frameEntry) {
+        const audioEl = _modal.querySelector(".lsv-audio");
+        if (audioEl) {
+          const targetTime = Math.max(0, frameEntry.ts - _sessionStartedAt);
+          if (Math.abs(audioEl.currentTime - targetTime) > 0.3) {
+            audioEl.currentTime = targetTime;
+          }
+        }
+      }
+    }
+
     // Reverse sync: highlight the event active at this frame's timestamp
     if (!opts.skipEventSync && _frameTimestamps.length > 0) {
       const frameEntry = _frameTimestamps.find(f => f.n === clamped)
@@ -299,9 +334,115 @@ const LiveSessionViewer = (() => {
   function _escHandler(e) {
     if (e.key === "Escape") {
       _close();
-      document.removeEventListener("keydown", _escHandler);
     }
   }
 
-  return { open };
+  // ── Live session (openLive) ──────────────────────────────────
+
+  async function openLive(sessionId) {
+    _close();
+    _modal = _buildLiveModal(sessionId);
+    document.body.appendChild(_modal);
+    _modal.querySelector(".lsv-close").addEventListener("click", _close);
+    _modal.addEventListener("click", e => { if (e.target === _modal) _close(); });
+    document.addEventListener("keydown", _escHandler);
+    _startSSE(sessionId);
+    _startLiveAudio(sessionId);
+  }
+
+  function _buildLiveModal(sessionId) {
+    const el = document.createElement("div");
+    el.className = "lsv-overlay";
+    el.innerHTML = `
+      <div class="lsv-modal">
+        <div class="lsv-header">
+          <div class="lsv-header-left">
+            <span class="lsv-title">live_ui</span>
+            <span class="lsv-session-id">${_esc(sessionId.slice(0, 12))}</span>
+            <span class="lsv-live-badge">&#9679; LIVE</span>
+          </div>
+          <button class="lsv-close">&times;</button>
+        </div>
+        <div class="lsv-body">
+          <div class="lsv-feed" id="lsv-feed"></div>
+          <div class="lsv-viewer" id="lsv-viewer">
+            <div class="lsv-frame-box">
+              <img id="lsv-live-frame" alt="Live frame" style="max-width:100%;display:block;">
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    return el;
+  }
+
+  function _startSSE(sessionId) {
+    const es = new EventSource(`/api/live_sessions/${encodeURIComponent(sessionId)}/events/stream`);
+    _modal._es = es;
+    const feedEl = _modal.querySelector("#lsv-feed");
+    const frameImg = _modal.querySelector("#lsv-live-frame");
+
+    es.onmessage = e => {
+      try {
+        const ev = JSON.parse(e.data);
+        if (ev.type === "frame") {
+          if (frameImg) frameImg.src = `/api/live_sessions/${encodeURIComponent(sessionId)}/frames/${ev.n}`;
+        } else if (ev.type !== "instruction") {
+          const html = _renderFeed([ev], []);
+          if (html && feedEl) {
+            feedEl.insertAdjacentHTML("beforeend", html);
+            feedEl.lastElementChild?.scrollIntoView({ block: "nearest" });
+          }
+        }
+      } catch (e2) { /* ignore */ }
+    };
+    es.addEventListener("done", () => { es.close(); });
+    es.onerror = () => { es.close(); };
+  }
+
+  async function _startLiveAudio(sessionId) {
+    let resp;
+    try {
+      resp = await fetch(`/api/live_sessions/${encodeURIComponent(sessionId)}/audio/stream`);
+    } catch (e) { return; }
+    if (!resp.ok || !resp.body) return;
+
+    const ctx = new AudioContext({ sampleRate: 24000 });
+    const reader = resp.body.getReader();
+    _modal._audioCtx = ctx;
+    _modal._audioReader = reader;
+
+    let nextPlayAt = ctx.currentTime + 0.1;
+    let leftover = new Uint8Array(0);
+
+    (async () => {
+      while (true) {
+        let result;
+        try { result = await reader.read(); } catch (e) { break; }
+        if (result.done) break;
+        const value = result.value;
+
+        const combined = new Uint8Array(leftover.length + value.length);
+        combined.set(leftover);
+        combined.set(value, leftover.length);
+        const samples = Math.floor(combined.length / 2);
+        leftover = combined.slice(samples * 2);
+        if (samples === 0) continue;
+
+        const ab = ctx.createBuffer(1, samples, 24000);
+        const ch = ab.getChannelData(0);
+        const dv = new DataView(combined.buffer, 0, samples * 2);
+        for (let i = 0; i < samples; i++) ch[i] = dv.getInt16(i * 2, true) / 32768;
+
+        const src = ctx.createBufferSource();
+        src.buffer = ab;
+        src.connect(ctx.destination);
+        const startAt = Math.max(ctx.currentTime, nextPlayAt);
+        src.start(startAt);
+        nextPlayAt = startAt + ab.duration;
+      }
+    })();
+  }
+
+  return { open, openLive };
 })();

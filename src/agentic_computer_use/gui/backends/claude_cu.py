@@ -70,6 +70,13 @@ class ClaudeCUBackend(GUIAgentBackend):
             data = resp.json()
             text = data["content"][0]["text"].strip()
 
+            from ... import usage as _usage
+            _usage.record_nowait(
+                provider="anthropic", model=config.CLAUDE_VISION_MODEL,
+                input_tokens=data.get("usage", {}).get("input_tokens", 0),
+                output_tokens=data.get("usage", {}).get("output_tokens", 0),
+            )
+
             # Parse (x, y)
             match = re.search(r'\(\s*(\d+)\s*,\s*(\d+)\s*\)', text)
             if match:

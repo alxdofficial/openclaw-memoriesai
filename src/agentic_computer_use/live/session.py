@@ -146,33 +146,6 @@ class LiveUISession:
             return self._pcm_path
         return None
 
-    def transcribe_audio(self, pcm_path: Path, model_name: str = "tiny") -> None:
-        """
-        Run Whisper on the PCM file and append model_text events with timestamps.
-        Uses the 'tiny' model by default — fast enough for post-session transcription.
-        """
-        try:
-            import whisper  # type: ignore
-        except ImportError:
-            log.debug("Whisper not installed — skipping audio transcription")
-            return
-        try:
-            log.info(f"Transcribing audio with Whisper ({model_name})…")
-            # Whisper needs a WAV file
-            wav_path = pcm_path.with_suffix(".wav")
-            wav_path.write_bytes(pcm_to_wav(pcm_path.read_bytes()))
-            model = whisper.load_model(model_name)
-            result = model.transcribe(str(wav_path), language="en", fp16=False)
-            for seg in result.get("segments", []):
-                text = seg.get("text", "").strip()
-                if not text:
-                    continue
-                ts = self.started_at + float(seg.get("start", 0))
-                self._append({"type": "model_text", "text": text, "ts": ts})
-            log.info(f"Whisper transcription: {len(result.get('segments', []))} segments")
-        except Exception as e:
-            log.warning(f"Whisper transcription failed: {e}")
-
     @property
     def frame_count(self) -> int:
         return self._frame_count

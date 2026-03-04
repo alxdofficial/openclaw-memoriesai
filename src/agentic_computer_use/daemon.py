@@ -385,6 +385,10 @@ async def handle_health(request: web.Request) -> web.Response:
 
 _active_recordings: dict = {}  # task_id -> AsyncRecording
 
+# ─── Live UI session registry ────────────────────────────────────
+
+_active_live_sessions: dict[str, str] = {}  # task_id → session_id
+
 
 # ─── Recording handlers ─────────────────────────────────────────
 
@@ -568,6 +572,20 @@ async def handle_api_waits(request: web.Request) -> web.Response:
 
 async def handle_api_health(request: web.Request) -> web.Response:
     return await handle_health(request)
+
+
+async def handle_api_usage_stats(request: web.Request) -> web.Response:
+    """GET /api/usage/stats?since=<days> — return aggregated AI API usage and cost."""
+    from . import usage as _usage
+    since_days = request.query.get("since")
+    since_ts = None
+    if since_days:
+        try:
+            since_ts = time.time() - float(since_days) * 86400
+        except ValueError:
+            pass
+    stats = await _usage.get_stats(since_ts=since_ts)
+    return web.json_response(stats)
 
 
 async def handle_api_task_frames(request: web.Request) -> web.Response:
@@ -931,14 +949,19 @@ async def handle_live_ui(request: web.Request) -> web.Response:
         timeout=timeout,
     )
 
-    result = await provider.run(
-        instruction=instruction,
-        timeout=timeout,
-        task_id=task_id,
-        display=display,
-        context=context,
-        session=session,
-    )
+    if task_id:
+        _active_live_sessions[task_id] = session_id
+    try:
+        result = await provider.run(
+            instruction=instruction,
+            timeout=timeout,
+            task_id=task_id,
+            display=display,
+            context=context,
+            session=session,
+        )
+    finally:
+        _active_live_sessions.pop(task_id, None)
 
     result["session_id"] = session_id
 
@@ -1003,6 +1026,76 @@ async def handle_api_live_session_audio(request: web.Request) -> web.Response:
         # No cache — content grows during active sessions
         headers={"Cache-Control": "no-cache"},
     )
+
+
+async def handle_api_live_sessions_active(request: web.Request) -> web.Response:
+    """GET /api/live_sessions/active — return map of task_id → session_id for running sessions."""
+    return web.json_response({"sessions": dict(_active_live_sessions)})
+
+
+async def handle_api_live_session_events_stream(request: web.Request) -> web.StreamResponse:
+    """GET /api/live_sessions/{session_id}/events/stream — SSE tail of events.jsonl."""
+    from .live.session import LIVE_SESSIONS_DIR
+    session_id = request.match_info["session_id"]
+    events_path = LIVE_SESSIONS_DIR / session_id / "events.jsonl"
+    response = web.StreamResponse(headers={
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+    await response.prepare(request)
+    byte_offset = 0
+    try:
+        while True:
+            if events_path.exists():
+                with open(events_path, "rb") as f:
+                    f.seek(byte_offset)
+                    chunk = f.read()
+                if chunk:
+                    byte_offset += len(chunk)
+                    for line in chunk.decode(errors="replace").split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        await response.write(f"data: {line}\n\n".encode())
+                        try:
+                            ev = json.loads(line)
+                            if ev.get("type") in ("done", "error", "escalate"):
+                                await response.write(b"event: done\ndata: {}\n\n")
+                                return response
+                        except Exception:
+                            pass
+            await asyncio.sleep(0.2)
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    return response
+
+
+async def handle_api_live_session_audio_stream(request: web.Request) -> web.StreamResponse:
+    """GET /api/live_sessions/{session_id}/audio/stream — chunked PCM stream."""
+    from .live.session import LIVE_SESSIONS_DIR
+    session_id = request.match_info["session_id"]
+    pcm_path = LIVE_SESSIONS_DIR / session_id / "audio.pcm"
+    response = web.StreamResponse(headers={
+        "Content-Type": "audio/pcm;rate=24000;channels=1",
+        "Cache-Control": "no-cache",
+    })
+    await response.prepare(request)
+    offset = 0
+    try:
+        while True:
+            if pcm_path.exists():
+                data = pcm_path.read_bytes()
+                if len(data) > offset:
+                    await response.write(data[offset:])
+                    offset = len(data)
+            active = any(sid == session_id for sid in _active_live_sessions.values())
+            if not active and (not pcm_path.exists() or pcm_path.stat().st_size <= offset):
+                break
+            await asyncio.sleep(0.1)
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    return response
 
 
 # ─── GUI Agent handlers ─────────────────────────────────────────
@@ -1225,10 +1318,14 @@ def create_app() -> web.Application:
     app.router.add_get("/api/snapshot", handle_api_snapshot)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)
+    app.router.add_get("/api/usage/stats", handle_api_usage_stats)
     app.router.add_get("/api/screen", handle_api_screen_stream)
     app.router.add_get("/api/screenshots/{filename}", handle_api_screenshot)
     app.router.add_get("/api/recordings/{filename}", handle_api_recording)
-    # Live session viewer
+    # Live session viewer — /active must be registered before {session_id} routes
+    app.router.add_get("/api/live_sessions/active", handle_api_live_sessions_active)
+    app.router.add_get("/api/live_sessions/{session_id}/events/stream", handle_api_live_session_events_stream)
+    app.router.add_get("/api/live_sessions/{session_id}/audio/stream", handle_api_live_session_audio_stream)
     app.router.add_get("/api/live_sessions/{session_id}", handle_api_live_session)
     app.router.add_get("/api/live_sessions/{session_id}/frames/{n}", handle_api_live_session_frame)
     app.router.add_get("/api/live_sessions/{session_id}/audio", handle_api_live_session_audio)

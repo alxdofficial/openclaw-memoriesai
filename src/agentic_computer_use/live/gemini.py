@@ -46,19 +46,22 @@ Available tools:
   done(summary, success)              — call when the instruction is complete
   escalate(reason)                    — call when you cannot proceed
 
-Cursor precision — follow this workflow before EVERY click:
-1. Call move_mouse(x, y) to position the cursor at your intended target.
-2. Observe the next screenshot — the cursor is shown as a RED CIRCLE with crosshair.
-3. Check: is the red circle centred on the correct element?
-   - YES → call click(x, y) (same coordinates).
-   - NO  → call move_mouse(x2, y2) with corrected coordinates, re-check, then click.
-Repeat the move/check cycle up to 3 times until the cursor is precisely placed.
-Never click without first verifying cursor position via move_mouse.
+Screenshot workflow — you receive ONE screenshot per turn:
+- Each screenshot shows the current screen with the cursor as a RED CIRCLE with crosshair.
+- After you call tools and finish your turn, you will receive a fresh screenshot.
+- Use move_mouse to position the cursor, then call done with your tool calls for the turn.
+  The next screenshot will show where the cursor landed — adjust if needed.
+
+Cursor precision workflow (before every click):
+1. Call move_mouse(x, y) to your intended target.
+2. End your turn — the next screenshot will show the cursor as a red circle.
+3. If the red circle is on the correct element → call click(x, y).
+   If not → call move_mouse(x2, y2) with corrected coordinates first, then click.
+One move_mouse + one click is fine in the same turn if you are confident in the position.
 
 General rules:
 - Study each screenshot carefully before acting.
 - Click a text field before typing into it.
-- After each action, wait for the next screenshot to verify the result.
 - Call done() as soon as the instruction is fully complete.
 - Call escalate() for: login/CAPTCHA prompts you can't solve, unexpected blocking dialogs,
   missing credentials, or anything that requires human intervention.
@@ -225,6 +228,9 @@ class GeminiLiveProvider(LiveUIProvider):
             response_modalities=["AUDIO"],
             tools=[types.Tool(function_declarations=_TOOL_DECLARATIONS)],
             system_instruction=types.Content(parts=[types.Part(text=system_text)]),
+            realtime_input_config=types.RealtimeInputConfig(
+                activity_handling=types.ActivityHandling.NO_INTERRUPTION,
+            ),
         )
 
         actions_taken = 0
@@ -235,23 +241,36 @@ class GeminiLiveProvider(LiveUIProvider):
                 async with client.aio.live.connect(model=model, config=live_config) as live_session:
                     log.info("Gemini Live session established")
 
-                    # ── 1. Send initial instruction ──────────────────────
-                    await live_session.send(input=instruction, end_of_turn=True)
+                    # ── 1. Send initial instruction via realtime input ────
+                    # Use send_realtime_input for all text to avoid mixing
+                    # send_client_content and send_realtime_input (SDK warns
+                    # against interleaving them).
+                    await live_session.send_realtime_input(text=instruction)
 
-                    # ── 2. Frame sender (background) ─────────────────────
+                    # ── 2. Background frame sender ────────────────────────
                     frame_stop = asyncio.Event()
-                    frame_task = asyncio.create_task(
-                        _send_frames(
-                            live_session, display, frame_stop,
-                            interval=config.LIVE_UI_FRAME_INTERVAL,
-                            session=session,
-                        )
-                    )
 
+                    async def _send_frames():
+                        while not frame_stop.is_set():
+                            try:
+                                jpeg = _capture_jpeg(display, session)
+                                if jpeg:
+                                    await live_session.send_realtime_input(
+                                        video=types.Blob(
+                                            data=jpeg, mime_type="image/jpeg"
+                                        )
+                                    )
+                            except Exception as e:
+                                log.debug(f"Frame send error: {e}")
+                            await asyncio.sleep(0.5)
+
+                    frame_task = asyncio.ensure_future(_send_frames())
+
+                    # ── 3. Main receive loop ──────────────────────────────
                     try:
                         while True:
-                            got_turn_complete = False
                             got_tool_call = False
+
                             async for response in live_session.receive():
                                 outcome = await _handle_response(
                                     response, live_session, display, session=session,
@@ -263,25 +282,20 @@ class GeminiLiveProvider(LiveUIProvider):
                                     elif outcome.get("terminal"):
                                         terminal_result = outcome
                                         break
-                                # Check for turn_complete to break inner loop
                                 if (response.server_content and
                                         response.server_content.turn_complete):
-                                    got_turn_complete = True
                                     break
-                            # Exit outer while if terminal or no tool calls were made
+
                             if terminal_result:
                                 break
                             if not got_tool_call:
-                                # No tool calls this round — session ended with no completion
+                                # No tool calls — session finished with no completion signal
                                 break
-                            # Tool calls were made; send continuation to keep session alive
-                            log.info("Sending continuation after turn_complete")
-                            await live_session.send_client_content(
-                                turns=types.Content(
-                                    role="user",
-                                    parts=[types.Part(text="Continue. Look at the current screen state and proceed with the next step of the task.")],
-                                ),
-                                turn_complete=True,
+
+                            # Prompt continuation via realtime input (consistent with above)
+                            log.info("Turn complete — sending continuation")
+                            await live_session.send_realtime_input(
+                                text="Continue with the next step of the task."
                             )
                     finally:
                         frame_stop.set()
@@ -290,11 +304,8 @@ class GeminiLiveProvider(LiveUIProvider):
                             await asyncio.wait_for(frame_task, timeout=2.0)
                         except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass
-                        # Save audio and transcribe in a thread to avoid blocking the loop
                         if session:
-                            import asyncio as _asyncio
-                            loop = _asyncio.get_event_loop()
-                            await loop.run_in_executor(None, _finalize_session_audio, session)
+                            session.finalize_audio()
 
         except asyncio.TimeoutError:
             if session:
@@ -315,6 +326,13 @@ class GeminiLiveProvider(LiveUIProvider):
                 "actions_taken": actions_taken,
             }
 
+        # Track Gemini Live session (SDK does not expose token counts)
+        from .. import usage as _usage
+        _usage.record_nowait(
+            provider="gemini_live", model=model, task_id=task_id,
+            input_tokens=0, output_tokens=0, requests=1,
+        )
+
         if terminal_result:
             return {
                 "success": terminal_result.get("success", False),
@@ -334,28 +352,19 @@ class GeminiLiveProvider(LiveUIProvider):
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 
-async def _send_frames(live_session, display: str, stop: asyncio.Event,
-                       interval: float, session=None) -> None:
-    """Capture and stream JPEG frames to Gemini until stop is set."""
+def _capture_jpeg(display: str, session=None) -> bytes:
+    """Capture current screen with cursor overlay, record to session, return JPEG bytes."""
     from ..capture.screen import capture_screen_with_cursor, frame_to_jpeg
-
-    while not stop.is_set():
-        try:
-            frame = capture_screen_with_cursor(display=display)
-            if frame is not None:
-                jpeg = frame_to_jpeg(frame, max_dim=1280, quality=72)
-                if session:
-                    session.record_frame(jpeg)
-                await live_session.send(
-                    input=types.Blob(data=jpeg, mime_type="image/jpeg")
-                )
-        except Exception as e:
-            log.debug(f"Frame send error: {e}")
-
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=interval)
-        except asyncio.TimeoutError:
-            pass  # Normal — keep looping
+    try:
+        frame = capture_screen_with_cursor(display=display)
+        if frame is not None:
+            jpeg = frame_to_jpeg(frame, max_dim=1280, quality=72)
+            if session:
+                session.record_frame(jpeg)
+            return jpeg
+    except Exception as e:
+        log.debug(f"Frame capture error: {e}")
+    return b""
 
 
 async def _handle_response(response, live_session, display: str, session=None) -> dict | None:
@@ -414,9 +423,7 @@ async def _handle_response(response, live_session, display: str, session=None) -
                     types.FunctionResponse(id=call_id, name=name, response={"result": result})
                 )
 
-        await live_session.send(
-            input=types.LiveClientToolResponse(function_responses=fn_responses)
-        )
+        await live_session.send_tool_response(function_responses=fn_responses)
 
         if terminal:
             return terminal
@@ -441,13 +448,6 @@ async def _handle_response(response, live_session, display: str, session=None) -
         log.info(f"Gemini Live go_away received: {response.go_away}")
 
     return None
-
-
-def _finalize_session_audio(session) -> None:
-    """Write WAV and run Whisper transcription. Called in a thread executor."""
-    wav_path = session.finalize_audio()
-    if wav_path:
-        session.transcribe_audio(wav_path, model_name="tiny")
 
 
 def _get_display_size(display: str) -> tuple[int, int]:

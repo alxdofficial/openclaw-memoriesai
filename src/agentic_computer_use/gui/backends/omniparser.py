@@ -167,7 +167,14 @@ class OmniParserBackend(GUIAgentBackend):
                 headers={"x-api-key": api_key},
             )
             resp.raise_for_status()
-            m = re.search(r'\d+', resp.json()["content"][0]["text"])
+            rj = resp.json()
+            m = re.search(r'\d+', rj["content"][0]["text"])
+            from ... import usage as _usage
+            _usage.record_nowait(
+                provider="anthropic", model=config.OMNIPARSER_PICKER_MODEL,
+                input_tokens=rj.get("usage", {}).get("input_tokens", 0),
+                output_tokens=rj.get("usage", {}).get("output_tokens", 0),
+            )
             return int(m.group()) if m else None
         except Exception as e:
             log.error(f"OmniParser picker failed: {e}")
