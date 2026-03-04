@@ -21,8 +21,8 @@ from .capture import frame_recorder
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-DAEMON_HOST = "127.0.0.1"
-DAEMON_PORT = 18790
+DAEMON_HOST = os.environ.get("ACU_DAEMON_HOST", "127.0.0.1")
+DAEMON_PORT = int(os.environ.get("ACU_DAEMON_PORT", "18790"))
 
 wait_engine = WaitEngine()
 
@@ -211,7 +211,8 @@ async def handle_wait_cancel(request: web.Request) -> web.Response:
 async def handle_task_register(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     metadata = args.get("metadata") or {}
-    result = await task_mgr.register_task(name=args["name"], plan=args["plan"], metadata=metadata)
+    agent_id = args.get("agent_id") or None
+    result = await task_mgr.register_task(name=args["name"], plan=args["plan"], metadata=metadata, agent_id=agent_id)
     task_id = result.get("task_id")
     if task_id:
         # Only allocate an isolated Xvfb if explicitly requested via metadata
@@ -700,9 +701,9 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
         img_w, img_h = w, h
 
     if task_id:
-        asyncio.ensure_future(task_mgr.append_tool_log(
-            task_id, "tool_call",
-            f"desktop_look: screenshot ({img_w}x{img_h}, screen {w}x{h})"
+        asyncio.ensure_future(task_mgr.log_action(
+            task_id, "vision",
+            f"screenshot ({img_w}x{img_h})",
         ))
     return web.json_response({
         "image_b64": base64.b64encode(jpeg).decode(),
@@ -831,10 +832,17 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
         result = {"error": f"Unknown action: {action}"}
 
     if task_id and "error" not in result:
-        asyncio.ensure_future(task_mgr.append_tool_log(
-            task_id, "tool_call",
-            f"desktop_action: {action} → {result}"
-        ))
+        if action == "type":
+            summary = f"type: {repr(args.get('text', ''))}"
+        elif action == "press_key":
+            summary = f"press_key: {args.get('text', '')}"
+        elif action in ("click", "double_click"):
+            summary = f"{action} at ({args.get('x')}, {args.get('y')})"
+        elif action == "drag":
+            summary = f"drag ({args.get('x')},{args.get('y')}) → ({args.get('x2')},{args.get('y2')})"
+        else:
+            summary = action
+        asyncio.ensure_future(task_mgr.log_action(task_id, "gui", summary))
     return web.json_response(result)
 
 
@@ -863,6 +871,125 @@ async def handle_video_record(request: web.Request) -> web.Response:
     return web.json_response({"error": "Recording failed"}, status=500)
 
 
+# ─── MAVI video understanding ───────────────────────────────────
+
+async def handle_mavi_understand(request: web.Request) -> web.Response:
+    args = await _parse_body(request)
+    task_id = args.get("task_id")
+    duration = args.get("duration_seconds", 10)
+    prompt = args.get("prompt")
+
+    if not prompt:
+        return web.json_response({"error": "prompt is required"}, status=400)
+
+    from . import mavi
+    result = await mavi.record_and_understand(
+        prompt=prompt,
+        duration_seconds=duration,
+        task_id=task_id,
+    )
+
+    if task_id and "answer" in result:
+        await task_mgr.log_action(
+            task_id, "vision",
+            f"mavi_understand ({result['duration_recorded']}s): {prompt[:100]}",
+            output_data=result["answer"][:500],
+        )
+
+    return web.json_response(result)
+
+
+# ─── Live UI vision/control ─────────────────────────────────────
+
+async def handle_live_ui(request: web.Request) -> web.Response:
+    args = await _parse_body(request)
+    task_id = args.get("task_id")
+    instruction = args.get("instruction")
+
+    if not instruction:
+        return web.json_response({"error": "instruction is required"}, status=400)
+
+    timeout = min(int(args.get("timeout", 60)), 300)
+    context = args.get("context", "")
+    display = await _resolve_task_display(task_id)
+
+    from .live import get_provider
+    from .live.session import LiveUISession
+    from . import db as _db
+
+    try:
+        provider = get_provider()
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+    session_id = _db.new_id()
+    session = LiveUISession(
+        session_id=session_id,
+        task_id=task_id,
+        instruction=instruction,
+        context=context,
+        timeout=timeout,
+    )
+
+    result = await provider.run(
+        instruction=instruction,
+        timeout=timeout,
+        task_id=task_id,
+        display=display,
+        context=context,
+        session=session,
+    )
+
+    result["session_id"] = session_id
+
+    if task_id and not result.get("error"):
+        import json as _json
+        actions = result.get("actions_taken", 0)
+        summary = result.get("summary", "")
+        status = "completed" if result.get("success") else "failed"
+        input_data = _json.dumps({
+            "session_id": session_id,
+            "instruction": instruction[:200],
+            "timeout": timeout,
+        })
+        asyncio.ensure_future(task_mgr.log_action(
+            task_id, "gui",
+            f"live_ui ({actions} actions): {instruction[:100]}",
+            input_data=input_data,
+            output_data=summary[:500],
+            status=status,
+        ))
+
+    return web.json_response(result)
+
+
+# ─── Live session API ────────────────────────────────────────────
+
+async def handle_api_live_session(request: web.Request) -> web.Response:
+    """GET /api/live_sessions/{session_id} — return session events."""
+    session_id = request.match_info["session_id"]
+    from .live.session import load_session
+    data = load_session(session_id)
+    if data is None:
+        return web.json_response({"error": "session not found"}, status=404)
+    return web.json_response(data)
+
+
+async def handle_api_live_session_frame(request: web.Request) -> web.Response:
+    """GET /api/live_sessions/{session_id}/frames/{n} — return JPEG frame."""
+    session_id = request.match_info["session_id"]
+    n = int(request.match_info["n"])
+    from .live.session import get_frame
+    jpeg = get_frame(session_id, n)
+    if jpeg is None:
+        return web.Response(status=404, text="Frame not found")
+    return web.Response(
+        body=jpeg,
+        content_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # ─── GUI Agent handlers ─────────────────────────────────────────
 
 async def handle_gui_do(request: web.Request) -> web.Response:
@@ -878,6 +1005,13 @@ async def handle_gui_do(request: web.Request) -> web.Response:
         window_name=args.get("window_name"),
         display=display,
     )
+    if task_id:
+        status = "completed" if result.get("ok") else "failed"
+        asyncio.ensure_future(task_mgr.log_action(
+            task_id, "gui",
+            f"gui_do: {args['instruction']}",
+            status=status,
+        ))
     return web.json_response(result)
 
 
@@ -1051,6 +1185,8 @@ def create_app() -> web.Application:
     app.router.add_post("/desktop_look", handle_desktop_look)
     app.router.add_post("/desktop_action", handle_desktop_action)
     app.router.add_post("/video_record", handle_video_record)
+    app.router.add_post("/mavi_understand", handle_mavi_understand)
+    app.router.add_post("/live_ui", handle_live_ui)
     # GUI agent
     app.router.add_post("/gui_do", handle_gui_do)
     app.router.add_post("/gui_find", handle_gui_find)
@@ -1077,6 +1213,9 @@ def create_app() -> web.Application:
     app.router.add_get("/api/screen", handle_api_screen_stream)
     app.router.add_get("/api/screenshots/{filename}", handle_api_screenshot)
     app.router.add_get("/api/recordings/{filename}", handle_api_recording)
+    # Live session viewer
+    app.router.add_get("/api/live_sessions/{session_id}", handle_api_live_session)
+    app.router.add_get("/api/live_sessions/{session_id}/frames/{n}", handle_api_live_session_frame)
     # Recording start/stop/status
     app.router.add_post("/api/tasks/{task_id}/record/start", handle_record_start)
     app.router.add_post("/api/tasks/{task_id}/record/stop", handle_record_stop)

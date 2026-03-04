@@ -12,7 +12,6 @@ import logging
 from datetime import datetime, timezone
 
 from .. import db, debug, config
-from ..display.manager import allocate_display, release_display
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +93,7 @@ async def task_exists(task_id: str) -> bool:
         await conn.close()
 
 
-async def register_task(name: str, plan: list[str], metadata: dict = None) -> dict:
+async def register_task(name: str, plan: list[str], metadata: dict = None, agent_id: str = None) -> dict:
     """Register a new task with plan items."""
     conn = await db.get_db()
     try:
@@ -111,25 +110,14 @@ async def register_task(name: str, plan: list[str], metadata: dict = None) -> di
         initial_meta.setdefault("last_wait_event_at", None)
         initial_meta.setdefault("last_stuck_alert_at", 0)
 
-        # Allocate a per-task virtual display
-        display_width = initial_meta.pop("display_width", None)
-        display_height = initial_meta.pop("display_height", None)
-        try:
-            display_info = allocate_display(
-                task_id,
-                width=int(display_width) if display_width else None,
-                height=int(display_height) if display_height else None,
-            )
-            initial_meta["display"] = display_info.display_str
-            initial_meta["display_num"] = display_info.display_num
-            initial_meta["display_resolution"] = f"{display_info.width}x{display_info.height}"
-        except Exception as e:
-            log.warning(f"Failed to allocate display for task {task_id}: {e}")
-            initial_meta["display"] = config.DISPLAY
+        # All tasks share the single system display (VNC + dashboard live view)
+        initial_meta.pop("display_width", None)
+        initial_meta.pop("display_height", None)
+        initial_meta["display"] = config.DISPLAY
 
         await conn.execute(
-            "INSERT INTO tasks (id, name, status, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?)",
-            (task_id, name, "active", json.dumps(initial_meta), now, now)
+            "INSERT INTO tasks (id, name, status, agent_id, metadata, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (task_id, name, "active", agent_id or None, json.dumps(initial_meta), now, now)
         )
 
         # Create plan items
@@ -149,7 +137,7 @@ async def register_task(name: str, plan: list[str], metadata: dict = None) -> di
         await conn.commit()
 
         debug.log_task(task_id, "REGISTERED", f"{name} ({len(plan)} items)")
-        return {"task_id": task_id, "name": name, "status": "active", "items": items, "created_at": now}
+        return {"task_id": task_id, "name": name, "status": "active", "agent_id": agent_id or None, "items": items, "created_at": now}
     finally:
         await conn.close()
 
@@ -907,6 +895,7 @@ async def _build_item_summary(conn, task_id: str, detail_level: str = "items") -
         "task_id": task_id,
         "name": task["name"],
         "status": task["status"],
+        "agent_id": task.get("agent_id"),
         "items": items,
         "progress_pct": pct,
         "last_update": task["updated_at"],

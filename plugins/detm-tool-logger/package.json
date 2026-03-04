@@ -1,0 +1,11 @@
+{
+  "name": "detm-tool-logger",
+  "version": "1.0.0",
+  "description": "Logs every non-DETM tool call to the active DETM task in the dashboard",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

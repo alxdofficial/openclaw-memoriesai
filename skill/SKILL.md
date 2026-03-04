@@ -18,23 +18,56 @@ Five layers:
 2. **Smart Wait** — binary YES/NO vision polling every 1s; timeout is the fallback
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (OpenRouter, Ollama, vLLM, Claude, passthrough)
-5. **Display Manager** — per-task virtual displays (Xvfb) for isolated screen environments
+5. **Display Manager** — shared system display visible in VNC and the dashboard live view
 
 ## Displays
 
-By default every task shares the **system display** — the same desktop the human sees via VNC or their monitor. This is the normal mode: the human watches, you act on the same screen.
+All tasks share the **single system display** — the same desktop the human sees in VNC and in the dashboard live view. Everything you do on the desktop is visible to the human in real time.
 
-To get an **isolated private Xvfb** instead (no interference with the human's desktop), pass `isolated_display: true` in metadata:
+## When to use DETM vs. other tools
 
-```
-task_register(name="Edit video", plan=[...], metadata={"isolated_display": true, "display_width": 1920, "display_height": 1080})
-```
+**Default to faster tools first.** DETM (visual browser + desktop control) is powerful but slow. Always prefer built-in tools when they can do the job.
 
-All `desktop_action`, `gui_do`, `desktop_look`, and `smart_wait` calls that include `task_id` automatically target the correct display. No need to manage DISPLAY env vars manually.
+| Situation | Use instead of DETM |
+|---|---|
+| General web research, finding facts, news, documentation | `web_search` or `WebFetch` |
+| Public APIs with known endpoints | Direct HTTP calls via `Bash` or `httpx` |
+| File operations, data processing, code execution | `Bash`, Python, CLI tools |
+| Publicly accessible URLs with no login | `WebFetch` |
+
+**Use DETM when the task requires a specific authenticated platform.** If the data or action lives behind a login — or on a platform where no API or public index exists — DETM is the only route. Examples:
+
+- **TikTok** — feed, search results, video audio, For You page (not indexed, requires browsing)
+- **Instagram** — posts, Reels, Stories, DMs (authenticated, not crawlable)
+- **LinkedIn** — profiles, messages, search, connection requests (authenticated)
+- **Outlook / Gmail** — reading or sending email from a specific account
+- **Canva** — creating or editing designs in a workspace
+- **Google Sheets / Docs / Drive** — reading or editing files in a specific account
+- **Any org-specific web platform** — internal tools, CRMs, dashboards, intranets
+
+The signal: if a human would need to be logged in to do it, DETM is the right tool.
+
+**When DETM hits a login wall or CAPTCHA:** use `task_update` to tell the user, then poll until they confirm they've resolved it in the browser (display :99). Never skip or bypass auth — escalate and wait.
 
 ## HARD RULES — no exceptions
 
 These are not guidelines. Violating them breaks observability, cancellation, and debugging.
+
+**0. When the prompt says "DETM ONLY" — web_search and WebFetch are banned for that task.**
+If the human's request contains the phrase **DETM ONLY**, you must do ALL research by opening a real browser visually on the desktop. You may not call `web_search`, `WebFetch`, or any equivalent built-in fetch tool for the duration of that task — not even once, not even "just to verify". The only permitted research method is: open Firefox via `gui_do`, navigate with `desktop_action`, and read content via `desktop_look`. CLI tools (bash, python, ffmpeg, etc.) are still allowed for non-research steps like writing files.
+
+```
+# WRONG — even if faster, even if just one call:
+web_search("TechCrunch AI reporters")
+
+# RIGHT — open the browser and search visually:
+task_log_action(task_id=<id>, action_type="gui", summary="Opening Firefox to search Google for TechCrunch AI reporters", status="started")
+gui_do("open Firefox", task_id=<id>)
+smart_wait(target="window:Firefox", wake_when="browser is open", task_id=<id>)
+gui_do("click the address bar", task_id=<id>)
+desktop_action(action="type", text="https://google.com", task_id=<id>)
+desktop_action(action="press_key", text="Return", task_id=<id>)
+```
 
 **1. Always create a task before touching the desktop.**
 `task_register` MUST be your first call for any work that involves `desktop_look`, `desktop_action`, `gui_do`, or `smart_wait`. No exceptions. Even a single screenshot requires a task.
@@ -52,29 +85,36 @@ desktop_look(task_id=<id>)
 
 Without a task: the human cannot cancel you, the dashboard shows nothing, there is no recovery if you get stuck.
 
-**2. Log every desktop/GUI action with `task_log_action` — before you do it.**
-Every `desktop_look`, `desktop_action`, `gui_do`, and `smart_wait` call MUST be preceded by a `task_log_action`. This is what populates the dashboard action tree with screenshots and detail. Without it, the human sees empty plan items and cannot inspect what you did.
+**2. Log every tool call with `task_log_action` — before you make it.**
+When a DETM task is active, EVERY tool call must be preceded by a `task_log_action`. This includes desktop tools AND native tools like `web_search`, `WebFetch`, `Bash`, file reads/writes, etc. This is the only way the human can see what you're doing in the dashboard — otherwise all non-desktop work is completely invisible to them.
 
 ```
-# WRONG — action with no log entry:
+# WRONG — tool call with no log entry:
+web_search("TechCrunch AI reporters 2025")
+
+# WRONG — desktop call with no log entry:
 gui_do("click the search bar", task_id=<id>)
 
-# RIGHT — log first, then act:
-task_log_action(task_id=<id>, action_type="gui", summary="Clicking LinkedIn search bar to search for TechCrunch AI reporters", status="started")
-gui_do("click the search bar", task_id=<id>)
-task_update(task_id=<id>, message="Clicked search bar. Now typing search query.")
+# RIGHT — log every tool call first:
+task_log_action(task_id=<id>, action_type="cli", summary="Searching web for TechCrunch AI reporters")
+web_search("TechCrunch AI reporters 2025")
+task_update(task_id=<id>, message="Found 8 results. Top result is techcrunch.com/author/...")
 
-task_log_action(task_id=<id>, action_type="vision", summary="Taking screenshot to read search results", status="started")
+task_log_action(task_id=<id>, action_type="gui", summary="Clicking LinkedIn search bar")
+gui_do("click the search bar", task_id=<id>)
+task_update(task_id=<id>, message="Clicked. Now typing query.")
+
+task_log_action(task_id=<id>, action_type="vision", summary="Taking screenshot to read search results")
 desktop_look(task_id=<id>)
 task_update(task_id=<id>, message="Can see 8 reporter profiles in results: ...")
 ```
 
-Every GUI action = one `task_log_action` before + one `task_update` after. No exceptions.
+Every tool call = one `task_log_action` before + one `task_update` after. No exceptions.
 
-**2. Pass `task_id` to every desktop/GUI/wait call.**
+**3. Pass `task_id` to every desktop/GUI/wait call.**
 Every `desktop_look`, `desktop_action`, `gui_do`, and `smart_wait` call must include `task_id=<id>`. This is how DETM tracks what you're doing and links screenshots to your plan.
 
-**3. Check task status after each plan item.**
+**4. Check task status after each plan item.**
 After completing a plan item, check if the human has cancelled or paused the task before continuing:
 
 ```
@@ -97,6 +137,64 @@ task_item_update(task_id=<id>, ordinal=N+1, status="active")
 | Scripting, automation | CLI/exec | Structured output |
 | Web browsing and research | `gui_do` / `desktop_look` | See below |
 
+## Choosing between desktop_look, gui_do, and live_ui
+
+There are three tiers of GUI interaction. Choose based on how much of the sequence you know ahead of time and how many steps are involved.
+
+### Tier 1 — `desktop_look` (orientation)
+Take a screenshot and reason about it yourself. Use this whenever you need to understand the current state of the screen before deciding what to do next. It is always valid. No model is invoked — you interpret the image directly.
+
+```
+→ desktop_look(task_id=<id>)   # see what's on screen
+→ task_update(...)             # describe what you observe
+→ decide your next action
+```
+
+### Tier 2 — `gui_do` / `desktop_action` (single known action)
+Use when you know the next action but not what comes after — i.e. you need to see the result before deciding step N+2. UI-TARS grounds your natural language description to screen coordinates and executes via xdotool.
+
+**Use this when:**
+- You are taking one action at a time with LLM reasoning between each step
+- The next page or result is unpredictable and you need to re-orient after every click
+- You want precise pixel control (`desktop_action` with exact coordinates from `desktop_look`)
+
+```
+→ desktop_look(task_id=<id>)           # orient
+→ gui_do("click the search bar", ...)  # act
+→ desktop_look(task_id=<id>)           # re-orient before deciding next step
+→ gui_do("type 'sourdough bread'", ...)
+```
+
+### Tier 3 — `live_ui` (delegated multi-step sequence)
+Use when you have a chain of actions that a live AI vision model can handle without needing you in the loop for every step. The model watches the screen, takes actions, and calls `done()` or `escalate()` when finished.
+
+**Use this when:**
+- The workflow has many steps and `gui_do` + `desktop_look` round-trips would be too slow
+- UI-TARS is consistently mis-clicking or struggling with the UI (complex layouts, overlapping elements, dynamic menus)
+- The sequence is predictable enough for the model to complete autonomously (login flows, search + scroll, form filling, multi-page navigation)
+- You know the goal but not each individual step — describe the outcome, let `live_ui` figure out the path
+
+**Do not use this when:**
+- The next step depends on complex reasoning that only you can do (e.g. reading a report and deciding whether a number is acceptable)
+- You need the result of each step before proceeding (use `gui_do` + `desktop_look` instead)
+
+```
+→ live_ui(task_id=<id>, instruction="Navigate to Settings > Export and click Export as PDF", timeout=60)
+→ # model handles the full chain; returns {success, summary, actions_taken}
+→ desktop_look(task_id=<id>)   # re-orient after live_ui returns
+```
+
+### Decision guide
+
+| Situation | Tool |
+|---|---|
+| "I need to see where I am before deciding anything" | `desktop_look` |
+| "I know the next click but not what comes after" | `gui_do` + `desktop_look` |
+| "UI-TARS keeps missing, or I need 8+ steps" | `live_ui` |
+| "I have a predictable multi-step flow (login, form, search)" | `live_ui` |
+| "I need to re-orient after a `live_ui` call" | `desktop_look` |
+| "One explicit pixel-precise click from known coordinates" | `desktop_action` |
+
 ## Browser interaction — visual only
 
 **Always interact with browsers visually.** This is the primary way to use the browser with DETM.
@@ -112,6 +210,16 @@ task_item_update(task_id=<id>, ordinal=N+1, status="active")
 - Browser extension APIs or CDP/Playwright/Selenium automation
 
 The entire point is to interact the way a human would — looking at the screen and clicking. If you find yourself wanting to run JS or scrape HTML, stop and use `desktop_look` + `gui_do` instead.
+
+**How to start a browser research session:**
+```
+→ gui_do("open Firefox", task_id=<id>)              # launch the browser
+→ smart_wait(target="window:Firefox", wake_when="browser is open and ready", task_id=<id>)
+→ desktop_look(task_id=<id>)                         # confirm it's open
+→ gui_do("click the address bar", task_id=<id>)
+→ desktop_action(action="type", text="https://google.com", task_id=<id>)
+→ desktop_action(action="press_key", text="Return", task_id=<id>)
+```
 
 **Typical browser workflow:**
 ```
@@ -272,6 +380,10 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 - `desktop_look` — returns a screenshot **image** directly to you. Use this to observe the current screen state before deciding your next action. You interpret the image yourself — no local vision model is involved.
 - `video_record` — record screen/window clip
 
+### Video & Live Vision
+- `mavi_understand` — record screen, upload to MAVI, ask a question, get an answer. Use for video-heavy UIs where motion or audio is the key information (TikTok sounds, animation text, live feeds). Pass a specific, concrete prompt. Not for static page reading — use `desktop_look` for that.
+- `live_ui` — delegate a complete multi-step UI workflow to a live AI model that watches the screen and acts autonomously. See section below.
+
 ### System
 - `health_check` — daemon + vision backend + system status
 - `memory_search`, `memory_read`, `memory_append` — workspace memory files
@@ -345,3 +457,131 @@ When you receive this event, use the resume packet to orient yourself and contin
 ## Storage
 - Data: `~/.agentic-computer-use/`
 - Database: `~/.agentic-computer-use/data.db`
+
+---
+
+## live_ui — autonomous multi-step UI navigation
+
+`live_ui` delegates a complete UI workflow to a live AI vision model (Gemini Live). The model watches a stream of screenshots and executes actions autonomously until the task is done or it needs to escalate.
+
+### When to use
+
+| Situation | Use |
+|---|---|
+| Multi-step flow: login → navigate → fill form → submit | `live_ui` |
+| Deep menu navigation (Settings > Network > Proxy > Manual) | `live_ui` |
+| You'd write 8+ `desktop_look` + `gui_do` pairs in sequence | `live_ui` |
+| Single click or single action | `desktop_action` or `gui_do` |
+| Just need to see the screen | `desktop_look` |
+| Waiting for something to appear | `smart_wait` |
+
+### Basic usage
+
+```python
+result = live_ui(
+    task_id=task_id,
+    instruction="Click the Settings gear, go to Export, and click Export as PDF",
+    timeout=60,
+)
+```
+
+### With credentials / context
+
+```python
+result = live_ui(
+    task_id=task_id,
+    instruction="Log in with email user@example.com and the password from context. Confirm the inbox loads.",
+    context="password: MySecurePass123",
+    timeout=60,
+)
+```
+
+### Longer workflow
+
+```python
+result = live_ui(
+    task_id=task_id,
+    instruction=(
+        "Open the contact form at the bottom of the page. "
+        "Fill in: Name='Surge Energy', Email='hello@surgeenergy.co.uk', "
+        "Message='Partnership inquiry — we are a UK energy drink brand'. "
+        "Click Submit and confirm the success message appears."
+    ),
+    timeout=90,
+)
+```
+
+### Handling the result
+
+```python
+result = live_ui(task_id=task_id, instruction="...", timeout=60)
+
+if result.get("error"):
+    # Hard error: API key missing, timeout, WebSocket failure
+    task_update(task_id=task_id, message=f"live_ui error: {result['error']}")
+
+elif result.get("escalated"):
+    # Model hit a blocker and needs human input
+    task_update(task_id=task_id, message=(
+        f"live_ui escalated: {result['escalation_reason']}. "
+        "Please resolve in the browser, then reply to continue."
+    ))
+    # Poll task_update(query="status") until user confirms, then retry
+
+elif result.get("success"):
+    task_update(task_id=task_id, message=f"live_ui done: {result['summary']}")
+
+else:
+    task_update(task_id=task_id, message=f"live_ui failed: {result['summary']}")
+```
+
+### Common escalation scenarios
+
+- **Login / auth wall** — site is asking for credentials you don't have in context
+- **CAPTCHA** — solver required before proceeding
+- **2FA prompt** — needs SMS/email code from user
+- **Unexpected page** — navigation led somewhere unexpected, human needs to reorient
+
+When escalated, tell the user what the model reported, ask them to resolve it in the browser (VNC on display :99), and poll `task_update(query="status")` until they confirm.
+
+---
+
+## mavi_understand — video content intelligence
+
+Record the screen for a few seconds and ask a question about what's visible and audible.
+
+### When to use vs desktop_look
+
+| Information type | Tool |
+|---|---|
+| Static UI: buttons, text, layouts, search results | `desktop_look` |
+| Playing video: sound name, audio content, song | `mavi_understand` |
+| Animation text, captions on moving content | `mavi_understand` |
+| Live feed, video player, TikTok video | `mavi_understand` |
+
+### Examples
+
+```python
+# What sound is playing in a TikTok video?
+mavi_understand(
+    task_id=task_id,
+    prompt="What is the name of the sound or song playing in the TikTok video on screen?",
+    duration_seconds=10,
+)
+
+# Hashtags in video captions
+mavi_understand(
+    task_id=task_id,
+    prompt="What hashtags are shown in the captions of the videos currently on screen?",
+    duration_seconds=8,
+)
+
+# Video style analysis
+mavi_understand(
+    task_id=task_id,
+    prompt="Describe the visual format, content style, and any text overlays in the video playing.",
+    duration_seconds=12,
+)
+```
+
+Write a specific, concrete prompt — vague prompts give vague answers.

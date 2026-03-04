@@ -396,6 +396,66 @@ else
     warn "openclaw/MEMORY-fragment.md not found — skipping MEMORY.md injection"
 fi
 
+# ─── Create OpenClaw sub-agents ────────────────────────────────
+
+AGENTS=("influencer-mgmt" "linkedin-networking")
+
+if [ -n "$OPENCLAW_BIN" ]; then
+    info "Configuring OpenClaw sub-agents..."
+
+    EXISTING_AGENTS=$("$OPENCLAW_BIN" agents list --json 2>/dev/null | "$VENV_DIR/bin/python3" -c "
+import json, sys
+data = json.load(sys.stdin)
+print(' '.join(a['id'] for a in data))
+" 2>/dev/null || echo "")
+
+    for AGENT_ID in "${AGENTS[@]}"; do
+        AGENT_WORKSPACE="$HOME/.openclaw/agents/$AGENT_ID/workspace"
+        mkdir -p "$AGENT_WORKSPACE/skills"
+
+        # Create agent if it doesn't already exist
+        if echo "$EXISTING_AGENTS" | grep -qw "$AGENT_ID"; then
+            ok "Agent already exists: $AGENT_ID"
+        else
+            "$OPENCLAW_BIN" agents add "$AGENT_ID" \
+                --workspace "$AGENT_WORKSPACE" \
+                --non-interactive \
+                --json 2>/dev/null && ok "Created agent: $AGENT_ID" || warn "Could not create agent $AGENT_ID — create manually"
+        fi
+
+        # Symlink shared DETM skill into this agent's workspace
+        DETM_SKILL_LINK="$AGENT_WORKSPACE/skills/agentic-computer-use"
+        if [ -L "$DETM_SKILL_LINK" ]; then rm "$DETM_SKILL_LINK"; elif [ -d "$DETM_SKILL_LINK" ]; then rm -rf "$DETM_SKILL_LINK"; fi
+        if [ -d "$REPO_DIR/skill" ]; then
+            ln -s "$REPO_DIR/skill" "$DETM_SKILL_LINK"
+        fi
+
+        # Symlink agent-specific skill if present in repo
+        AGENT_REPO_SKILL="$REPO_DIR/agents/$AGENT_ID/skill"
+        if [ -d "$AGENT_REPO_SKILL" ]; then
+            AGENT_SKILL_LINK="$AGENT_WORKSPACE/skills/$AGENT_ID"
+            if [ -L "$AGENT_SKILL_LINK" ]; then rm "$AGENT_SKILL_LINK"; elif [ -d "$AGENT_SKILL_LINK" ]; then rm -rf "$AGENT_SKILL_LINK"; fi
+            ln -s "$AGENT_REPO_SKILL" "$AGENT_SKILL_LINK"
+            ok "  Agent skill linked: $AGENT_ID/skills/$AGENT_ID → $AGENT_REPO_SKILL"
+        fi
+    done
+
+    ok "Sub-agents configured"
+else
+    warn "OpenClaw not found — skipping sub-agent creation"
+fi
+
+# ─── Install detm-tool-logger plugin ───────────────────────────
+
+PLUGIN_DIR="$REPO_DIR/plugins/detm-tool-logger"
+if [ -d "$PLUGIN_DIR" ] && [ -n "$OPENCLAW_BIN" ]; then
+    if "$OPENCLAW_BIN" plugins list 2>/dev/null | grep -q "detm-tool-logger"; then
+        ok "Plugin already installed: detm-tool-logger"
+    else
+        "$OPENCLAW_BIN" plugins install --link "$PLUGIN_DIR" 2>/dev/null && ok "Plugin installed: detm-tool-logger" || warn "Could not install detm-tool-logger plugin"
+    fi
+fi
+
 # ─── Verify ────────────────────────────────────────────────────
 
 info "Running health check..."
@@ -426,5 +486,7 @@ echo "  Test:      curl http://127.0.0.1:$DAEMON_PORT/health"
 echo ""
 if [ -n "$OPENCLAW_BIN" ]; then
     echo "  OpenClaw will auto-discover tools via mcporter."
+    echo "  Agents:    influencer-mgmt, linkedin-networking"
+    echo "  Run task:  openclaw agent --agent influencer-mgmt --message '...'"
 fi
 echo ""

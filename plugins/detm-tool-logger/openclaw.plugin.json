@@ -1,0 +1,8 @@
+{
+  "id": "detm-tool-logger",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

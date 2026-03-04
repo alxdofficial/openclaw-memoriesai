@@ -48,6 +48,22 @@ UITARS_KEEP_ALIVE = os.environ.get("ACU_UITARS_KEEP_ALIVE", "5m")
 CLAUDE_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 CLAUDE_VISION_MODEL = os.environ.get("ACU_CLAUDE_VISION_MODEL", "claude-sonnet-4-20250514")
 
+# MAVI video intelligence API
+MAVI_API_KEY = os.environ.get("MAVI_API_KEY", "")
+
+# Live UI vision/control (real-time multimodal sessions)
+LIVE_UI_PROVIDER = os.environ.get("ACU_LIVE_UI_PROVIDER", "gemini")  # gemini | openai | qwen
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")       # Google AI Dev key (takes priority over Vertex AI)
+GEMINI_LIVE_MODEL = os.environ.get("ACU_GEMINI_LIVE_MODEL", "gemini-2.0-flash-live-001")
+GEMINI_PROJECT = os.environ.get("ACU_GEMINI_PROJECT", "")   # GCP project (used if no API key)
+GEMINI_LOCATION = os.environ.get("ACU_GEMINI_LOCATION", "us-central1")
+LIVE_UI_FRAME_INTERVAL = float(os.environ.get("ACU_LIVE_UI_FRAME_INTERVAL", "2.0"))
+
+# Qwen Omni Realtime (OpenAI Realtime-compatible protocol)
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+QWEN_LIVE_MODEL = os.environ.get("ACU_QWEN_LIVE_MODEL", "qwen3-omni-flash-realtime")
+QWEN_LIVE_ENDPOINT = os.environ.get("ACU_QWEN_LIVE_ENDPOINT", "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime")
+
 # OpenClaw CLI path
 OPENCLAW_CLI = os.environ.get("ACU_OPENCLAW_CLI", "openclaw")
 

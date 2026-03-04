@@ -292,6 +292,85 @@ TOOLS = [
         },
     ),
     Tool(
+        name="mavi_understand",
+        description=(
+            "Record the screen for a few seconds and ask MAVI (a video intelligence model) "
+            "a question about what it sees and hears. Use this when you are on a video-heavy UI "
+            "and need to understand content that cannot be read from a static screenshot — "
+            "e.g. what sound is playing on a TikTok video, what format or style a video uses, "
+            "what text appears in an animation, or what is happening in a live feed. "
+            "MAVI can process both visual and audio content. "
+            "Returns a text answer from the model."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string", "description": "Task ID — links this action to the active task log"},
+                "duration_seconds": {
+                    "type": "integer",
+                    "description": "How many seconds to record. 5–15s is usually enough. Max 60.",
+                    "default": 10,
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": (
+                        "What you want to know from the video. Be specific. "
+                        "Examples: 'What is the name of the sound playing in this TikTok video?', "
+                        "'What hashtags are shown in the captions of the videos on screen?', "
+                        "'Describe the visual format and style of the content currently playing.'"
+                    ),
+                },
+            },
+            "required": ["prompt"],
+        },
+    ),
+    # ── Live UI vision/control ──────────────────────────────────
+    Tool(
+        name="live_ui",
+        description=(
+            "Delegate a multi-step UI workflow to a live AI vision model that watches "
+            "the screen and executes actions autonomously (clicks, typing, scrolling, "
+            "key presses). The model sees screenshots as they change and decides what "
+            "to do next — you don't drive each step. "
+            "Use for complex flows: login sequences, multi-page forms, deep menu "
+            "navigation, or any workflow where each step depends on seeing the previous "
+            "result. Returns when done (success/fail) or when the model escalates. "
+            "NOT needed for single-step actions — use desktop_action or gui_do for those."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Task ID — links this session to the active task log",
+                },
+                "instruction": {
+                    "type": "string",
+                    "description": (
+                        "What to accomplish. Be specific and complete. Examples: "
+                        "'Navigate to Settings > Export and click Export as PDF', "
+                        "'Log in with email user@example.com and the password from context', "
+                        "'Search for energy drink trends on TikTok and screenshot the results page'"
+                    ),
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Max seconds to run before giving up. Default 60, max 300.",
+                    "default": 60,
+                },
+                "context": {
+                    "type": "string",
+                    "description": (
+                        "Extra context for the AI: credentials, brand details, "
+                        "what page is currently open, etc."
+                    ),
+                },
+            },
+            "required": ["instruction"],
+        },
+    ),
+
+    Tool(
         name="health_check",
         description="Check if the DETM daemon, vision backends, and system are healthy.",
         inputSchema={"type": "object", "properties": {}},
@@ -359,6 +438,8 @@ ROUTE_MAP = {
     "gui_find": ("POST", "/gui_find"),
     "desktop_look": ("POST", "/desktop_look"),
     "video_record": ("POST", "/video_record"),
+    "mavi_understand": ("POST", "/mavi_understand"),
+    "live_ui": ("POST", "/live_ui"),
     "memory_search": ("POST", "/memory_search"),
     "memory_read": ("POST", "/memory_read"),
     "memory_append": ("POST", "/memory_append"),

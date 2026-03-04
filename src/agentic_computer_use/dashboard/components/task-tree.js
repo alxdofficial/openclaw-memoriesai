@@ -175,11 +175,21 @@ const TaskTree = (() => {
         for (const act of item.action_details) {
           const actExpanded = _expandedActions.has(act.id);
           const { senderLabel, senderClass } = _actionSender(act);
+          // Detect live_ui action with session recording
+          let liveSessionId = null;
+          if (act.input_data) {
+            try {
+              const d = typeof act.input_data === "string" ? JSON.parse(act.input_data) : act.input_data;
+              if (d.session_id) liveSessionId = d.session_id;
+            } catch (e) { /* ignore */ }
+          }
+
           html += `
             <div class="tree-action${actExpanded ? " expanded" : ""}" data-action-id="${act.id}">
               <span class="tree-action-type ${senderClass}">${_esc(senderLabel)}</span>
               <span>${_esc(act.summary)}</span>
               <span class="tree-action-status">— ${act.status}</span>
+              ${liveSessionId ? `<button class="live-session-btn" data-session-id="${_esc(liveSessionId)}" title="View live_ui session replay">⬡ replay</button>` : ""}
               <div class="tree-action-detail">
           `;
           if (act.input_data) {
@@ -259,6 +269,14 @@ const TaskTree = (() => {
           _expandedActions.add(actionId);
         }
         render();
+      });
+    });
+
+    // Live session replay button
+    _container.querySelectorAll(".live-session-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        LiveSessionViewer.open(btn.dataset.sessionId);
       });
     });
 

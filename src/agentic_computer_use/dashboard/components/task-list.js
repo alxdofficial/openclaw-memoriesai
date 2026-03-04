@@ -45,12 +45,17 @@ const TaskList = (() => {
 
       const statusIcon = _statusIcon(task.status);
 
+      const agentBadge = task.agent_id
+        ? `<span class="badge badge-agent">${_esc(task.agent_id)}</span>`
+        : "";
+
       li.innerHTML = `
         <div class="task-list-row">
           <div class="task-list-info">
             <span class="task-name">${statusIcon} ${_esc(task.name)}</span>
             <div class="task-meta">
               <span class="badge badge-${task.status}">${task.status}</span>
+              ${agentBadge}
               <span>${task.progress_pct || 0}%</span>
             </div>
             <div class="progress-bar">

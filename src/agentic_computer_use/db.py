@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
+    agent_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -84,6 +85,12 @@ async def get_db() -> aiosqlite.Connection:
     db_conn = await aiosqlite.connect(str(config.DB_PATH))
     db_conn.row_factory = aiosqlite.Row
     await db_conn.executescript(SCHEMA)
+    # Migrations for columns added after initial schema
+    try:
+        await db_conn.execute("ALTER TABLE tasks ADD COLUMN agent_id TEXT")
+        await db_conn.commit()
+    except Exception:
+        pass  # column already exists
     return db_conn
 
 
