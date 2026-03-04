@@ -249,16 +249,40 @@ class GeminiLiveProvider(LiveUIProvider):
                     )
 
                     try:
-                        async for response in live_session.receive():
-                            outcome = await _handle_response(
-                                response, live_session, display, session=session,
-                            )
-                            if outcome:
-                                if outcome.get("action_taken"):
-                                    actions_taken += 1
-                                elif outcome.get("terminal"):
-                                    terminal_result = outcome
+                        while True:
+                            got_turn_complete = False
+                            got_tool_call = False
+                            async for response in live_session.receive():
+                                outcome = await _handle_response(
+                                    response, live_session, display, session=session,
+                                )
+                                if outcome:
+                                    if outcome.get("action_taken"):
+                                        actions_taken += 1
+                                        got_tool_call = True
+                                    elif outcome.get("terminal"):
+                                        terminal_result = outcome
+                                        break
+                                # Check for turn_complete to break inner loop
+                                if (response.server_content and
+                                        response.server_content.turn_complete):
+                                    got_turn_complete = True
                                     break
+                            # Exit outer while if terminal or no tool calls were made
+                            if terminal_result:
+                                break
+                            if not got_tool_call:
+                                # No tool calls this round — session ended with no completion
+                                break
+                            # Tool calls were made; send continuation to keep session alive
+                            log.info("Sending continuation after turn_complete")
+                            await live_session.send_client_content(
+                                turns=types.Content(
+                                    role="user",
+                                    parts=[types.Part(text="Continue. Look at the current screen state and proceed with the next step of the task.")],
+                                ),
+                                turn_complete=True,
+                            )
                     finally:
                         frame_stop.set()
                         frame_task.cancel()
@@ -266,6 +290,11 @@ class GeminiLiveProvider(LiveUIProvider):
                             await asyncio.wait_for(frame_task, timeout=2.0)
                         except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass
+                        # Save audio and transcribe in a thread to avoid blocking the loop
+                        if session:
+                            import asyncio as _asyncio
+                            loop = _asyncio.get_event_loop()
+                            await loop.run_in_executor(None, _finalize_session_audio, session)
 
         except asyncio.TimeoutError:
             if session:
@@ -397,18 +426,28 @@ async def _handle_response(response, live_session, display: str, session=None) -
         model_turn = response.server_content.model_turn
         turn_complete = response.server_content.turn_complete
         if turn_complete:
-            log.info(f"Gemini Live turn_complete received")
+            log.info("Gemini Live turn_complete received")
         for part in (model_turn.parts if model_turn else []):
             if part.text and part.text.strip():
                 text = part.text.strip()
                 log.info(f"Gemini Live text: {text[:200]}")
                 if session:
                     session.record_model_text(text)
+            elif part.inline_data and part.inline_data.mime_type.startswith("audio/"):
+                if session:
+                    session.record_audio_chunk(part.inline_data.data)
 
     if response.go_away:
         log.info(f"Gemini Live go_away received: {response.go_away}")
 
     return None
+
+
+def _finalize_session_audio(session) -> None:
+    """Write WAV and run Whisper transcription. Called in a thread executor."""
+    wav_path = session.finalize_audio()
+    if wav_path:
+        session.transcribe_audio(wav_path, model_name="tiny")
 
 
 def _get_display_size(display: str) -> tuple[int, int]:

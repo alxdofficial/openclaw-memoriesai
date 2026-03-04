@@ -1,7 +1,9 @@
 """Live UI session recorder — writes events + frames to disk for dashboard replay."""
+import io
 import json
 import logging
 import time
+import wave
 from pathlib import Path
 
 from .. import config
@@ -25,6 +27,11 @@ class LiveUISession:
             frames/         — 00000.jpg, 00001.jpg, ...  (one per streamed frame)
     """
 
+    # Gemini Live sends PCM: 16-bit signed, mono, 24 kHz
+    _AUDIO_SAMPLE_RATE = 24000
+    _AUDIO_SAMPLE_WIDTH = 2  # bytes (16-bit)
+    _AUDIO_CHANNELS = 1
+
     def __init__(
         self,
         session_id: str,
@@ -41,6 +48,7 @@ class LiveUISession:
         self.timeout = timeout
         self.started_at = time.time()
         self._frame_count = 0
+        self._audio_chunks: list[bytes] = []
 
         self._dir = LIVE_SESSIONS_DIR / session_id
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +113,55 @@ class LiveUISession:
     def record_error(self, message: str) -> None:
         self._append({"type": "error", "message": message, "ts": time.time()})
 
+    def record_audio_chunk(self, pcm_bytes: bytes) -> None:
+        """Buffer a raw PCM audio chunk from the model's audio response."""
+        if pcm_bytes:
+            self._audio_chunks.append(pcm_bytes)
+
+    def finalize_audio(self) -> Path | None:
+        """Write buffered PCM chunks to audio.wav. Returns path or None if no audio."""
+        if not self._audio_chunks:
+            return None
+        wav_path = self._dir / "audio.wav"
+        try:
+            data = b"".join(self._audio_chunks)
+            with wave.open(str(wav_path), "wb") as wf:
+                wf.setnchannels(self._AUDIO_CHANNELS)
+                wf.setsampwidth(self._AUDIO_SAMPLE_WIDTH)
+                wf.setframerate(self._AUDIO_SAMPLE_RATE)
+                wf.writeframes(data)
+            log.info(f"Audio saved: {wav_path} ({len(data)} bytes, {len(data)/self._AUDIO_SAMPLE_RATE/self._AUDIO_SAMPLE_WIDTH:.1f}s)")
+            return wav_path
+        except Exception as e:
+            log.warning(f"Audio WAV write failed: {e}")
+            return None
+
+    def transcribe_audio(self, wav_path: Path, model_name: str = "tiny") -> None:
+        """
+        Run Whisper on wav_path and append model_text events with timestamps.
+        Uses the 'tiny' model by default — fast enough for post-session transcription.
+        """
+        try:
+            import whisper  # type: ignore
+        except ImportError:
+            log.debug("Whisper not installed — skipping audio transcription")
+            return
+        try:
+            log.info(f"Transcribing audio with Whisper ({model_name})…")
+            model = whisper.load_model(model_name)
+            result = model.transcribe(str(wav_path), language="en", fp16=False)
+            session_start = self.started_at
+            for seg in result.get("segments", []):
+                text = seg.get("text", "").strip()
+                if not text:
+                    continue
+                # Offset segment timestamps by session start time
+                ts = session_start + float(seg.get("start", 0))
+                self._append({"type": "model_text", "text": text, "ts": ts})
+            log.info(f"Whisper transcription complete: {len(result.get('segments', []))} segments")
+        except Exception as e:
+            log.warning(f"Whisper transcription failed: {e}")
+
     @property
     def frame_count(self) -> int:
         return self._frame_count
@@ -147,6 +204,7 @@ def load_session(session_id: str) -> dict | None:
                 pass
 
     frame_count = sum(1 for ev in events if ev.get("type") == "frame")
+    has_audio = (session_dir / "audio.wav").exists()
 
     return {
         "session_id": session_id,
@@ -155,6 +213,7 @@ def load_session(session_id: str) -> dict | None:
         "timeout": timeout,
         "events": events,
         "frame_count": frame_count,
+        "has_audio": has_audio,
     }
 
 

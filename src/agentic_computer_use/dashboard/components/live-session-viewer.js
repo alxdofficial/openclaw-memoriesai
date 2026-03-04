@@ -68,7 +68,7 @@ const LiveSessionViewer = (() => {
   // ── Render ───────────────────────────────────────────────────
 
   function _render(data) {
-    const { session_id, instruction, context, timeout, events, frame_count } = data;
+    const { session_id, instruction, context, timeout, events, frame_count, has_audio } = data;
 
     // Filter to displayable events (exclude raw frame markers from feed)
     const feedEvents = events.filter(e => e.type !== "frame" && e.type !== "instruction");
@@ -108,6 +108,7 @@ const LiveSessionViewer = (() => {
           </div>
           <div class="lsv-viewer" id="lsv-viewer">
             ${frame_count > 0 ? _renderFrameViewer(session_id, frame_count) : '<div class="lsv-no-frames">No frames recorded</div>'}
+            ${has_audio ? _renderAudioPlayer(session_id) : ""}
           </div>
         </div>
       </div>
@@ -209,6 +210,20 @@ const LiveSessionViewer = (() => {
     if (name === "key_press") return args.key || "";
     if (name === "scroll") return `(${args.x}, ${args.y}) ${args.direction} ×${args.amount || 3}`;
     return JSON.stringify(args).slice(0, 80);
+  }
+
+  // ── Audio player ─────────────────────────────────────────────
+
+  function _renderAudioPlayer(sessionId) {
+    return `
+      <div class="lsv-audio-row">
+        <span class="lsv-audio-label">Gemini audio</span>
+        <audio class="lsv-audio" controls preload="none"
+               src="/api/live_sessions/${_esc(sessionId)}/audio">
+          Your browser does not support audio playback.
+        </audio>
+      </div>
+    `;
   }
 
   // ── Frame viewer ─────────────────────────────────────────────

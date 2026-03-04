@@ -990,6 +990,20 @@ async def handle_api_live_session_frame(request: web.Request) -> web.Response:
     )
 
 
+async def handle_api_live_session_audio(request: web.Request) -> web.Response:
+    """GET /api/live_sessions/{session_id}/audio — return WAV audio if available."""
+    session_id = request.match_info["session_id"]
+    from .live.session import LIVE_SESSIONS_DIR
+    wav_path = LIVE_SESSIONS_DIR / session_id / "audio.wav"
+    if not wav_path.exists():
+        return web.Response(status=404, text="No audio for this session")
+    return web.Response(
+        body=wav_path.read_bytes(),
+        content_type="audio/wav",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # ─── GUI Agent handlers ─────────────────────────────────────────
 
 async def handle_gui_do(request: web.Request) -> web.Response:
@@ -1216,6 +1230,7 @@ def create_app() -> web.Application:
     # Live session viewer
     app.router.add_get("/api/live_sessions/{session_id}", handle_api_live_session)
     app.router.add_get("/api/live_sessions/{session_id}/frames/{n}", handle_api_live_session_frame)
+    app.router.add_get("/api/live_sessions/{session_id}/audio", handle_api_live_session_audio)
     # Recording start/stop/status
     app.router.add_post("/api/tasks/{task_id}/record/start", handle_record_start)
     app.router.add_post("/api/tasks/{task_id}/record/stop", handle_record_stop)
