@@ -3,6 +3,8 @@
 
 const LiveSessionViewer = (() => {
   let _modal = null;
+  let _frameTimestamps = [];   // [{n, ts}] sorted by n
+  let _feedEventEls = [];      // [{ts, el}] sorted by ts — for frame→event sync
 
   // ── Color mapping for event types ────────────────────────────
   const _TYPE_STYLE = {
@@ -18,6 +20,7 @@ const LiveSessionViewer = (() => {
 
   // GUI action sub-labels (matching task-tree style)
   const _ACTION_LABEL = {
+    move_mouse:   "gui:move",
     click:        "gui:click",
     double_click: "gui:double_click",
     type_text:    "gui:type",
@@ -74,6 +77,10 @@ const LiveSessionViewer = (() => {
       .filter(e => e.type === "frame")
       .map(e => ({ n: e.n, ts: e.ts }));
 
+    // Store for bidirectional sync
+    _frameTimestamps = frameTimestamps;
+    _feedEventEls = [];
+
     // ── Modal container ─────────────────────────────────────────
     _modal = document.createElement("div");
     _modal.className = "lsv-overlay";
@@ -113,18 +120,25 @@ const LiveSessionViewer = (() => {
     });
     document.addEventListener("keydown", _escHandler);
 
+    // ── Collect feed event elements for reverse sync ─────────────
+    _modal.querySelectorAll(".lsv-event[data-ts]").forEach(el => {
+      const ts = parseFloat(el.dataset.ts);
+      if (!isNaN(ts)) _feedEventEls.push({ ts, el });
+    });
+    // Already sorted chronologically since events are in order
+
     // ── Event click → snap frame ────────────────────────────────
     if (frame_count > 0) {
       _modal.querySelectorAll(".lsv-event[data-ts]").forEach(el => {
         el.addEventListener("click", () => {
           const ts = parseFloat(el.dataset.ts);
           const n = _nearestFrame(ts, frameTimestamps);
-          if (n >= 0) _setFrame(n);
-          el.classList.toggle("lsv-event-selected");
+          if (n >= 0) _setFrame(n, { skipEventSync: true });
+          _highlightEvent(el);
         });
       });
 
-      // Frame scrubber
+      // Frame scrubber → highlight active event
       const scrubber = _modal.querySelector("#lsv-scrubber");
       const prevBtn = _modal.querySelector("#lsv-prev");
       const nextBtn = _modal.querySelector("#lsv-next");
@@ -187,6 +201,7 @@ const LiveSessionViewer = (() => {
   }
 
   function _fmtArgs(name, args) {
+    if (name === "move_mouse") return `(${args.x ?? "?"}, ${args.y ?? "?"})`;
     if (name === "click" || name === "double_click") {
       return `(${args.x ?? "?"}, ${args.y ?? "?"})${args.button && args.button !== "left" ? ` ${args.button}` : ""}`;
     }
@@ -212,7 +227,7 @@ const LiveSessionViewer = (() => {
     `;
   }
 
-  function _setFrame(n) {
+  function _setFrame(n, opts = {}) {
     if (!_modal) return;
     const scrubber = _modal.querySelector("#lsv-scrubber");
     const img = _modal.querySelector("#lsv-frame-img");
@@ -220,12 +235,33 @@ const LiveSessionViewer = (() => {
     if (!img) return;
     const total = scrubber ? parseInt(scrubber.max) + 1 : 1;
     const clamped = Math.max(0, Math.min(n, total - 1));
-    // Extract session id from current img src
     const src = img.src;
     const newSrc = src.replace(/\/frames\/\d+$/, `/frames/${clamped}`);
     img.src = newSrc;
     if (scrubber) scrubber.value = clamped;
     if (label) label.textContent = `${clamped + 1} / ${total}`;
+
+    // Reverse sync: highlight the event active at this frame's timestamp
+    if (!opts.skipEventSync && _frameTimestamps.length > 0) {
+      const frameEntry = _frameTimestamps.find(f => f.n === clamped)
+        || _frameTimestamps[Math.min(clamped, _frameTimestamps.length - 1)];
+      if (frameEntry) {
+        // Find the last feed event whose ts ≤ frame ts
+        let activeEl = null;
+        for (const { ts, el } of _feedEventEls) {
+          if (ts <= frameEntry.ts) activeEl = el;
+          else break;
+        }
+        if (activeEl) _highlightEvent(activeEl);
+      }
+    }
+  }
+
+  function _highlightEvent(el) {
+    // Clear previous highlights
+    _feedEventEls.forEach(({ el: e }) => e.classList.remove("lsv-event-active"));
+    el.classList.add("lsv-event-active");
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   function _stepFrame(delta, frameCount) {

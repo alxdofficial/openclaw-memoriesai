@@ -998,6 +998,7 @@ html, body {
 }
 .lsv-event:hover    { background: var(--bg-hover); }
 .lsv-event-selected { background: rgba(56,189,193,0.08); outline: 1px solid rgba(56,189,193,0.2); }
+.lsv-event-active   { background: rgba(255,200,50,0.13); outline: 1px solid rgba(255,200,50,0.4); }
 
 .lsv-sender {
   flex-shrink: 0;
