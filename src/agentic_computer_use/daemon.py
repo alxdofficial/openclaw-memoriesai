@@ -393,8 +393,8 @@ async def handle_api_task_messages(request: web.Request) -> web.Response:
 # ─── Health ──────────────────────────────────────────────────────
 
 async def handle_health(request: web.Request) -> web.Response:
-    from .vision import check_health
-    from .gui.agent import _get_backend
+    from .wait_vision import check_health
+    from .gui_agent.agent import _get_backend
     vision_health = await check_health()
     gui_backend = _get_backend()
     return web.json_response({
@@ -973,8 +973,8 @@ async def handle_live_ui(request: web.Request) -> web.Response:
     context = args.get("context", "")
     display = await _resolve_task_display(task_id)
 
-    from .live import get_provider
-    from .live.session import LiveUISession
+    from .live_ui import get_provider
+    from .live_ui.session import LiveUISession
     from . import db as _db
 
     try:
@@ -1037,12 +1037,12 @@ async def handle_live_ui(request: web.Request) -> web.Response:
 async def handle_api_live_session(request: web.Request) -> web.Response:
     """GET /api/live_sessions/{session_id} — return session events."""
     session_id = request.match_info["session_id"]
-    from .live.session import load_session
+    from .live_ui.session import load_session
     data = load_session(session_id)
     if data is None:
         return web.json_response({"error": "session not found"}, status=404)
     # Include file sizes so openLive() can jump to live edge
-    from .live.session import LIVE_SESSIONS_DIR
+    from .live_ui.session import LIVE_SESSIONS_DIR
     session_dir = LIVE_SESSIONS_DIR / session_id
     events_path = session_dir / "events.jsonl"
     pcm_path = session_dir / "audio.pcm"
@@ -1055,7 +1055,7 @@ async def handle_api_live_session_frame(request: web.Request) -> web.Response:
     """GET /api/live_sessions/{session_id}/frames/{n} — return JPEG frame."""
     session_id = request.match_info["session_id"]
     n = int(request.match_info["n"])
-    from .live.session import get_frame
+    from .live_ui.session import get_frame
     jpeg = get_frame(session_id, n)
     if jpeg is None:
         return web.Response(status=404, text="Frame not found")
@@ -1069,7 +1069,7 @@ async def handle_api_live_session_frame(request: web.Request) -> web.Response:
 async def handle_api_live_session_audio(request: web.Request) -> web.Response:
     """GET /api/live_sessions/{session_id}/audio — return current audio as WAV (live or complete)."""
     session_id = request.match_info["session_id"]
-    from .live.session import get_audio_wav
+    from .live_ui.session import get_audio_wav
     wav_bytes = get_audio_wav(session_id)
     if wav_bytes is None:
         return web.Response(status=404, text="No audio for this session")
@@ -1088,7 +1088,7 @@ async def handle_api_live_sessions_active(request: web.Request) -> web.Response:
 
 async def handle_api_live_session_events_stream(request: web.Request) -> web.StreamResponse:
     """GET /api/live_sessions/{session_id}/events/stream — SSE tail of events.jsonl."""
-    from .live.session import LIVE_SESSIONS_DIR
+    from .live_ui.session import LIVE_SESSIONS_DIR
     session_id = request.match_info["session_id"]
     events_path = LIVE_SESSIONS_DIR / session_id / "events.jsonl"
     response = web.StreamResponse(headers={
@@ -1133,7 +1133,7 @@ async def handle_api_live_session_events_stream(request: web.Request) -> web.Str
 
 async def handle_api_live_session_audio_stream(request: web.Request) -> web.StreamResponse:
     """GET /api/live_sessions/{session_id}/audio/stream — chunked PCM stream."""
-    from .live.session import LIVE_SESSIONS_DIR
+    from .live_ui.session import LIVE_SESSIONS_DIR
     session_id = request.match_info["session_id"]
     pcm_path = LIVE_SESSIONS_DIR / session_id / "audio.pcm"
     response = web.StreamResponse(headers={
@@ -1165,7 +1165,7 @@ async def handle_api_live_session_audio_stream(request: web.Request) -> web.Stre
 
 async def handle_gui_do(request: web.Request) -> web.Response:
     args = await _parse_body(request)
-    from .gui.agent import execute_gui_action
+    from .gui_agent.agent import execute_gui_action
 
     task_id = args.get("task_id")
     display = await _resolve_task_display(task_id)
@@ -1181,7 +1181,7 @@ async def handle_gui_do(request: web.Request) -> web.Response:
 
 async def handle_gui_find(request: web.Request) -> web.Response:
     args = await _parse_body(request)
-    from .gui.agent import find_gui_element
+    from .gui_agent.agent import find_gui_element
 
     task_id = args.get("task_id")
     display = await _resolve_task_display(task_id)

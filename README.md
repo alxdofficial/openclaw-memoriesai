@@ -353,78 +353,60 @@ When updating tools or behavior, keep SKILL.md in sync — it's what the LLM act
 | `ACU_DESKTOP_LOOK_QUALITY` | `72` | JPEG quality for desktop_look images |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
 | `ANTHROPIC_API_KEY` | -- | Required for Claude vision/GUI backends |
-| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3.1-flash-lite-preview` | OpenRouter model used by `live_ui` |
+| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | OpenRouter model used by `live_ui` |
 | `MAVI_API_KEY` | -- | Memories.AI API key — required for `mavi_understand` |
 
 ## Repository Layout
 
 ```
 src/agentic_computer_use/
-  server.py              # MCP server (thin HTTP proxy to daemon)
-  daemon.py              # Persistent HTTP daemon (aiohttp); frame buffer, snapshot endpoints
-  config.py              # Configuration from env vars
-  db.py                  # SQLite schema + helpers
-  debug.py               # Colored debug logging
-  screenshots.py         # Screenshot file management
-  usage.py               # AI API cost tracking (usage_events table, pricing table, get_stats)
-  mavi.py                # Memories.AI video comprehension (mavi_understand tool impl)
-  task/
-    manager.py           # Hierarchical task CRUD, stuck detection, resume packets
-  wait/
-    engine.py            # Smart wait job queue + polling loop
-    poller.py            # Adaptive polling interval
-  capture/
-    screen.py            # X11 screen capture via python-xlib
-    frame_recorder.py    # Auto frame recording (run_in_executor, non-blocking)
-  desktop/
-    control.py           # xdotool wrapper (click, type, windows)
-  display/
-    manager.py           # Shared display routing + opt-in Xvfb isolation per task
-  gui/
-    agent.py             # NL-to-coordinates grounding (UI-TARS, Claude CU)
-  vision/
-    __init__.py          # Pluggable vision backend interface
-  video/
-    recorder.py          # Screen recording (ffmpeg)
-  live/
-    __init__.py          # Provider factory (live_ui tool entry point)
-    base.py              # Abstract LiveProvider base class
-    session.py           # LiveSession: event log, frame saving, PCM audio recording
-    actions.py           # xdotool action execution for live providers
-    openrouter.py        # OpenRouter live_ui provider (screenshot -> one tool call -> observe)
-  dashboard/
-    index.html           # Dashboard HTML
-    style.css            # Dark terminal theme
-    app.js               # Main app: polling, fetch helpers, wiring
-    components/
-      task-list.js       # Sidebar task list; Live button for active live_ui sessions
-      task-tree.js       # Expandable plan item tree; scrapped items, action sender tags
-      screen-viewer.js   # Polled JPEG viewer (500ms); replay mode; recording controls
-      message-feed.js    # Color-coded message feed
-      live-session-viewer.js  # Live monitor modal (SSE feed + Web Audio PCM); replay audio-frame sync
-      usage-stats.js     # AI API usage panel (cards, daily chart, per-model table)
+├── capture/              # screen capture, frame recording, pixel diff
+│   ├── screen.py         #   X11 screen capture via python-xlib
+│   ├── frame_recorder.py #   auto frame recording (run_in_executor, non-blocking)
+│   └── diff.py           #   pixel-diff gate for smart wait
+├── dashboard/            # web dashboard UI (HTML/JS/CSS)
+│   ├── index.html
+│   ├── style.css
+│   ├── app.js
+│   └── components/       #   task-list, task-tree, screen-viewer, message-feed,
+│                         #   live-session-viewer, usage-stats
+├── desktop/              # low-level xdotool wrappers (mouse, keyboard, windows)
+├── display/              # Xvfb display allocation & management
+├── gui_agent/            # single-action GUI agent (omniparser, uitars, claude_cu backends)
+├── live_ui/              # multi-turn VLM UI automation (OpenRouter provider)
+│   ├── openrouter.py     #   screenshot → tool call → observe loop
+│   ├── actions.py        #   xdotool action execution with smooth mouse animation
+│   ├── session.py        #   event log, frame saving, PCM audio recording
+│   └── base.py           #   abstract LiveUIProvider base class
+├── task/                 # task lifecycle management
+├── video/                # video recording (ffmpeg)
+├── wait/                 # smart wait engine + adaptive polling
+├── wait_vision/          # vision backends for smart_wait condition evaluation
+│                         #   (ollama, vllm, claude, openrouter, passthrough)
+├── config.py             # configuration from env vars
+├── daemon.py             # persistent HTTP daemon (aiohttp)
+├── db.py                 # SQLite schema + helpers
+├── debug.py              # colored debug logging
+├── mavi.py               # MAVI video intelligence integration
+├── screenshots.py        # action screenshot storage
+├── server.py             # MCP tool server (thin HTTP proxy to daemon)
+└── usage.py              # AI API cost tracking
 
 skill/
-  SKILL.md               # LLM prompt — teaches OpenClaw how to use DETM
+  SKILL.md                # LLM prompt — teaches OpenClaw how to use DETM
 
-openclaw/
-  MEMORY-fragment.md     # Injected into OpenClaw MEMORY.md by install.sh (idempotent)
+scripts/
+  acu_scenario_live_ui.py # test harness for live_ui fixture testing
+  acu_harness.py          # shared test harness utilities
+  fixtures/               # HTML test fixtures (form, clock, wait)
 
 docs/
-  ARCHITECTURE.md        # Detailed architecture with ASCII diagrams
-  TOOLS.md               # Complete tool parameter reference
-  ROADMAP.md             # Development phases and progress
-  SMART-WAIT.md          # Smart wait design: diff gate, adaptive polling, context windows
-  TASK-MEMORY.md         # Task memory design: distillation, recovery
-  TASK-MEMORY-RECOVERY-SPEC.md  # Stuck detection + resume packet spec
-  PROBLEMS.md            # Problem statements this project solves
-  RESEARCH.md            # Research notes on existing solutions
-  PROCEDURAL-MEMORY.md   # Memories AI video comprehension design
-  COMPARISON-OPENCLAW-COWORK-SIMULAR.md  # Feature comparison
-  diagrams/              # Draw.io architecture diagrams
+  ARCHITECTURE.md         # detailed architecture with ASCII diagrams
+  TOOLS.md                # complete tool parameter reference
+  LOCAL-TESTING.md        # guide for running test scenarios
 
 tests/
-  test_integration.py    # 9 integration tests (verdict parser, diff gate, task lifecycle, stuck detection)
+  test_integration.py     # integration tests (verdict parser, diff gate, task lifecycle)
 ```
 
 ## Logs & Debugging

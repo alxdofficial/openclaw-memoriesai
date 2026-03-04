@@ -32,26 +32,26 @@ _SETTLE = {
 }
 
 _SYSTEM_PROMPT = """\
-You control a {width}x{height} Linux desktop. Complete the instruction by calling tools.
+You control a {width}x{height} Linux desktop. Complete the instruction by calling tools. One tool call per turn.
 
-Coordinates: (0, 0) is top-left, ({max_x}, {max_y}) is bottom-right.
-Red tick marks along the edges show pixel positions every 100px — use them to estimate coordinates.
-The red circle with crosshairs marks the current cursor position.
+Screen:
+- The screen is exactly {width} pixels wide and {height} pixels tall. Coordinates range from (0, 0) at top-left to ({max_x}, {max_y}) at bottom-right. Any coordinate outside this range is rejected.
+- Red ruler marks with numbers along all four edges label pixel positions every 100px. Do NOT guess coordinates — always read the nearest ruler numbers on the top and left edges and interpolate to get precise x and y values.
+- The red circle with crosshairs marks the current cursor position.
+- Each response includes a fresh screenshot labeled [current screenshot] showing the live state of the screen.
 
-After every action, check the screenshot to verify what actually happened.
-The cursor is often NOT where you expect — look at the red circle to see where it really is.
-If the cursor landed in the wrong spot, adjust with another move_mouse before proceeding.
-Always move_mouse to the center of a target element first, verify the red circle is on it, then click.
-
-One tool call per turn. Each response includes a fresh screenshot labeled [current screenshot] — this is the live state of the screen right now. Only call done() after the screenshot confirms the task is complete.
+Actions:
+- Always move_mouse to the center of a target element first. Check the screenshot to confirm the red circle is on the target, then click. The cursor is often NOT where you expect — if it missed, adjust with another move_mouse before proceeding.
+- After every action, check the screenshot to verify what actually happened.
+- Only call done() after the screenshot confirms the task is complete.
 """
 
 _THOUGHT_PROP = {
     "thought": {"type": "string", "description": "Brief reasoning about what you see and will do next."},
 }
 _COORD_PROPS = {
-    "x": {"type": "integer", "description": "X pixel coordinate"},
-    "y": {"type": "integer", "description": "Y pixel coordinate"},
+    "x": {"type": "integer", "description": "Horizontal pixel position (0=left edge)"},
+    "y": {"type": "integer", "description": "Vertical pixel position (0=top edge)"},
 }
 
 _TOOLS = [
@@ -187,25 +187,25 @@ def _draw_ruler(img):
     from PIL import ImageDraw, ImageFont
     draw = ImageDraw.Draw(img, "RGBA")
     w, h = img.size
-    tick_len = 12
-    color = (180, 0, 0, 160)
-    label_color = (180, 0, 0, 200)
+    tick_len = 18
+    color = (200, 0, 0, 200)
+    label_color = (200, 0, 0, 230)
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 11)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 14)
     except Exception:
         font = ImageFont.load_default()
 
     for x in range(0, w, 100):
-        draw.line([(x, 0), (x, tick_len)], fill=color, width=1)
-        draw.line([(x, h - tick_len), (x, h)], fill=color, width=1)
+        draw.line([(x, 0), (x, tick_len)], fill=color, width=2)
+        draw.line([(x, h - tick_len), (x, h)], fill=color, width=2)
         if x > 0:
-            draw.text((x + 2, 1), str(x), fill=label_color, font=font)
+            draw.text((x + 3, 1), str(x), fill=label_color, font=font)
 
     for y in range(0, h, 100):
-        draw.line([(0, y), (tick_len, y)], fill=color, width=1)
-        draw.line([(w - tick_len, y), (w, y)], fill=color, width=1)
+        draw.line([(0, y), (tick_len, y)], fill=color, width=2)
+        draw.line([(w - tick_len, y), (w, y)], fill=color, width=2)
         if y > 0:
-            draw.text((1, y + 1), str(y), fill=label_color, font=font)
+            draw.text((2, y + 1), str(y), fill=label_color, font=font)
 
     return img
 

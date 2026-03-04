@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .. import config, debug, db
 from ..capture.screen import capture_window, capture_screen, find_window_by_name, frame_to_jpeg
-from ..vision import evaluate_condition
+from ..wait_vision import evaluate_condition
 from ..task import manager as task_mgr
 from .context import JobContext, build_prompt
 
