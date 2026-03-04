@@ -125,7 +125,7 @@ Execute a GUI action from a natural language instruction.
 | `task_id` | string | no | Link action to a task |
 | `window_name` | string | no | Target window (auto-focused) |
 
-The instruction is grounded to screen coordinates by the vision backend (UI-TARS via OpenRouter by default) using iterative narrowing — 3 passes (full frame → 300px crop → 150px crop) for precision on small targets. Pass `task_id` to target the task's per-task virtual display.
+The instruction is grounded to screen coordinates by the configured backend (`ACU_GUI_AGENT_BACKEND`, default: `direct` — agent must provide coordinates in the instruction). Pass `task_id` to target the task's display.
 
 **Never pass raw coordinates to `gui_do`.** Use `desktop_action` with explicit `x`/`y` for pixel-exact control.
 
@@ -195,3 +195,41 @@ Check daemon, vision backend, and system health.
 ### `memory_search`, `memory_read`, `memory_append`
 
 Workspace memory files (MEMORY.md and memory/*.md).
+
+---
+
+## Live UI
+
+### `live_ui`
+
+Delegate a multi-step UI workflow to a live vision model. The model sees the screen in real-time and performs GUI actions autonomously until the task is done or it escalates.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `instruction` | string | yes | What to accomplish (NL, multi-step OK) |
+| `task_id` | string | no | Link session to a task |
+| `timeout` | int | no | Max seconds (default: 60, max: 300) |
+| `context` | string | no | Additional context for the model |
+
+Returns `success`, `summary`, `actions_taken`, `session_id`. The session is recorded to disk (frames + events + audio) and viewable in the dashboard via the "Live" button or replay viewer.
+
+**Active provider** (`ACU_LIVE_UI_PROVIDER`, default: `gemini`):
+- `gemini` — Gemini Live API, real-time streaming, model: `gemini-2.0-flash-live-001`
+- `openrouter` — request-response VLM via OpenRouter (near-realtime)
+- `qwen` — Qwen3-Omni Realtime via WebSocket
+
+---
+
+## MAVI
+
+### `mavi_understand`
+
+Record a short screen clip, upload to Memories.AI, and ask a question about it.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | yes | Question about what's on screen |
+| `duration_seconds` | int | no | Recording length (default: 10) |
+| `task_id` | string | no | Link to a task |
+
+Returns `answer`. Requires `MAVI_API_KEY`.

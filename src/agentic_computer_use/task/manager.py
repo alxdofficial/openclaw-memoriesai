@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, timezone
 
 from .. import db, debug, config
+from ..display.manager import release_display
 
 log = logging.getLogger(__name__)
 

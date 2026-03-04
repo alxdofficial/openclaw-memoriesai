@@ -12,6 +12,8 @@
   --yellow:    #d29922;
   --gray:      #484f58;
   --purple:    #bc8cff;
+  --accent:    #58a6ff;
+  --bg-panel:  #161b22;
   --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
 }
 
@@ -1023,8 +1025,8 @@ html, body {
 .lsv-event:hover    { background: var(--bg-hover); }
 .lsv-event-selected { background: rgba(56,189,193,0.08); outline: 1px solid rgba(56,189,193,0.2); }
 .lsv-event-active   { background: rgba(255,200,50,0.13); outline: 1px solid rgba(255,200,50,0.4); }
-.lsv-audio-row      { display:flex; align-items:center; gap:10px; padding:8px 12px; border-top:1px solid var(--border); background:var(--bg-secondary); }
-.lsv-audio-label    { font-size:11px; color:var(--text-muted); white-space:nowrap; }
+.lsv-audio-row      { display:flex; align-items:center; gap:10px; padding:8px 12px; border-top:1px solid var(--border); background:var(--bg-alt); }
+.lsv-audio-label    { font-size:11px; color:var(--text-dim); white-space:nowrap; }
 .lsv-audio          { flex:1; height:32px; min-width:0; }
 
 .lsv-sender {

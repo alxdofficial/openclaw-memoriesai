@@ -6,6 +6,7 @@ const LiveSessionViewer = (() => {
   let _frameTimestamps = [];   // [{n, ts}] sorted by n
   let _feedEventEls = [];      // [{ts, el}] sorted by ts — for frame→event sync
   let _sessionStartedAt = null; // ts of instruction event — for audio-frame sync
+  let _scrubbing = false;       // true while user is dragging the scrubber
 
   // ── Color mapping for event types ────────────────────────────
   const _TYPE_STYLE = {
@@ -50,6 +51,7 @@ const LiveSessionViewer = (() => {
   }
 
   function _close() {
+    _scrubbing = false;
     if (_modal) {
       if (_modal._es) { _modal._es.close(); _modal._es = null; }
       if (_modal._audioReader) { _modal._audioReader.cancel(); _modal._audioReader = null; }
@@ -98,7 +100,7 @@ const LiveSessionViewer = (() => {
       <div class="lsv-modal">
         <div class="lsv-header">
           <div class="lsv-header-left">
-            <span class="lsv-title">live_ui session</span>
+            <span class="lsv-title">live_ui</span>
             <span class="lsv-session-id">${_esc(session_id.slice(0, 12))}</span>
           </div>
           <button class="lsv-close">&times;</button>
@@ -154,6 +156,8 @@ const LiveSessionViewer = (() => {
       const prevBtn = _modal.querySelector("#lsv-prev");
       const nextBtn = _modal.querySelector("#lsv-next");
       if (scrubber) {
+        scrubber.addEventListener("pointerdown", () => { _scrubbing = true; });
+        scrubber.addEventListener("pointerup",   () => { _scrubbing = false; });
         scrubber.addEventListener("input", () => _setFrame(parseInt(scrubber.value)));
       }
       if (prevBtn) prevBtn.addEventListener("click", () => _stepFrame(-1, frame_count));
@@ -162,10 +166,11 @@ const LiveSessionViewer = (() => {
 
     document.body.appendChild(_modal);
 
-    // Audio timeupdate → frame sync
+    // Audio timeupdate → frame sync (suppressed while user is scrubbing)
     const audioEl = _modal.querySelector(".lsv-audio");
     if (audioEl && _sessionStartedAt && _frameTimestamps.length > 0) {
       audioEl.addEventListener("timeupdate", () => {
+        if (_scrubbing) return;
         const targetTs = _sessionStartedAt + audioEl.currentTime;
         const n = _nearestFrame(targetTs, _frameTimestamps);
         if (n >= 0) _setFrame(n, { skipEventSync: false, skipAudioSync: true });
@@ -221,14 +226,25 @@ const LiveSessionViewer = (() => {
     return html;
   }
 
+  function _fmtCoord(args) {
+    // Support both legacy pixel coords and current percentage coords
+    if (args.x_pct != null) {
+      return `(${(args.x_pct * 100).toFixed(1)}%, ${(args.y_pct * 100).toFixed(1)}%)`;
+    }
+    return `(${args.x ?? "?"}, ${args.y ?? "?"})`;
+  }
+
   function _fmtArgs(name, args) {
-    if (name === "move_mouse") return `(${args.x ?? "?"}, ${args.y ?? "?"})`;
+    if (name === "move_mouse") return _fmtCoord(args);
     if (name === "click" || name === "double_click") {
-      return `(${args.x ?? "?"}, ${args.y ?? "?"})${args.button && args.button !== "left" ? ` ${args.button}` : ""}`;
+      const btn = args.button && args.button !== "left" ? ` ${args.button}` : "";
+      return `${_fmtCoord(args)}${btn}`;
     }
     if (name === "type_text") return `"${(args.text || "").slice(0, 60)}"`;
     if (name === "key_press") return args.key || "";
-    if (name === "scroll") return `(${args.x}, ${args.y}) ${args.direction} ×${args.amount || 3}`;
+    if (name === "scroll") {
+      return `${_fmtCoord(args)} ${args.direction} ×${args.amount || 3}`;
+    }
     return JSON.stringify(args).slice(0, 80);
   }
 
@@ -251,7 +267,10 @@ const LiveSessionViewer = (() => {
   function _renderFrameViewer(sessionId, frameCount) {
     return `
       <div class="lsv-frame-box">
-        <img id="lsv-frame-img" src="/api/live_sessions/${_esc(sessionId)}/frames/0" alt="Frame" loading="lazy">
+        <img id="lsv-frame-img"
+             src="/api/live_sessions/${_esc(sessionId)}/frames/0"
+             data-session-id="${_esc(sessionId)}"
+             alt="Frame">
       </div>
       <div class="lsv-scrubber-row">
         <button id="lsv-prev" class="lsv-nav-btn">◀</button>
@@ -270,9 +289,8 @@ const LiveSessionViewer = (() => {
     if (!img) return;
     const total = scrubber ? parseInt(scrubber.max) + 1 : 1;
     const clamped = Math.max(0, Math.min(n, total - 1));
-    const src = img.src;
-    const newSrc = src.replace(/\/frames\/\d+$/, `/frames/${clamped}`);
-    img.src = newSrc;
+    const sid = img.dataset.sessionId;
+    img.src = `/api/live_sessions/${encodeURIComponent(sid)}/frames/${clamped}`;
     if (scrubber) scrubber.value = clamped;
     if (label) label.textContent = `${clamped + 1} / ${total}`;
 
@@ -346,8 +364,26 @@ const LiveSessionViewer = (() => {
     _modal.querySelector(".lsv-close").addEventListener("click", _close);
     _modal.addEventListener("click", e => { if (e.target === _modal) _close(); });
     document.addEventListener("keydown", _escHandler);
-    _startSSE(sessionId);
-    _startLiveAudio(sessionId);
+
+    // Jump to live edge: start SSE/audio from current file sizes (not from beginning)
+    let eventsFrom = 0, audioFrom = 0;
+    try {
+      const r = await fetch(`/api/live_sessions/${encodeURIComponent(sessionId)}`);
+      if (r.ok) {
+        const data = await r.json();
+        // Use events_size and audio_size if provided by server
+        eventsFrom = data.events_size || 0;
+        audioFrom = data.audio_size || 0;
+        // Show the latest frame immediately
+        const frameImg = _modal.querySelector("#lsv-live-frame");
+        if (frameImg && data.frame_count > 0) {
+          frameImg.src = `/api/live_sessions/${encodeURIComponent(sessionId)}/frames/${data.frame_count - 1}`;
+        }
+      }
+    } catch (e) { /* proceed with offset 0 */ }
+
+    _startSSE(sessionId, eventsFrom);
+    _startLiveAudio(sessionId, audioFrom);
   }
 
   function _buildLiveModal(sessionId) {
@@ -376,16 +412,23 @@ const LiveSessionViewer = (() => {
     return el;
   }
 
-  function _startSSE(sessionId) {
-    const es = new EventSource(`/api/live_sessions/${encodeURIComponent(sessionId)}/events/stream`);
+  function _startSSE(sessionId, fromOffset) {
+    const url = `/api/live_sessions/${encodeURIComponent(sessionId)}/events/stream`
+      + (fromOffset ? `?from=${fromOffset}` : "");
+    const es = new EventSource(url);
     _modal._es = es;
+    _modal._sseLastId = fromOffset || 0;
     const feedEl = _modal.querySelector("#lsv-feed");
     const frameImg = _modal.querySelector("#lsv-live-frame");
+    let latestFrameN = -1;
 
     es.onmessage = e => {
+      // Track byte offset from SSE id field for reconnect
+      if (e.lastEventId) _modal._sseLastId = parseInt(e.lastEventId) || 0;
       try {
         const ev = JSON.parse(e.data);
         if (ev.type === "frame") {
+          latestFrameN = ev.n;
           if (frameImg) frameImg.src = `/api/live_sessions/${encodeURIComponent(sessionId)}/frames/${ev.n}`;
         } else if (ev.type !== "instruction") {
           const html = _renderFeed([ev], []);
@@ -397,13 +440,24 @@ const LiveSessionViewer = (() => {
       } catch (e2) { /* ignore */ }
     };
     es.addEventListener("done", () => { es.close(); });
-    es.onerror = () => { es.close(); };
+    es.onerror = () => {
+      es.close();
+      // Reconnect after 2s from last known offset (not from beginning)
+      if (_modal && _modal._es === es) {
+        const resumeFrom = _modal._sseLastId || 0;
+        setTimeout(() => {
+          if (_modal) _startSSE(sessionId, resumeFrom);
+        }, 2000);
+      }
+    };
   }
 
-  async function _startLiveAudio(sessionId) {
+  async function _startLiveAudio(sessionId, audioFrom) {
     let resp;
     try {
-      resp = await fetch(`/api/live_sessions/${encodeURIComponent(sessionId)}/audio/stream`);
+      const url = `/api/live_sessions/${encodeURIComponent(sessionId)}/audio/stream`
+        + (audioFrom ? `?from=${audioFrom}` : "");
+      resp = await fetch(url);
     } catch (e) { return; }
     if (!resp.ok || !resp.body) return;
 
@@ -412,7 +466,7 @@ const LiveSessionViewer = (() => {
     _modal._audioCtx = ctx;
     _modal._audioReader = reader;
 
-    let nextPlayAt = ctx.currentTime + 0.1;
+    let nextPlayAt = ctx.currentTime + 0.03;
     let leftover = new Uint8Array(0);
 
     (async () => {

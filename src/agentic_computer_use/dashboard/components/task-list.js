@@ -22,7 +22,7 @@ const TaskList = (() => {
       }
     } catch (e) {}
   }
-  setInterval(_pollActiveSessions, 2000);
+  let _activeSessionsPollTimer = setInterval(_pollActiveSessions, 2000);
   _pollActiveSessions();
 
   function init(container, onSelect, onDelete, onDownload) {

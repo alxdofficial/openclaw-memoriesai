@@ -30,7 +30,7 @@ async function getActiveTaskId() {
     const res = await fetch(`${DETM_BASE}/api/tasks?status=active&limit=1`);
     if (!res.ok) { cachedTaskId = null; cacheTs = now; return null; }
     const data = await res.json();
-    cachedTaskId = data?.tasks?.[0]?.id ?? null;
+    cachedTaskId = data?.tasks?.[0]?.task_id ?? null;
     cacheTs = now;
     return cachedTaskId;
   } catch {

@@ -104,14 +104,17 @@ class LiveUISession:
             "ts": time.time(),
         })
 
-    def record_tool_response(self, name: str, call_id: str, result: str) -> None:
-        self._append({
+    def record_tool_response(self, name: str, call_id: str, result: str, duration_ms: float = None) -> None:
+        ev = {
             "type": "tool_response",
             "name": name,
             "id": call_id,
             "result": result,
             "ts": time.time(),
-        })
+        }
+        if duration_ms is not None:
+            ev["duration_ms"] = round(duration_ms, 1)
+        self._append(ev)
 
     def record_done(self, success: bool, summary: str) -> None:
         self._append({

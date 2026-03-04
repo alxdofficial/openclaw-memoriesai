@@ -2,18 +2,19 @@
 
 ## Overview
 
-**agentic-computer-use** is a Desktop Environment Task Manager (DETM) — an MCP server with a persistent HTTP daemon that provides hierarchical task tracking, smart visual waiting, GUI automation with natural language grounding, and pluggable vision backends.
+**agentic-computer-use** is a Desktop Environment Task Manager (DETM) — an MCP server with a persistent HTTP daemon that provides hierarchical task tracking, smart visual waiting, GUI automation with natural language grounding, pluggable vision backends, and real-time live UI delegation.
 
 ```
-OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
+OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent + Live UI → Desktop (:99)
 ```
 
-Five layers:
+Six layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
-2. **Smart Wait** — binary YES/NO vision polling every 1s; no diff gate, no adaptive logic
+2. **Smart Wait** — vision-based condition polling with adaptive intervals
 3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
-5. **Display Manager** — per-task virtual displays (Xvfb isolation)
+5. **Live UI** — real-time multimodal session delegation (Gemini Live, OpenRouter, Qwen)
+6. **Display** — single shared display `:99` (XFCE desktop, visible via VNC)
 
 ## System Architecture
 
@@ -141,7 +142,7 @@ Frame Grabber → JPEG encode (960px max, quality 72) → Vision Backend (YES/NO
                                                        no reconnect per call
 ```
 
-**Fixed 1s poll**: no pixel-diff gate, no adaptive intervals, no partial verdict. Every second, all overdue jobs are evaluated concurrently via `asyncio.gather()`. Xlib captures are serialized per display via `_CAPTURE_LOCKS: dict[str, asyncio.Lock]` — jobs on different Xvfb displays capture in parallel. `_resolve_job` / `_timeout_job` guard against double-resolution.
+**Adaptive poll**: base interval is 2s (configurable via `poll_interval`). Speeds up to 1s on a "partial" verdict, slows to 4s after many static frames. All overdue jobs evaluated concurrently via `asyncio.gather()`. `_resolve_job` / `_timeout_job` guard against double-resolution.
 
 ### Vision Backend (Pluggable)
 
@@ -208,16 +209,12 @@ screenshot → YOLO (detect bounding boxes)
 - Windows: list, find, resize, move, close
 - Screen: capture, record video clips
 
-### Display Manager (Per-Task Isolation)
+### Display
 
-Each task gets its own Xvfb virtual display at registration time (`display/manager.py`). This isolates tasks from each other — one task's GUI actions don't interfere with another's screen.
+All tasks share a **single display `:99`** (XFCE desktop, served via VNC). There is no per-task Xvfb isolation. `register_task()` sets `metadata["display"] = config.DISPLAY`. All tools that accept `task_id` resolve to `:99` via `_resolve_task_display()`.
 
-- `allocate_display(task_id)` — starts Xvfb on the next free display number (`:100`, `:101`, ...)
-- `release_display(task_id)` — kills Xvfb and cleans up when task reaches terminal status
 - `get_xlib_display(display_str)` — cached Xlib connections for fast frame capture
-- `cleanup_all()` — tears down all managed displays on daemon shutdown
-
-Task metadata stores `display`, `display_num`, and `display_resolution`. All tools that accept `task_id` (desktop_action, gui_do, smart_wait, etc.) automatically resolve the task's display.
+- Frame buffer loop captures JPEG at ~4 fps into `_frame_buffer[display]` for instant snapshot serving
 
 ### Stuck Detection
 
@@ -234,10 +231,10 @@ Background loop in the daemon (`stuck_detection_loop()`, 60s interval) monitors 
 Built-in web UI served by the daemon at `/dashboard`. No separate process.
 
 Components (`dashboard/components/`):
-- **task-list.js** — sidebar with status badges and progress bars; **download button** for completed/cancelled task recordings (MP4)
+- **task-list.js** — sidebar with status badges, progress bars, **Live button** (pulsing when `live_ui` is active), download button for completed recordings
 - **task-tree.js** — expandable plan items → actions → logs with screenshots, coordinates, lightbox; shows which vision model/backend was used per action
-- **screen-viewer.js** — polled JPEG live view (2 fps) + **replay mode** (scrub through recorded frames frame-by-frame) + recording controls (start/stop with elapsed timer)
-- **message-feed.js** — color-coded message feed (agent=blue, user=white, wait=yellow, system=gray/green, errors=red)
+- **screen-viewer.js** — polled JPEG live view (2 fps) + **replay mode** (scrub through recorded frames frame-by-frame)
+- **live-session-viewer.js** — modal viewer for `live_ui` sessions: replay mode (frame scrubber + audio player with bidirectional sync) and **live monitoring mode** (SSE event feed + real-time frame + PCM audio via Web Audio API)
 
 Task controls in the tree header: **Pause**, **Resume**, **Cancel** buttons that POST status changes to the daemon.
 
@@ -264,20 +261,26 @@ All environment variables use the `ACU_*` prefix:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ACU_VISION_BACKEND` | `ollama` | Vision backend: ollama, vllm, claude, openrouter, passthrough |
-| `ACU_VISION_MODEL` | `minicpm-v` | Ollama vision model name |
+| `ACU_VISION_BACKEND` | `ollama` | SmartWait vision backend: ollama, vllm, claude, openrouter, passthrough |
+| `ACU_VISION_MODEL` | `minicpm-v` | Ollama vision model for SmartWait |
 | `ACU_VLLM_URL` | `http://localhost:8000` | vLLM API endpoint |
 | `ACU_VLLM_MODEL` | `ui-tars-1.5-7b` | vLLM model name |
 | `ACU_CLAUDE_VISION_MODEL` | `claude-sonnet-4-20250514` | Claude vision model |
-| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — for both vision and GUI-TARS grounding |
-| `ACU_OPENROUTER_VISION_MODEL` | `anthropic/claude-haiku-4-5` | OpenRouter model for vision (recommend `google/gemini-2.0-flash-001`) |
+| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — for vision, GUI-TARS grounding, and live_ui |
+| `ACU_OPENROUTER_VISION_MODEL` | `google/gemini-2.0-flash-lite-001` | OpenRouter model for SmartWait vision |
 | `OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps vision model in VRAM between calls |
 | `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu, omniparser |
 | `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
 | `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
-| `ACU_DIFF_MAX_WIDTH` | `320` | Downsample width for pixel-diff computation (lower = faster, less accurate) |
+| `ACU_LIVE_UI_PROVIDER` | `gemini` | live_ui provider: gemini, openrouter, qwen |
+| `ACU_GEMINI_LIVE_MODEL` | `gemini-2.0-flash-live-001` | Gemini Live model |
+| `GEMINI_API_KEY` | (none) | Required for Gemini live_ui provider |
+| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3.1-flash-lite-preview` | OpenRouter live_ui model |
+| `ACU_QWEN_LIVE_MODEL` | `qwen3-omni-flash-realtime` | Qwen live_ui model |
+| `LIVE_UI_FRAME_INTERVAL` | `0.5` | Seconds between frames sent to live_ui provider |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
-| `DISPLAY` | `:99` | X11 display for screen capture (system shared display) |
+| `DISPLAY` | `:99` | Shared X11 display (all tasks) |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama API URL |
 | `ANTHROPIC_API_KEY` | (none) | Required for Claude vision/GUI backends |
+| `MAVI_API_KEY` | (none) | Required for mavi_understand (Memories.AI) |

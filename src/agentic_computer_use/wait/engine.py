@@ -187,13 +187,46 @@ class WaitEngine:
         return None
 
     def _parse_verdict(self, response: str) -> tuple[str, str]:
-        """Parse YES/NO verdict from model response."""
+        """Parse YES/NO verdict from model response.
+
+        Supports three formats:
+        1. Starts with YES: → resolved immediately
+        2. Contains FINAL_JSON: {...} → parse decision/summary/evidence from JSON
+        3. Multi-line with YES: on a later line → resolved with that line's detail
+        """
         text = (response or "").strip()
         if not text:
             return ("watching", "Empty response")
+
+        # 1. Direct YES at start
         if text.upper().startswith("YES"):
             detail = text[3:].lstrip(": ").strip()
             return ("resolved", detail or "Condition met")
+
+        # 2. FINAL_JSON structured output
+        import re, json as _json
+        json_match = re.search(r"FINAL_JSON:\s*(\{.*\})", text, re.DOTALL)
+        if json_match:
+            try:
+                obj = _json.loads(json_match.group(1))
+                decision = obj.get("decision", "").lower()
+                if decision == "resolved":
+                    parts = []
+                    if obj.get("summary"):
+                        parts.append(obj["summary"])
+                    if obj.get("evidence"):
+                        parts.append(", ".join(obj["evidence"]))
+                    return ("resolved", " — ".join(parts) or "Condition met")
+            except (_json.JSONDecodeError, AttributeError):
+                pass
+
+        # 3. Multi-line: scan for a YES: line after reasoning
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if stripped.upper().startswith("YES"):
+                detail = stripped[3:].lstrip(": ").strip()
+                return ("resolved", detail or "Condition met")
+
         # Everything else is NO / watching
         detail = text.lstrip("NO").lstrip(": ").strip()
         return ("watching", detail[:200] or "Condition not yet met")

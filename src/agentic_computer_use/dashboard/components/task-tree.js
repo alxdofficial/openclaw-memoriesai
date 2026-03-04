@@ -45,7 +45,7 @@ const TaskTree = (() => {
       if (act.output_data) {
         try {
           const d = typeof act.output_data === "string" ? JSON.parse(act.output_data) : act.output_data;
-          if (d.backend && d.backend !== "direct") subLabel = d.backend;
+          if (d.backend && d.backend !== "direct") subLabel += ` (${d.backend})`;
         } catch {}
       }
       return { senderLabel: `gui:${subLabel}`, senderClass: "sender-gui" };
@@ -75,7 +75,7 @@ const TaskTree = (() => {
         if (item.action_details) prevDetails[item.ordinal] = item.action_details;
       }
       for (const item of data.items || []) {
-        if (prevDetails[item.ordinal] !== undefined) {
+        if (!item.action_details && prevDetails[item.ordinal] !== undefined) {
           item.action_details = prevDetails[item.ordinal];
         }
       }
@@ -189,7 +189,7 @@ const TaskTree = (() => {
               <span class="tree-action-type ${senderClass}">${_esc(senderLabel)}</span>
               <span>${_esc(act.summary)}</span>
               <span class="tree-action-status">— ${act.status}</span>
-              ${liveSessionId ? `<button class="live-session-btn" data-session-id="${_esc(liveSessionId)}" title="View live_ui session replay">⬡ replay</button>` : ""}
+              ${liveSessionId ? `<button class="live-session-btn" data-session-id="${_esc(liveSessionId)}" title="View live_ui session">⬡ view</button>` : ""}
               <div class="tree-action-detail">
           `;
           if (act.input_data) {
@@ -225,7 +225,7 @@ const TaskTree = (() => {
           html += `</div></div>`;
         }
       } else if (isExpanded) {
-        html += `<div style="color:var(--text-dim);font-size:11px;padding:4px 0">Loading actions...</div>`;
+        html += `<div style="color:var(--text-dim);font-size:11px;padding:4px 0">${item.actions === 0 ? "No actions recorded" : "Loading actions..."}</div>`;
       }
       html += `</div></div>`;
     }
@@ -409,6 +409,21 @@ const TaskTree = (() => {
       html += `<div class="action-field"><span class="field-label">Action</span><span class="field-value">${_esc(obj.action)} — ${obj.ok ? "ok" : "failed"}</span></div>`;
     }
 
+    // Fallback: dump any keys not already rendered above
+    const _KNOWN_KEYS = new Set([
+      "screenshot", "x", "y", "provider", "confidence", "element",
+      "instruction", "criteria", "target", "state", "detail",
+      "elapsed_seconds", "timeout", "action", "ok", "backend",
+      "session_id",
+    ]);
+    const extra = Object.entries(obj).filter(([k]) => !_KNOWN_KEYS.has(k));
+    if (extra.length > 0) {
+      for (const [k, v] of extra) {
+        const val = typeof v === "object" ? JSON.stringify(v) : String(v);
+        html += `<div class="action-field"><span class="field-label">${_esc(k)}</span><span class="field-value">${_esc(val.slice(0, 300))}</span></div>`;
+      }
+    }
+
     return html;
   }
 
@@ -419,12 +434,13 @@ const TaskTree = (() => {
       <button class="lightbox-close">&times;</button>
       <div class="lightbox-content"><img src="${src}" alt="Full screenshot"></div>
     `;
-    const close = () => overlay.remove();
+    function handler(e) {
+      if (e.key === "Escape") { close(); }
+    }
+    const close = () => { overlay.remove(); document.removeEventListener("keydown", handler); };
     overlay.addEventListener("click", close);
     overlay.querySelector(".lightbox-close").addEventListener("click", (e) => { e.stopPropagation(); close(); });
-    document.addEventListener("keydown", function handler(e) {
-      if (e.key === "Escape") { close(); document.removeEventListener("keydown", handler); }
-    });
+    document.addEventListener("keydown", handler);
     document.body.appendChild(overlay);
   }
 

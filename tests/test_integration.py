@@ -74,21 +74,18 @@ def test_adaptive_poller():
     assert p2.interval > 2.0
 
 
-def test_job_context_prompt():
-    """Job context should build a valid prompt with frame history."""
+def test_job_context_and_build_prompt():
+    """JobContext tracks start time; build_prompt generates valid YES/NO prompt."""
     import time
-    from src.agentic_computer_use.wait.context import JobContext
+    from src.agentic_computer_use.wait.context import JobContext, build_prompt
 
     ctx = JobContext()
-    ctx.add_frame(b"jpeg1", b"thumb1", time.time() - 10)
-    ctx.add_frame(b"jpeg2", b"thumb2", time.time())
-    ctx.add_verdict("watching", "Nothing yet", time.time() - 5)
+    assert ctx.started_at <= time.time()
 
-    prompt, images = ctx.build_prompt("A cat appears on screen")
+    prompt = build_prompt("A cat appears on screen", elapsed=15.0)
     assert "A cat appears on screen" in prompt
-    assert len(images) == 2  # 1 thumbnail + 1 full res
-    assert images[0] == b"thumb1"
-    assert images[1] == b"jpeg2"  # current = full res
+    assert "YES" in prompt
+    assert "NO" in prompt
 
 
 @pytest.mark.asyncio

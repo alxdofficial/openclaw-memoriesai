@@ -234,7 +234,13 @@ const ScreenViewer = (() => {
 
   function showTask(taskId) {
     _stopPoll();
-    if (_replayMode) _exitReplay();
+    if (_replayMode) {
+      // Exit replay without starting a new poll — showTask handles polling below.
+      _replayMode = false;
+      if (_replayBar) _replayBar.classList.add("hidden");
+      if (_replayBtn) _replayBtn.classList.remove("active");
+      if (_prevReplayBlobUrl) { URL.revokeObjectURL(_prevReplayBlobUrl); _prevReplayBlobUrl = null; }
+    }
     _currentTaskId = taskId;
     _setIdle();
     if (taskId && _recordBtn) _checkRecordStatus(taskId);

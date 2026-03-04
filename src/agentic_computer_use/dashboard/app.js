@@ -162,7 +162,7 @@ const App = (() => {
     // Fetch full detail immediately
     pollSelectedTask();
 
-    // Start detail polling (task tree every 2s)
+    // Start detail polling
     if (_detailPollTimer) clearInterval(_detailPollTimer);
     _detailPollTimer = setInterval(pollSelectedTask, POLL_DETAIL_MS);
   }

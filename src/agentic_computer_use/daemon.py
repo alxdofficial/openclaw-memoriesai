@@ -136,9 +136,7 @@ async def handle_wait_status(request: web.Request) -> web.Response:
                 "target": f"{job.target_type}:{job.target_id}",
                 "criteria": job.criteria,
                 "elapsed_seconds": round(elapsed),
-                "poll_interval": job.poller.interval,
-                "frames_captured": len(job.context.frames),
-                "verdicts": len(job.context.verdicts),
+                "poll_interval": job.poll_interval,
             })
         return web.json_response({"error": f"Wait job {wait_id} not found"}, status=404)
 
@@ -168,8 +166,6 @@ async def handle_wait_update(request: web.Request) -> web.Response:
         job.context.started_at = time.time()
     if args.get("message"):
         log.info(f"Wait update note for {wait_id}: {args['message']}")
-    job.diff_gate.reset()
-    job.poller = AdaptivePoller(job.poll_interval)
     job.next_check_at = 0
 
     return web.json_response({
@@ -485,11 +481,11 @@ _frame_buffer_tasks: dict[str, asyncio.Task] = {}
 
 
 async def _frame_buffer_loop(display: str) -> None:
-    from .capture.screen import capture_screen, frame_to_jpeg
+    from .capture.screen import capture_screen_with_cursor, frame_to_jpeg
     loop = asyncio.get_event_loop()
     while True:
         try:
-            frame = await loop.run_in_executor(None, capture_screen, display)
+            frame = await loop.run_in_executor(None, capture_screen_with_cursor, display)
             if frame is not None:
                 jpeg = await loop.run_in_executor(
                     None, frame_to_jpeg, frame,
@@ -612,13 +608,21 @@ async def handle_api_task_snapshot(request: web.Request) -> web.Response:
     display = await _resolve_task_display(task_id)
     # If the task's display has no buffered frames (stale isolated Xvfb, dead display, etc.)
     # fall back to the system display so the human sees something useful.
-    jpeg = _frame_buffer.get(display) or _frame_buffer.get(config.DISPLAY) or _get_no_signal_jpeg()
+    task_display = display
+    jpeg = _frame_buffer.get(display)
+    fell_back = False
+    if not jpeg:
+        jpeg = _frame_buffer.get(config.DISPLAY) or _get_no_signal_jpeg()
+        fell_back = display != config.DISPLAY
     if display not in _frame_buffer:
         _ensure_frame_buffer(display)  # start it for next time if it's a live display
+    headers = {"Cache-Control": "no-cache, no-store"}
+    if fell_back:
+        headers["X-Display-Fallback"] = "true"
     return web.Response(
         body=jpeg,
         content_type="image/jpeg",
-        headers={"Cache-Control": "no-cache, no-store"},
+        headers=headers,
     )
 
 
@@ -860,7 +864,12 @@ async def handle_desktop_action(request: web.Request) -> web.Response:
             summary = f"drag ({args.get('x')},{args.get('y')}) → ({args.get('x2')},{args.get('y2')})"
         else:
             summary = action
-        asyncio.ensure_future(task_mgr.log_action(task_id, "gui", summary))
+        import json as _json
+        asyncio.ensure_future(task_mgr.log_action(
+            task_id, "gui", summary,
+            input_data=_json.dumps({k: v for k, v in args.items() if k != "task_id"}),
+            output_data=_json.dumps(result),
+        ))
     return web.json_response(result)
 
 
@@ -961,7 +970,8 @@ async def handle_live_ui(request: web.Request) -> web.Response:
             session=session,
         )
     finally:
-        _active_live_sessions.pop(task_id, None)
+        if task_id:
+            _active_live_sessions.pop(task_id, None)
 
     result["session_id"] = session_id
 
@@ -979,7 +989,7 @@ async def handle_live_ui(request: web.Request) -> web.Response:
             task_id, "gui",
             f"live_ui ({actions} actions): {instruction[:100]}",
             input_data=input_data,
-            output_data=summary[:500],
+            output_data=_json.dumps(result),
             status=status,
         ))
 
@@ -995,6 +1005,13 @@ async def handle_api_live_session(request: web.Request) -> web.Response:
     data = load_session(session_id)
     if data is None:
         return web.json_response({"error": "session not found"}, status=404)
+    # Include file sizes so openLive() can jump to live edge
+    from .live.session import LIVE_SESSIONS_DIR
+    session_dir = LIVE_SESSIONS_DIR / session_id
+    events_path = session_dir / "events.jsonl"
+    pcm_path = session_dir / "audio.pcm"
+    data["events_size"] = events_path.stat().st_size if events_path.exists() else 0
+    data["audio_size"] = pcm_path.stat().st_size if pcm_path.exists() else 0
     return web.json_response(data)
 
 
@@ -1044,7 +1061,8 @@ async def handle_api_live_session_events_stream(request: web.Request) -> web.Str
         "X-Accel-Buffering": "no",
     })
     await response.prepare(request)
-    byte_offset = 0
+    # Support ?from=<byte_offset> so clients can resume after reconnect
+    byte_offset = int(request.query.get("from", 0))
     try:
         while True:
             if events_path.exists():
@@ -1057,7 +1075,8 @@ async def handle_api_live_session_events_stream(request: web.Request) -> web.Str
                         line = line.strip()
                         if not line:
                             continue
-                        await response.write(f"data: {line}\n\n".encode())
+                        # Include byte offset so client can resume on reconnect
+                        await response.write(f"id: {byte_offset}\ndata: {line}\n\n".encode())
                         try:
                             ev = json.loads(line)
                             if ev.get("type") in ("done", "error", "escalate"):
@@ -1065,6 +1084,11 @@ async def handle_api_live_session_events_stream(request: web.Request) -> web.Str
                                 return response
                         except Exception:
                             pass
+            # Terminate if session is no longer active and no terminal event was found
+            active = any(sid == session_id for sid in _active_live_sessions.values())
+            if not active and events_path.exists():
+                # Session ended without terminal event (crash) — stop streaming
+                break
             await asyncio.sleep(0.2)
     except (ConnectionResetError, asyncio.CancelledError):
         pass
@@ -1081,18 +1105,21 @@ async def handle_api_live_session_audio_stream(request: web.Request) -> web.Stre
         "Cache-Control": "no-cache",
     })
     await response.prepare(request)
-    offset = 0
+    # Support ?from=<byte_offset> so clients can resume mid-session
+    offset = int(request.query.get("from", 0))
     try:
         while True:
             if pcm_path.exists():
-                data = pcm_path.read_bytes()
-                if len(data) > offset:
-                    await response.write(data[offset:])
-                    offset = len(data)
+                with open(pcm_path, "rb") as f:
+                    f.seek(offset)
+                    new_data = f.read()
+                if new_data:
+                    await response.write(new_data)
+                    offset += len(new_data)
             active = any(sid == session_id for sid in _active_live_sessions.values())
             if not active and (not pcm_path.exists() or pcm_path.stat().st_size <= offset):
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
     except (ConnectionResetError, asyncio.CancelledError):
         pass
     return response
@@ -1113,13 +1140,6 @@ async def handle_gui_do(request: web.Request) -> web.Response:
         window_name=args.get("window_name"),
         display=display,
     )
-    if task_id:
-        status = "completed" if result.get("ok") else "failed"
-        asyncio.ensure_future(task_mgr.log_action(
-            task_id, "gui",
-            f"gui_do: {args['instruction']}",
-            status=status,
-        ))
     return web.json_response(result)
 
 

@@ -106,3 +106,16 @@ def execute_action(name: str, args: dict, display: str) -> str:
 
     log.warning(f"Unknown live action: {name}")
     return f"error: unknown action {name}"
+
+
+def execute_action_logged(name: str, args: dict, display: str) -> str:
+    """Execute a GUI action with success/failure logging and timing."""
+    t0 = time.monotonic()
+    result = execute_action(name, args, display)
+    elapsed_ms = (time.monotonic() - t0) * 1000
+    if result == "ok":
+        coords = f" at ({args.get('x')},{args.get('y')})" if "x" in args else ""
+        log.info(f"Action {name}{coords} — ok ({elapsed_ms:.0f}ms)")
+    else:
+        log.warning(f"Action {name} — {result} ({elapsed_ms:.0f}ms)")
+    return result

@@ -36,6 +36,7 @@ COLORS = {
     "HTTP":     "\033[38;5;208m", # Orange (256-color)
     "USER":     "\033[37m",      # White
     "TASK":     "\033[36m",      # Cyan
+    "LIVE":     "\033[38;5;213m", # Pink (256-color)
 }
 
 # Emoji prefixes for file logs (no ANSI)
@@ -48,6 +49,7 @@ EMOJI = {
     "HTTP":     "🟧",
     "USER":     "⬜",
     "TASK":     "🩵",
+    "LIVE":     "🟣",
 }
 
 _debug_enabled = False
@@ -139,14 +141,6 @@ def log_vision_response(response: str, duration_ms: float, job_id: str = None):
 def log_wait_event(job_id: str, event: str, detail: str = ""):
     """Log a wait engine event."""
     log("WAIT", f"[{job_id}] {event}" + (f" — {detail}" if detail else ""))
-
-
-def log_diff_gate(job_id: str, changed: bool, diff_pct: float = None):
-    """Log pixel-diff gate decision."""
-    if changed:
-        log("WAIT", f"[{job_id}] Diff gate: CHANGED ({diff_pct:.2%} pixels differ) → evaluating")
-    else:
-        log("WAIT", f"[{job_id}] Diff gate: STATIC → skipping vision")
 
 
 def log_openclaw_event(event_type: str, message: str, success: bool = True):

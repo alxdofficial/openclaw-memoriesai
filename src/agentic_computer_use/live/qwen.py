@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import logging
+import time
 
 import aiohttp
 
@@ -231,8 +232,11 @@ class QwenOmniProvider(LiveUIProvider):
                                 return {"error": "WS closed waiting for session.updated"}
 
                         # ── 2. Main loop: capture → send → act ──────────
+                        MAX_TURNS = 40
+                        MAX_EMPTY_TURNS = 5
+                        empty_turns = 0
                         first_turn = True
-                        while True:
+                        for _turn_n in range(MAX_TURNS):
                             # Capture current screen state
                             frame_b64 = _capture_frame(display, session)
 
@@ -333,8 +337,18 @@ class QwenOmniProvider(LiveUIProvider):
                             # ── Execute completed function calls ─────────
                             if not completed_calls:
                                 # No tool calls — model responded with text only, re-prompt
-                                log.info("No tool calls in response — re-prompting")
+                                empty_turns += 1
+                                log.info(f"No tool calls in response ({empty_turns}/{MAX_EMPTY_TURNS}) — re-prompting")
+                                if empty_turns >= MAX_EMPTY_TURNS:
+                                    if session:
+                                        session.record_error(f"No tool calls after {MAX_EMPTY_TURNS} consecutive turns")
+                                    return {
+                                        "success": False,
+                                        "summary": f"Model failed to produce tool calls after {MAX_EMPTY_TURNS} attempts",
+                                        "actions_taken": actions_taken,
+                                    }
                                 continue
+                            empty_turns = 0  # reset on successful tool call
 
                             fn_outputs = []
                             for call in completed_calls:
@@ -372,9 +386,13 @@ class QwenOmniProvider(LiveUIProvider):
                                     fn_outputs.append((call_id, "acknowledged"))
 
                                 else:
+                                    _t0 = time.monotonic()
                                     result = execute_action(name, args, display)
+                                    _elapsed = (time.monotonic() - _t0) * 1000
+                                    if result == "ok":
+                                        log.info(f"Action {name} — ok ({_elapsed:.0f}ms)")
                                     if session:
-                                        session.record_tool_response(name, call_id, result)
+                                        session.record_tool_response(name, call_id, result, duration_ms=_elapsed)
                                     fn_outputs.append((call_id, result))
                                     actions_taken += 1
 
