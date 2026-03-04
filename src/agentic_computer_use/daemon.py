@@ -991,16 +991,17 @@ async def handle_api_live_session_frame(request: web.Request) -> web.Response:
 
 
 async def handle_api_live_session_audio(request: web.Request) -> web.Response:
-    """GET /api/live_sessions/{session_id}/audio — return WAV audio if available."""
+    """GET /api/live_sessions/{session_id}/audio — return current audio as WAV (live or complete)."""
     session_id = request.match_info["session_id"]
-    from .live.session import LIVE_SESSIONS_DIR
-    wav_path = LIVE_SESSIONS_DIR / session_id / "audio.wav"
-    if not wav_path.exists():
+    from .live.session import get_audio_wav
+    wav_bytes = get_audio_wav(session_id)
+    if wav_bytes is None:
         return web.Response(status=404, text="No audio for this session")
     return web.Response(
-        body=wav_path.read_bytes(),
+        body=wav_bytes,
         content_type="audio/wav",
-        headers={"Cache-Control": "public, max-age=86400"},
+        # No cache — content grows during active sessions
+        headers={"Cache-Control": "no-cache"},
     )
 
 

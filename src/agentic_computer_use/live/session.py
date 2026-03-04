@@ -1,9 +1,8 @@
 """Live UI session recorder — writes events + frames to disk for dashboard replay."""
-import io
 import json
 import logging
+import struct
 import time
-import wave
 from pathlib import Path
 
 from .. import config
@@ -12,25 +11,40 @@ log = logging.getLogger(__name__)
 
 LIVE_SESSIONS_DIR = config.DATA_DIR / "live_sessions"
 
+# Gemini Live sends PCM: 16-bit signed, mono, 24 kHz
+AUDIO_SAMPLE_RATE = 24000
+AUDIO_SAMPLE_WIDTH = 2   # bytes (16-bit)
+AUDIO_CHANNELS = 1
+
 
 def _ensure_dir():
     LIVE_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def pcm_to_wav(pcm_data: bytes) -> bytes:
+    """Wrap raw PCM bytes in a WAV header. Works on partial/growing data."""
+    data_size = len(pcm_data)
+    header = struct.pack(
+        "<4sI4s4sIHHIIHH4sI",
+        b"RIFF", data_size + 36, b"WAVE",
+        b"fmt ", 16, 1, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+        AUDIO_SAMPLE_RATE * AUDIO_CHANNELS * AUDIO_SAMPLE_WIDTH,
+        AUDIO_CHANNELS * AUDIO_SAMPLE_WIDTH, AUDIO_SAMPLE_WIDTH * 8,
+        b"data", data_size,
+    )
+    return header + pcm_data
+
+
 class LiveUISession:
     """
-    Records a live_ui session to disk as JSONL events + JPEG frames.
+    Records a live_ui session to disk as JSONL events + JPEG frames + PCM audio.
 
     Dir layout:
         ~/.agentic-computer-use/live_sessions/<id>/
             events.jsonl    — newline-delimited JSON events, chronological
             frames/         — 00000.jpg, 00001.jpg, ...  (one per streamed frame)
+            audio.pcm       — raw PCM chunks appended in real-time (served as WAV)
     """
-
-    # Gemini Live sends PCM: 16-bit signed, mono, 24 kHz
-    _AUDIO_SAMPLE_RATE = 24000
-    _AUDIO_SAMPLE_WIDTH = 2  # bytes (16-bit)
-    _AUDIO_CHANNELS = 1
 
     def __init__(
         self,
@@ -48,12 +62,12 @@ class LiveUISession:
         self.timeout = timeout
         self.started_at = time.time()
         self._frame_count = 0
-        self._audio_chunks: list[bytes] = []
 
         self._dir = LIVE_SESSIONS_DIR / session_id
         self._dir.mkdir(parents=True, exist_ok=True)
         (self._dir / "frames").mkdir(exist_ok=True)
         self._events_path = self._dir / "events.jsonl"
+        self._pcm_path = self._dir / "audio.pcm"
 
         # Write opening instruction event
         self._append({
@@ -114,31 +128,27 @@ class LiveUISession:
         self._append({"type": "error", "message": message, "ts": time.time()})
 
     def record_audio_chunk(self, pcm_bytes: bytes) -> None:
-        """Buffer a raw PCM audio chunk from the model's audio response."""
-        if pcm_bytes:
-            self._audio_chunks.append(pcm_bytes)
+        """Append raw PCM bytes directly to audio.pcm — available for playback immediately."""
+        if not pcm_bytes:
+            return
+        try:
+            with open(self._pcm_path, "ab") as f:
+                f.write(pcm_bytes)
+        except Exception as e:
+            log.debug(f"Audio chunk write error: {e}")
 
     def finalize_audio(self) -> Path | None:
-        """Write buffered PCM chunks to audio.wav. Returns path or None if no audio."""
-        if not self._audio_chunks:
-            return None
-        wav_path = self._dir / "audio.wav"
-        try:
-            data = b"".join(self._audio_chunks)
-            with wave.open(str(wav_path), "wb") as wf:
-                wf.setnchannels(self._AUDIO_CHANNELS)
-                wf.setsampwidth(self._AUDIO_SAMPLE_WIDTH)
-                wf.setframerate(self._AUDIO_SAMPLE_RATE)
-                wf.writeframes(data)
-            log.info(f"Audio saved: {wav_path} ({len(data)} bytes, {len(data)/self._AUDIO_SAMPLE_RATE/self._AUDIO_SAMPLE_WIDTH:.1f}s)")
-            return wav_path
-        except Exception as e:
-            log.warning(f"Audio WAV write failed: {e}")
-            return None
+        """Return pcm path if audio was recorded. PCM is already on disk — nothing to flush."""
+        if self._pcm_path.exists() and self._pcm_path.stat().st_size > 0:
+            size = self._pcm_path.stat().st_size
+            duration = size / (AUDIO_SAMPLE_RATE * AUDIO_SAMPLE_WIDTH)
+            log.info(f"Audio recorded: {size} bytes ({duration:.1f}s)")
+            return self._pcm_path
+        return None
 
-    def transcribe_audio(self, wav_path: Path, model_name: str = "tiny") -> None:
+    def transcribe_audio(self, pcm_path: Path, model_name: str = "tiny") -> None:
         """
-        Run Whisper on wav_path and append model_text events with timestamps.
+        Run Whisper on the PCM file and append model_text events with timestamps.
         Uses the 'tiny' model by default — fast enough for post-session transcription.
         """
         try:
@@ -148,17 +158,18 @@ class LiveUISession:
             return
         try:
             log.info(f"Transcribing audio with Whisper ({model_name})…")
+            # Whisper needs a WAV file
+            wav_path = pcm_path.with_suffix(".wav")
+            wav_path.write_bytes(pcm_to_wav(pcm_path.read_bytes()))
             model = whisper.load_model(model_name)
             result = model.transcribe(str(wav_path), language="en", fp16=False)
-            session_start = self.started_at
             for seg in result.get("segments", []):
                 text = seg.get("text", "").strip()
                 if not text:
                     continue
-                # Offset segment timestamps by session start time
-                ts = session_start + float(seg.get("start", 0))
+                ts = self.started_at + float(seg.get("start", 0))
                 self._append({"type": "model_text", "text": text, "ts": ts})
-            log.info(f"Whisper transcription complete: {len(result.get('segments', []))} segments")
+            log.info(f"Whisper transcription: {len(result.get('segments', []))} segments")
         except Exception as e:
             log.warning(f"Whisper transcription failed: {e}")
 
@@ -204,7 +215,8 @@ def load_session(session_id: str) -> dict | None:
                 pass
 
     frame_count = sum(1 for ev in events if ev.get("type") == "frame")
-    has_audio = (session_dir / "audio.wav").exists()
+    pcm_path = session_dir / "audio.pcm"
+    has_audio = pcm_path.exists() and pcm_path.stat().st_size > 0
 
     return {
         "session_id": session_id,
@@ -223,3 +235,11 @@ def get_frame(session_id: str, n: int) -> bytes | None:
     if path.exists():
         return path.read_bytes()
     return None
+
+
+def get_audio_wav(session_id: str) -> bytes | None:
+    """Return current audio as WAV bytes (wraps live-growing PCM), or None."""
+    pcm_path = LIVE_SESSIONS_DIR / session_id / "audio.pcm"
+    if not pcm_path.exists() or pcm_path.stat().st_size == 0:
+        return None
+    return pcm_to_wav(pcm_path.read_bytes())
