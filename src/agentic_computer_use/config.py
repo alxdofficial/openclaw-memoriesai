@@ -57,7 +57,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")       # Google AI Dev key 
 GEMINI_LIVE_MODEL = os.environ.get("ACU_GEMINI_LIVE_MODEL", "gemini-2.0-flash-live-001")
 GEMINI_PROJECT = os.environ.get("ACU_GEMINI_PROJECT", "")   # GCP project (used if no API key)
 GEMINI_LOCATION = os.environ.get("ACU_GEMINI_LOCATION", "us-central1")
-LIVE_UI_FRAME_INTERVAL = float(os.environ.get("ACU_LIVE_UI_FRAME_INTERVAL", "2.0"))
+LIVE_UI_FRAME_INTERVAL = float(os.environ.get("ACU_LIVE_UI_FRAME_INTERVAL", "0.5"))
 
 # Qwen Omni Realtime (OpenAI Realtime-compatible protocol)
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
