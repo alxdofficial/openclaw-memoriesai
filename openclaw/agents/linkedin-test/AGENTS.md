@@ -17,24 +17,17 @@
 
 ## Tool Preferences (in order)
 
-1. **`live_ui`** — preferred for multi-step flows: logging in, navigating profiles, filling forms, scrolling through feeds, multi-click sequences. Give it a clear instruction and let it handle the full workflow.
+1. **`gui_agent`** — preferred for all GUI interactions: logging in, navigating profiles, filling forms, scrolling through feeds, clicking buttons, typing text, multi-step sequences. Give it a clear instruction and let it handle the workflow. It uses Gemini Flash for reasoning and UI-TARS for precise cursor placement.
 
-2. **`gui_do`** — use for single targeted actions when you need precise NL-grounded clicks or typing (e.g., "click the Search button", "type 'machine learning' in the search box"). Uses UITaRS vision grounding.
+2. **`desktop_look`** — use for observation only. Take a screenshot, interpret what you see, narrate it via `task_update`, then decide your next action.
 
-3. **`desktop_look`** — use for observation only. Take a screenshot, interpret what you see, narrate it via `task_update`, then decide your next action.
+3. **`desktop_action`** — use for raw keyboard shortcuts (e.g., Ctrl+T for new tab, Page Down to scroll) or when you already have exact coordinates from `desktop_look`.
 
-4. **`desktop_action`** — use for raw keyboard shortcuts (e.g., Ctrl+T for new tab, Page Down to scroll) or when you already have exact coordinates from `desktop_look`.
+4. **`smart_wait`** — use when waiting for page loads, spinners to disappear, or content to render. Target `window:<browser_name>` not `screen`.
 
-5. **`smart_wait`** — use when waiting for page loads, spinners to disappear, or content to render. Target `window:<browser_name>` not `screen`.
+## Adapt to what's installed
 
-## Opening a Browser
-
-Use `desktop_action` to launch Firefox on the shared display:
-```
-desktop_action(action="key", text="ctrl+t")        # new tab if Firefox is already open
-desktop_action(action="shell", text="firefox https://www.linkedin.com &")  # or launch directly
-```
-Then use `smart_wait(condition="Firefox window is visible and loaded", target="window:Firefox")` before interacting.
+Never assume specific apps exist. Don't say "Open Firefox" — say "Open a web browser." Use `desktop_look` first if unsure what's on screen, or write generic instructions and let `gui_agent` figure it out.
 
 ## LinkedIn-Specific Tips
 
@@ -43,6 +36,7 @@ Then use `smart_wait(condition="Firefox window is visible and loaded", target="w
 - Profile pages, search results, and feed all have different layouts — take a `desktop_look` after each navigation to orient yourself.
 - If you get a CAPTCHA or rate-limit wall, escalate immediately via `task_update(status="blocked", message="...")` — do not retry blindly.
 - Scroll with Page Down via `desktop_action` rather than trying to click scroll bars.
+- If a button (Send, Connect, Message) is at the bottom edge of the screen, use `key_press("Return")` or scroll the page first — clicking near the taskbar will miss.
 
 ## Task Workflow
 
@@ -51,11 +45,9 @@ Then use `smart_wait(condition="Firefox window is visible and loaded", target="w
 2. task_item_update(ordinal=0, status="active")
 3. For each plan item:
    a. task_log_action(action_type="...", summary="About to do X", status="started")
-   b. Execute tool (live_ui / gui_do / desktop_look / desktop_action)
-   c. desktop_look to VERIFY the action succeeded
-   d. task_update(message="I see X, next I will do Y")
-   e. Only if verified: task_item_update(ordinal=N, status="completed")
-   f. If step failed: do NOT advance. Fix it or use task_plan_append to add corrective steps.
+   b. Execute tool (gui_agent / desktop_look / desktop_action)
+   c. task_update(message="I see X, next I will do Y")
+   d. task_item_update(ordinal=N, status="completed")
 4. task_update(status="completed", message="Done: <summary>")
 ```
 

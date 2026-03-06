@@ -16,21 +16,27 @@ any reliable way.
 
 - **Never** use `web_search` or `WebFetch` to look up LinkedIn profiles — results are
   incomplete, outdated, or simply the public preview which lacks the data you need.
-- **Always** navigate LinkedIn visually via `live_ui` or `gui_do` + `desktop_look`.
-- Use `live_ui` for multi-step flows: profile search → navigate → read → return to search.
-- Use `gui_do` + `desktop_look` when you need to reason about what you see before the
-  next click (e.g. deciding whether a profile matches your criteria).
+- **Always** navigate LinkedIn visually via `gui_agent` + `desktop_look`.
+- Use `gui_agent` for multi-step flows: profile search, navigate, scroll, fill forms, send messages.
+- Use `desktop_look` when you need to reason about what you see before deciding the next action
+  (e.g. deciding whether a profile matches your criteria).
 
-### When to use live_ui vs gui_do on LinkedIn
+### When to use gui_agent vs desktop_look on LinkedIn
 
 | Situation | Use |
 |---|---|
-| Navigate to a profile URL and read it | `live_ui` (predictable, one goal) |
-| Search for a name and pick the right result | `gui_do` + `desktop_look` (need LLM to disambiguate) |
-| Scroll a long profile to read experience section | `live_ui` |
-| Fill in and send a connection request message | `live_ui` with full message in `context` |
+| Navigate to a profile URL and read it | `gui_agent` (predictable, one goal) |
+| Search for a name and pick the right result | `gui_agent` + `desktop_look` (need LLM to disambiguate) |
+| Scroll a long profile to read experience section | `gui_agent` |
+| Fill in and send a connection request message | `gui_agent` with full message in `context` |
 | Decide whether a person is a good fit | `desktop_look` → reason → decide |
-| Navigate through paginated search results | `live_ui` |
+| Navigate through paginated search results | `gui_agent` |
+
+## Adapt to what's installed
+
+Never assume specific apps exist. Don't say "Open Firefox" — say "Open a web browser."
+Use `desktop_look` first if unsure what's on screen, or write generic instructions
+and let `gui_agent` figure it out.
 
 ## Outreach rules — HARD
 

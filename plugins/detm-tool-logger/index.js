@@ -12,12 +12,12 @@ const CACHE_TTL_MS = 3000;
 
 // DETM-internal tools — already logged by the daemon, or not user-visible
 const SKIP_TOOLS = new Set([
-  "desktop_look", "desktop_action", "gui_do", "gui_find",
+  "desktop_look", "desktop_action", "gui_agent",
   "task_register", "task_update", "task_log_action", "task_plan_append",
   "task_item_update", "task_summary", "task_drill_down", "task_thread",
   "task_list", "smart_wait", "wait_status", "wait_update", "wait_cancel",
   "memory_search", "memory_read", "memory_append",
-  "video_record", "mavi_understand", "live_ui", "gui_agent",
+  "video_record", "mavi_understand",
 ]);
 
 let cachedTaskId = null;

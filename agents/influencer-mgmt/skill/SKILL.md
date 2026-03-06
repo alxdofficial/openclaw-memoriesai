@@ -19,7 +19,7 @@ accessible via a logged-in browser session.
 
 - **Never** use `web_search` or `WebFetch` to research TikTok content — results will
   be stale, incomplete, or hallucinated.
-- **Always** open TikTok visually via `live_ui` or `gui_do` + `desktop_look`.
+- **Always** open TikTok visually via `gui_agent` + `desktop_look`.
 - For video content (sounds, formats, captions on moving video), use `mavi_understand`.
 - For static UI (search result thumbnails, view counts, hashtag suggestions), use `desktop_look`.
 
@@ -34,7 +34,13 @@ Never invent numbers — if the data is not on screen, say so.
 
 ### TikTok Creative Center → DETM (publicly accessible but dynamic)
 https://ads.tiktok.com/business/creativecenter/ is publicly accessible but
-heavily JavaScript-rendered. Use `live_ui` to navigate and `desktop_look` to read.
+heavily JavaScript-rendered. Use `gui_agent` to navigate and `desktop_look` to read.
+
+## Adapt to what's installed
+
+Never assume specific apps exist. Don't say "Open Firefox" — say "Open a web browser."
+Use `desktop_look` first if unsure what's on screen, or write generic instructions
+and let `gui_agent` figure it out.
 
 ## Choosing the right vision tool for TikTok
 
@@ -43,9 +49,9 @@ heavily JavaScript-rendered. Use `live_ui` to navigate and `desktop_look` to rea
 | Which videos appear in search results | `desktop_look` after navigating |
 | Approximate view counts on thumbnails | `desktop_look` |
 | Hashtags shown on a static results page | `desktop_look` |
-| What sound is playing in a video | `mavi_understand` (10–15s) |
-| Video format: process, talking head, ASMR | `mavi_understand` (8–12s) |
-| Text overlays / captions in an animation | `mavi_understand` (8–12s) |
+| What sound is playing in a video | `mavi_understand` (10-15s) |
+| Video format: process, talking head, ASMR | `mavi_understand` (8-12s) |
+| Text overlays / captions in an animation | `mavi_understand` (8-12s) |
 | Trending sounds listed in Creative Center | `desktop_look` after navigating |
 
 Use `mavi_understand` only when the video is actively playing and motion or audio
@@ -58,4 +64,4 @@ is the key information. For everything else, `desktop_look` is faster.
   do not supplement with your training data.
 - When you hit a login wall, CAPTCHA, or 2FA on any platform: escalate via `task_update`,
   tell the user what you see, and poll `task_update(query="status")` every 20 seconds
-  until they confirm the issue is resolved.
+  until they confirm it is resolved.

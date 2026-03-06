@@ -38,47 +38,63 @@ _SETTLE = {
 }
 
 _SYSTEM_PROMPT = """\
-You control a Linux desktop. You see screenshots and call tools to interact.
+You control a Linux desktop via tools. After each action you see a fresh screenshot.
 
-CRITICAL — only describe what you ACTUALLY SEE:
-- Before calling move_to, confirm the element EXISTS in the current screenshot.
-- Do NOT assume UI elements are present based on what a typical desktop looks like.
-- If the element you need is NOT visible on screen, say so in your thought and find an alternative (e.g., use the Applications menu, or key_press to open something).
-- NEVER fabricate or guess element descriptions. If you can't see a browser icon, don't say "I see a browser icon."
+## Core rule: only act on what you SEE
 
-Workflow:
-- Use move_to(target="...") to position the cursor on a UI element. A specialized vision model finds and moves to the element precisely.
-- After move_to, CHECK the screenshot: the red circle should be ON the target element.
-- If the cursor is on the target, call click(), double_click(), or type_text() to interact.
-- If the cursor missed, call move_to again with a more specific description.
-- Use type_text after clicking an input field. Use key_press for keyboard shortcuts.
-- Use scroll at the current cursor position. Move cursor to the scrollable area first if needed.
+Before calling any tool, confirm the target element EXISTS in the current screenshot.
+- Do NOT assume UI elements exist based on what a typical desktop looks like.
+- NEVER fabricate or guess element descriptions.
+- If the element you need is NOT visible, say so in your thought and find an alternative.
 
-Writing good move_to targets (IMPORTANT — vague descriptions cause misclicks):
-- ONLY describe elements you can see in the screenshot right now.
-- Include the visible text label: move_to(target="button labeled 'Message' next to Chi-Hao Wu")
-- Describe position relative to landmarks: move_to(target="the address bar at the top of the browser window")
+## How to interact
+
+1. **move_to(target="...")** — positions the cursor on a UI element. A specialized vision model finds it precisely. Describe the element by its visible text, appearance, and position.
+2. **Verify** — check the next screenshot: the red crosshair should be ON the target.
+3. **Act** — call click(), double_click(), type_text(), or key_press() once the cursor is confirmed on target.
+4. **Observe** — check the result in the next screenshot before proceeding.
+
+If the cursor missed, call move_to again with a more specific description.
+Use type_text after clicking an input field. Use key_press for keyboard shortcuts.
+Use scroll at the current cursor position — move cursor to the scrollable area first if needed.
+
+## Writing good move_to targets
+
+Vague descriptions cause misclicks. Be specific:
+- Include visible text: move_to(target="button labeled 'Message' next to Chi-Hao Wu")
+- Describe position: move_to(target="the address bar at the top of the browser window")
 - Describe appearance: move_to(target="the blue Send button in the bottom-right of the compose window")
-- For repeated elements, distinguish them: move_to(target="the first 'Message' button, in the row with Chi-Hao Wu's profile photo")
-- BAD: "the Firefox icon" (assuming it exists), "the browser icon" (when you can't see one)
+- Distinguish repeated elements: move_to(target="the first 'Message' button, in the row with Chi-Hao Wu's profile photo")
+- BAD: "the Firefox icon" (assuming it exists without seeing it)
 - GOOD: "the folder icon labeled 'Home' in the taskbar" (describing what you actually see)
 
-Screen:
-- Red crosshair = current cursor position.
-- You do NOT need to estimate coordinates. Just describe UI elements by their visual appearance and text labels.
+You do NOT need to estimate coordinates — just describe the element visually. The red crosshair shows the current cursor position.
 
-If the target app is not open and you can't find its icon:
+## Handling common problems
+
+**Element not visible or app not open:**
 - Try: key_press(key="super") to open the app launcher, then type_text the app name
 - Or: move_to(target="'Applications' menu in the top-left corner") and navigate the menu
 - Do NOT repeatedly click random icons hoping one is the right app.
 
-Completion rules:
+**Element at screen edge (partially cut off):**
+- Do NOT click elements that are cut off by the screen edge — the click will hit the taskbar or panel instead.
+- FIRST scroll the page to bring the element fully into view, THEN click it.
+- If clicking keeps switching to another window, the click is landing on the taskbar. Scroll or use keyboard shortcuts instead.
+- For message/chat Send buttons stuck at the bottom: key_press(key="Return") sends the message — no need to click Send.
+
+**Same approach failing repeatedly:**
+- If the same approach fails twice, try a different one.
+- If you can't find an element after 3 attempts, try keyboard shortcuts, the Applications menu, or a different path to the goal.
+
+## Completion
+
 - Call done(success=true) ONLY when the screenshot confirms the task is fully complete.
 - Call done(success=false) if you've tried 3+ different approaches and none work.
-- Call escalate() if you encounter: login walls, CAPTCHAs, unexpected errors, popups blocking progress, or anything outside your capability.
-- If the same approach fails twice, try a different one.
+- Call escalate() for: login walls, CAPTCHAs, unexpected errors, popups blocking progress, or anything outside your capability.
 
-Efficiency:
+## Efficiency
+
 - "thought" field: 1-3 sentences max. What you see, what you'll do next.
 - Don't repeat the same move_to description if it already worked.
 """
@@ -401,7 +417,19 @@ async def _refine_cursor(
     # Final move to ensure cursor is at the last position
     await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
 
-    return {"ok": True, "x": x, "y": y}
+    # Warn if target is near screen edge (high risk of misclick onto taskbar/panel)
+    EDGE_MARGIN = 30
+    edge_warning = ""
+    if y >= screen_h - EDGE_MARGIN:
+        edge_warning = " WARNING: target is at the bottom edge of the screen — click may hit the taskbar. Consider scrolling down first or using a keyboard shortcut."
+    elif y <= EDGE_MARGIN:
+        edge_warning = " WARNING: target is at the top edge of the screen — click may hit the panel. Consider scrolling up first."
+    elif x >= screen_w - EDGE_MARGIN:
+        edge_warning = " WARNING: target is at the right edge of the screen."
+    elif x <= EDGE_MARGIN:
+        edge_warning = " WARNING: target is at the left edge of the screen."
+
+    return {"ok": True, "x": x, "y": y, "edge_warning": edge_warning}
 
 
 # ── Main provider ───────────────────────────────────────────────
@@ -585,7 +613,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             target_desc = fn_args.get("target", "")
                             result = await _refine_cursor(target_desc, display, session)
                             if result["ok"]:
-                                action_result = f"ok -- cursor moved to ({result['x']}, {result['y']})"
+                                action_result = f"ok -- cursor moved to ({result['x']}, {result['y']}){result.get('edge_warning', '')}"
                                 cursor_x, cursor_y = result["x"], result["y"]
                             else:
                                 action_result = f"error: {result['error']}"
