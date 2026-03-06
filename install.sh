@@ -400,53 +400,18 @@ else
     warn "openclaw/MEMORY-fragment.md not found — skipping MEMORY.md injection"
 fi
 
-# ─── Create OpenClaw sub-agents ────────────────────────────────
+# ─── Deploy OpenClaw sub-agents ───────────────────────────────
 
-AGENTS=("influencer-mgmt" "linkedin-networking")
+# shellcheck source=scripts/deploy-agents.sh
+OC_WORKSPACE="$OC_WORKSPACE" VENV_PYTHON="$VENV_DIR/bin/python3" source "$REPO_DIR/scripts/deploy-agents.sh"
 
-if [ -n "$OPENCLAW_BIN" ]; then
-    info "Configuring OpenClaw sub-agents..."
-
-    EXISTING_AGENTS=$("$OPENCLAW_BIN" agents list --json 2>/dev/null | "$VENV_DIR/bin/python3" -c "
-import json, sys
-data = json.load(sys.stdin)
-print(' '.join(a['id'] for a in data))
-" 2>/dev/null || echo "")
-
-    for AGENT_ID in "${AGENTS[@]}"; do
-        AGENT_WORKSPACE="$HOME/.openclaw/agents/$AGENT_ID/workspace"
-        mkdir -p "$AGENT_WORKSPACE/skills"
-
-        # Create agent if it doesn't already exist
-        if echo "$EXISTING_AGENTS" | grep -qw "$AGENT_ID"; then
-            ok "Agent already exists: $AGENT_ID"
-        else
-            "$OPENCLAW_BIN" agents add "$AGENT_ID" \
-                --workspace "$AGENT_WORKSPACE" \
-                --non-interactive \
-                --json 2>/dev/null && ok "Created agent: $AGENT_ID" || warn "Could not create agent $AGENT_ID — create manually"
-        fi
-
-        # Symlink shared DETM skill into this agent's workspace
-        DETM_SKILL_LINK="$AGENT_WORKSPACE/skills/agentic-computer-use"
-        if [ -L "$DETM_SKILL_LINK" ]; then rm "$DETM_SKILL_LINK"; elif [ -d "$DETM_SKILL_LINK" ]; then rm -rf "$DETM_SKILL_LINK"; fi
-        if [ -d "$REPO_DIR/skill" ]; then
-            ln -s "$REPO_DIR/skill" "$DETM_SKILL_LINK"
-        fi
-
-        # Symlink agent-specific skill if present in repo
-        AGENT_REPO_SKILL="$REPO_DIR/agents/$AGENT_ID/skill"
-        if [ -d "$AGENT_REPO_SKILL" ]; then
-            AGENT_SKILL_LINK="$AGENT_WORKSPACE/skills/$AGENT_ID"
-            if [ -L "$AGENT_SKILL_LINK" ]; then rm "$AGENT_SKILL_LINK"; elif [ -d "$AGENT_SKILL_LINK" ]; then rm -rf "$AGENT_SKILL_LINK"; fi
-            ln -s "$AGENT_REPO_SKILL" "$AGENT_SKILL_LINK"
-            ok "  Agent skill linked: $AGENT_ID/skills/$AGENT_ID → $AGENT_REPO_SKILL"
-        fi
-    done
-
-    ok "Sub-agents configured"
+if [ -d "$AGENTS_SRC" ]; then
+    info "Deploying OpenClaw sub-agents..."
+    deploy_agents
+    register_agents_config
+    ok "Sub-agents deployed and registered"
 else
-    warn "OpenClaw not found — skipping sub-agent creation"
+    warn "No agents found in $REPO_DIR/openclaw/agents/ — skipping sub-agent deployment"
 fi
 
 # ─── Install detm-tool-logger plugin ───────────────────────────
@@ -490,7 +455,7 @@ echo "  Test:      curl http://127.0.0.1:$DAEMON_PORT/health"
 echo ""
 if [ -n "$OPENCLAW_BIN" ]; then
     echo "  OpenClaw will auto-discover tools via mcporter."
-    echo "  Agents:    influencer-mgmt, linkedin-networking"
-    echo "  Run task:  openclaw agent --agent influencer-mgmt --message '...'"
+    echo "  Sub-agents deployed from: openclaw/agents/"
+    echo "  Spawn:     /subagents spawn linkedin-test \"Navigate to linkedin.com and ...\""
 fi
 echo ""

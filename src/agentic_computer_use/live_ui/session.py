@@ -130,6 +130,23 @@ class LiveUISession:
     def record_error(self, message: str) -> None:
         self._append({"type": "error", "message": message, "ts": time.time()})
 
+    def record_grounding(self, target: str, model: str, x: int, y: int, round_n: int = 0, converged: bool = False, error: str = None) -> None:
+        """Record a UI-TARS (or other grounding model) prediction."""
+        ev = {
+            "type": "grounding",
+            "target": target,
+            "model": model,
+            "round": round_n,
+            "ts": time.time(),
+        }
+        if error:
+            ev["error"] = error
+        else:
+            ev["x"] = x
+            ev["y"] = y
+            ev["converged"] = converged
+        self._append(ev)
+
     def record_audio_chunk(self, pcm_bytes: bytes) -> None:
         """Append raw PCM bytes directly to audio.pcm — available for playback immediately."""
         if not pcm_bytes:

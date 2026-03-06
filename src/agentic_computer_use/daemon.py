@@ -403,7 +403,7 @@ async def handle_health(request: web.Request) -> web.Response:
         "vision_backend": config.VISION_BACKEND,
         "gui_agent_backend": config.GUI_AGENT_BACKEND,
         "gui_agent_provider": gui_backend.provider,
-        "live_ui_model": config.OPENROUTER_LIVE_MODEL,
+        "gui_agent_model": config.OPENROUTER_LIVE_MODEL,
         "active_wait_jobs": len(wait_engine.jobs),
         "data_dir": str(config.DATA_DIR),
         "display": config.DISPLAY,
@@ -416,7 +416,7 @@ _active_recordings: dict = {}  # task_id -> AsyncRecording
 
 # ─── Live UI session registry ────────────────────────────────────
 
-_active_live_sessions: dict[str, str] = {}  # task_id → session_id
+_active_gui_sessions: dict[str, str] = {}  # task_id → session_id
 
 
 # ─── Recording handlers ─────────────────────────────────────────
@@ -604,16 +604,17 @@ async def handle_api_health(request: web.Request) -> web.Response:
 
 
 async def handle_api_usage_stats(request: web.Request) -> web.Response:
-    """GET /api/usage/stats?since=<days> — return aggregated AI API usage and cost."""
+    """GET /api/usage/stats?since=<days>&task_id=<id> — return aggregated AI API usage and cost."""
     from . import usage as _usage
     since_days = request.query.get("since")
+    task_id = request.query.get("task_id")
     since_ts = None
     if since_days:
         try:
             since_ts = time.time() - float(since_days) * 86400
         except ValueError:
             pass
-    stats = await _usage.get_stats(since_ts=since_ts)
+    stats = await _usage.get_stats(since_ts=since_ts, task_id=task_id or None)
     return web.json_response(stats)
 
 
@@ -959,9 +960,9 @@ async def handle_mavi_understand(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
-# ─── Live UI vision/control ─────────────────────────────────────
+# ─── GUI Agent (unified: Gemini supervisor + UI-TARS grounding) ─
 
-async def handle_live_ui(request: web.Request) -> web.Response:
+async def handle_gui_agent(request: web.Request) -> web.Response:
     args = await _parse_body(request)
     task_id = args.get("task_id")
     instruction = args.get("instruction")
@@ -969,7 +970,7 @@ async def handle_live_ui(request: web.Request) -> web.Response:
     if not instruction:
         return web.json_response({"error": "instruction is required"}, status=400)
 
-    timeout = min(int(args.get("timeout", 60)), 300)
+    timeout = min(int(args.get("timeout", 180)), 300)
     context = args.get("context", "")
     display = await _resolve_task_display(task_id)
 
@@ -992,7 +993,7 @@ async def handle_live_ui(request: web.Request) -> web.Response:
     )
 
     if task_id:
-        _active_live_sessions[task_id] = session_id
+        _active_gui_sessions[task_id] = session_id
     try:
         result = await provider.run(
             instruction=instruction,
@@ -1004,7 +1005,7 @@ async def handle_live_ui(request: web.Request) -> web.Response:
         )
     finally:
         if task_id:
-            _active_live_sessions.pop(task_id, None)
+            _active_gui_sessions.pop(task_id, None)
 
     result["session_id"] = session_id
 
@@ -1017,10 +1018,10 @@ async def handle_live_ui(request: web.Request) -> web.Response:
             "instruction": instruction[:200],
             "timeout": timeout,
         })
-        summary = result.get("summary") or result.get("error") or "live_ui finished without a summary"
+        summary = result.get("summary") or result.get("error") or "gui_agent finished without a summary"
         asyncio.ensure_future(task_mgr.log_action(
             task_id, "gui",
-            f"live_ui ({actions} actions): {instruction[:100]}",
+            f"gui_agent ({actions} actions): {instruction[:100]}",
             input_data=input_data,
             output_data=_json.dumps({
                 **result,
@@ -1083,7 +1084,7 @@ async def handle_api_live_session_audio(request: web.Request) -> web.Response:
 
 async def handle_api_live_sessions_active(request: web.Request) -> web.Response:
     """GET /api/live_sessions/active — return map of task_id → session_id for running sessions."""
-    return web.json_response({"sessions": dict(_active_live_sessions)})
+    return web.json_response({"sessions": dict(_active_gui_sessions)})
 
 
 async def handle_api_live_session_events_stream(request: web.Request) -> web.StreamResponse:
@@ -1121,7 +1122,7 @@ async def handle_api_live_session_events_stream(request: web.Request) -> web.Str
                         except Exception:
                             pass
             # Terminate if session is no longer active and no terminal event was found
-            active = any(sid == session_id for sid in _active_live_sessions.values())
+            active = any(sid == session_id for sid in _active_gui_sessions.values())
             if not active and events_path.exists():
                 # Session ended without terminal event (crash) — stop streaming
                 break
@@ -1152,7 +1153,7 @@ async def handle_api_live_session_audio_stream(request: web.Request) -> web.Stre
                 if new_data:
                     await response.write(new_data)
                     offset += len(new_data)
-            active = any(sid == session_id for sid in _active_live_sessions.values())
+            active = any(sid == session_id for sid in _active_gui_sessions.values())
             if not active and (not pcm_path.exists() or pcm_path.stat().st_size <= offset):
                 break
             await asyncio.sleep(0.05)
@@ -1161,37 +1162,7 @@ async def handle_api_live_session_audio_stream(request: web.Request) -> web.Stre
     return response
 
 
-# ─── GUI Agent handlers ─────────────────────────────────────────
-
-async def handle_gui_do(request: web.Request) -> web.Response:
-    args = await _parse_body(request)
-    from .gui_agent.agent import execute_gui_action
-
-    task_id = args.get("task_id")
-    display = await _resolve_task_display(task_id)
-
-    result = await execute_gui_action(
-        instruction=args["instruction"],
-        task_id=task_id,
-        window_name=args.get("window_name"),
-        display=display,
-    )
-    return web.json_response(result)
-
-
-async def handle_gui_find(request: web.Request) -> web.Response:
-    args = await _parse_body(request)
-    from .gui_agent.agent import find_gui_element
-
-    task_id = args.get("task_id")
-    display = await _resolve_task_display(task_id)
-
-    result = await find_gui_element(
-        description=args["description"],
-        window_name=args.get("window_name"),
-        display=display,
-    )
-    return web.json_response(result)
+# ─── GUI Agent handlers (legacy gui_do/gui_find removed — use /gui_agent) ─
 
 
 # ─── Memory handlers ────────────────────────────────────────────
@@ -1350,10 +1321,9 @@ def create_app() -> web.Application:
     app.router.add_post("/desktop_action", handle_desktop_action)
     app.router.add_post("/video_record", handle_video_record)
     app.router.add_post("/mavi_understand", handle_mavi_understand)
-    app.router.add_post("/live_ui", handle_live_ui)
-    # GUI agent
-    app.router.add_post("/gui_do", handle_gui_do)
-    app.router.add_post("/gui_find", handle_gui_find)
+    # GUI agent (unified)
+    app.router.add_post("/gui_agent", handle_gui_agent)
+    app.router.add_post("/live_ui", handle_gui_agent)  # backward compat
     # Memory
     app.router.add_post("/memory_search", handle_memory_search)
     app.router.add_post("/memory_read", handle_memory_read)
@@ -1458,6 +1428,18 @@ def main():
         # Pre-warm frame buffer for the system display so the dashboard
         # shows a live screen immediately, even before any task is created.
         _ensure_frame_buffer(config.DISPLAY)
+        # Resume frame recording for any tasks that are still active.
+        # Without this, a daemon restart silently drops recording for in-progress tasks.
+        try:
+            result = await task_mgr.list_tasks(status="active", limit=50)
+            for t in result.get("tasks", []):
+                tid = t.get("id") or t.get("task_id")
+                if tid:
+                    display = await _resolve_task_display(tid)
+                    frame_recorder.start(tid, display)
+                    log.info(f"Resumed frame recording for active task {tid}")
+        except Exception as e:
+            log.warning(f"Failed to resume frame recording on startup: {e}")
 
     async def on_cleanup(app):
         if app.get('stuck_detector'):

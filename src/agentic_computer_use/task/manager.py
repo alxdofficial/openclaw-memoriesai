@@ -721,6 +721,7 @@ async def build_resume_packet(task_id: str, reason: str | None = None, conn=None
             "task_id": task_id,
             "name": task["name"],
             "status": task["status"],
+            "agent_id": task.get("agent_id"),
             "progress": {
                 "completed": [i["ordinal"] for i in completed],
                 "current": current["ordinal"] if current else None,

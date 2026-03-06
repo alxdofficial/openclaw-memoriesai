@@ -104,6 +104,35 @@ def execute_action(name: str, args: dict, display: str) -> str:
         _smooth_mousemove(x, y, display)
         return _xdotool(["click", "--repeat", str(amount), btn], display)
 
+    if name == "drag":
+        x1, y1 = int(args["start_x"]), int(args["start_y"])
+        x2, y2 = int(args["end_x"]), int(args["end_y"])
+        # Parse optional waypoints: list of {x, y} dicts
+        waypoints = args.get("waypoints") or []
+        env = {**os.environ, "DISPLAY": display}
+        _smooth_mousemove(x1, y1, display)
+        # Mouse down
+        subprocess.run(["xdotool", "mousedown", "1"], capture_output=True, timeout=2, env=env)
+        # Move through waypoints
+        for wp in waypoints:
+            wx, wy = int(wp["x"]), int(wp["y"])
+            _smooth_mousemove(wx, wy, display)
+        # Move to end
+        _smooth_mousemove(x2, y2, display)
+        # Mouse up
+        subprocess.run(["xdotool", "mouseup", "1"], capture_output=True, timeout=2, env=env)
+        return "ok"
+
+    if name == "mouse_down":
+        x, y = int(args["x"]), int(args["y"])
+        btn = _MOUSE_BUTTON.get(str(args.get("button", "left")), "1")
+        _smooth_mousemove(x, y, display)
+        return _xdotool(["mousedown", btn], display)
+
+    if name == "mouse_up":
+        btn = _MOUSE_BUTTON.get(str(args.get("button", "left")), "1")
+        return _xdotool(["mouseup", btn], display)
+
     log.warning(f"Unknown live action: {name}")
     return f"error: unknown action {name}"
 

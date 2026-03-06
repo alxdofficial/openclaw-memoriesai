@@ -114,8 +114,10 @@ def main() -> None:
             "context": context,
         },
     )
+    task_status = "completed" if result.get("success") else "failed"
     extra = {"session_id": result.get("session_id"), "success": result.get("success")}
-    update_run(run["run_id"], status="completed" if result.get("success") else "failed", extra=extra)
+    update_run(run["run_id"], status=task_status, extra=extra)
+    daemon_post("/task_update", {"task_id": task_id, "status": task_status, "message": result.get("summary", "")})
     write_run_artifact(run["run_id"], "live_ui_result.json", json.dumps(result, indent=2))
     capture_task_snapshot_artifact(run["run_id"], task_id, "final_snapshot.jpg")
 

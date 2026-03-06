@@ -145,14 +145,14 @@ def frame_count(task_id: str) -> int:
 
 
 async def _loop(task_id: str, display: str, d: Path) -> None:
-    from .screen import capture_screen, frame_to_jpeg
+    from .screen import capture_screen_with_cursor, frame_to_jpeg
     import concurrent.futures
     n = frame_count(task_id)   # resume numbering if restarted
     loop = asyncio.get_event_loop()
     try:
         while True:
             try:
-                frame = await loop.run_in_executor(None, capture_screen, display)
+                frame = await loop.run_in_executor(None, capture_screen_with_cursor, display)
                 if frame is not None:
                     jpeg = await loop.run_in_executor(
                         None, frame_to_jpeg, frame, FRAME_MAX_DIM, FRAME_QUALITY

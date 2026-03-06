@@ -49,33 +49,32 @@ The signal: if a human would need to be logged in to do it, DETM is the right to
 
 **When DETM hits a login wall or CAPTCHA:** use `task_update` to tell the user, then poll until they confirm they've resolved it in the browser (display :99). Never skip or bypass auth — escalate and wait.
 
+**Adapt to what's actually installed.** Never assume specific apps exist (e.g. "Open Firefox"). Use `desktop_look` first or write generic instructions ("Open a web browser", "Open the file manager"). The gui_agent will figure out how to use whatever is available on screen.
+
 ## HARD RULES — no exceptions
 
 These are not guidelines. Violating them breaks observability, cancellation, and debugging.
 
 **0. When the prompt says "DETM ONLY" — web_search and WebFetch are banned for that task.**
-If the human's request contains the phrase **DETM ONLY**, you must do ALL research by opening a real browser visually on the desktop. You may not call `web_search`, `WebFetch`, or any equivalent built-in fetch tool for the duration of that task — not even once, not even "just to verify". The only permitted research method is: open Firefox via `gui_do`, navigate with `desktop_action`, and read content via `desktop_look`. CLI tools (bash, python, ffmpeg, etc.) are still allowed for non-research steps like writing files.
+If the human's request contains the phrase **DETM ONLY**, you must do ALL research by opening a real browser visually on the desktop. You may not call `web_search`, `WebFetch`, or any equivalent built-in fetch tool for the duration of that task — not even once, not even "just to verify". The only permitted research method is: use `gui_agent` to navigate the browser, and read content via `desktop_look`. CLI tools (bash, python, ffmpeg, etc.) are still allowed for non-research steps like writing files.
 
 ```
 # WRONG — even if faster, even if just one call:
 web_search("TechCrunch AI reporters")
 
-# RIGHT — open the browser and search visually:
-task_log_action(task_id=<id>, action_type="gui", summary="Opening Firefox to search Google for TechCrunch AI reporters", status="started")
-gui_do("open Firefox", task_id=<id>)
-smart_wait(target="window:Firefox", wake_when="browser is open", task_id=<id>)
-gui_do("click the address bar", task_id=<id>)
-desktop_action(action="type", text="https://google.com", task_id=<id>)
-desktop_action(action="press_key", text="Return", task_id=<id>)
+# RIGHT — use gui_agent to drive the browser:
+task_log_action(task_id=<id>, action_type="gui", summary="Opening browser and searching Google for TechCrunch AI reporters", status="started")
+gui_agent(instruction="Open a web browser, navigate to google.com, and search for TechCrunch AI reporters", task_id=<id>)
+desktop_look(task_id=<id>)
 ```
 
 **1. Always create a task before touching the desktop.**
-`task_register` MUST be your first call for any work that involves `desktop_look`, `desktop_action`, `gui_do`, or `smart_wait`. No exceptions. Even a single screenshot requires a task.
+`task_register` MUST be your first call for any work that involves `desktop_look`, `desktop_action`, `gui_agent`, or `smart_wait`. No exceptions. Even a single screenshot requires a task.
 
 ```
 # WRONG — never do this:
 desktop_look()
-gui_do("click the search bar")
+gui_agent(instruction="click the search bar")
 
 # RIGHT — always do this first:
 task_register(name="Find reporters on LinkedIn", plan=["Search LinkedIn", "Collect profiles", "Write to sheet"])
@@ -93,16 +92,16 @@ When a DETM task is active, EVERY tool call must be preceded by a `task_log_acti
 web_search("TechCrunch AI reporters 2025")
 
 # WRONG — desktop call with no log entry:
-gui_do("click the search bar", task_id=<id>)
+gui_agent(instruction="click the search bar", task_id=<id>)
 
 # RIGHT — log every tool call first:
 task_log_action(task_id=<id>, action_type="cli", summary="Searching web for TechCrunch AI reporters")
 web_search("TechCrunch AI reporters 2025")
 task_update(task_id=<id>, message="Found 8 results. Top result is techcrunch.com/author/...")
 
-task_log_action(task_id=<id>, action_type="gui", summary="Clicking LinkedIn search bar")
-gui_do("click the search bar", task_id=<id>)
-task_update(task_id=<id>, message="Clicked. Now typing query.")
+task_log_action(task_id=<id>, action_type="gui", summary="Searching LinkedIn for reporters")
+gui_agent(instruction="Click the search bar, type TechCrunch AI reporters, and press Enter", task_id=<id>)
+task_update(task_id=<id>, message="Search submitted. Will check results.")
 
 task_log_action(task_id=<id>, action_type="vision", summary="Taking screenshot to read search results")
 desktop_look(task_id=<id>)
@@ -112,9 +111,44 @@ task_update(task_id=<id>, message="Can see 8 reporter profiles in results: ...")
 Every tool call = one `task_log_action` before + one `task_update` after. No exceptions.
 
 **3. Pass `task_id` to every desktop/GUI/wait call.**
-Every `desktop_look`, `desktop_action`, `gui_do`, and `smart_wait` call must include `task_id=<id>`. This is how DETM tracks what you're doing and links screenshots to your plan.
+Every `desktop_look`, `desktop_action`, `gui_agent`, and `smart_wait` call must include `task_id=<id>`. This is how DETM tracks what you're doing and links screenshots to your plan.
 
-**4. Check task status after each plan item.**
+**4. Verify each step — but stay decisive.**
+After executing a plan item, verify it worked before marking it complete. But be efficient about it:
+- **After `gui_agent`**: trust the `{success, summary}` result. `gui_agent` already verified the outcome visually. Only take `desktop_look` if you need to read specific screen content that gui_agent didn't report (e.g., reading search results, checking a number in a table). Do NOT take a screenshot just to "confirm" what gui_agent already told you.
+- **After `desktop_action`**: one `desktop_look` to verify is enough. Never take 2+ screenshots back-to-back without acting between them.
+- **General rule**: if you catch yourself taking multiple screenshots without making progress, STOP and act. Decide based on what you already know.
+
+If the step failed or partially succeeded:
+
+- Do NOT mark it completed and move to the next step.
+- Do NOT create a new task to redo the failed step.
+- Instead: use `task_plan_append` to add corrective steps and `task_item_update(status="scrapped")` on items that no longer apply. Keep working within the same task.
+
+```
+# WRONG — blindly advancing:
+gui_agent(instruction="click Submit", task_id=<id>)
+task_item_update(task_id=<id>, ordinal=2, status="completed")  # didn't verify!
+task_item_update(task_id=<id>, ordinal=3, status="active")
+
+# RIGHT — verify, then decide:
+gui_agent(instruction="click Submit", task_id=<id>)
+desktop_look(task_id=<id>)
+task_update(task_id=<id>, message="Submit clicked but form shows validation error on email field")
+# Don't mark completed — fix the issue first:
+task_plan_append(task_id=<id>, items=["Fix email field", "Re-submit form"], note="Form validation failed")
+task_item_update(task_id=<id>, ordinal=4, status="active")
+```
+
+**5. Move fast — don't stare at the screen.**
+The human is watching in real time. Long pauses between actions look broken. Follow these pacing rules:
+- After `gui_agent` returns success: immediately proceed to the next step. Do NOT take a `desktop_look` unless you need to read specific content.
+- Never take 2+ `desktop_look` calls in a row without an action in between. One screenshot is enough to understand the screen.
+- Never log 2+ `reasoning` entries in a row. Make one decision and act on it.
+- Batch your work: `task_log_action` → tool call → `task_update` → next action. Don't insert extra screenshots or reasoning between these.
+- If you already know what to do next, do it. Don't take a screenshot "just to be safe."
+
+**6. Check task status after each plan item.**
 After completing a plan item, check if the human has cancelled or paused the task before continuing:
 
 ```
@@ -130,58 +164,44 @@ task_item_update(task_id=<id>, ordinal=N+1, status="active")
 
 | Scenario | Prefer | Why |
 |---|---|---|
-| Visual apps (DaVinci Resolve, Blender, VS Code GUI) | `gui_do` / `desktop_action` | No CLI equivalent |
+| Visual apps (DaVinci Resolve, Blender, VS Code GUI) | `gui_agent` / `desktop_action` | No CLI equivalent |
 | File operations, git, builds | CLI/exec | Faster, deterministic |
-| Web forms, dialogs, popups | `gui_do` | Visual interaction required |
+| Web forms, dialogs, popups | `gui_agent` | Visual interaction required |
 | Status monitoring | `smart_wait` with window target | Vision handles any app |
 | Scripting, automation | CLI/exec | Structured output |
-| Web browsing and research | `gui_do` / `desktop_look` | See below |
+| Web browsing and research | `gui_agent` / `desktop_look` | See below |
 
-## Choosing between desktop_look, gui_do, and live_ui
+## Choosing between desktop_look, gui_agent, and desktop_action
 
-There are three tiers of GUI interaction. Choose based on how much of the sequence you know ahead of time and how many steps are involved.
+Two tiers of GUI interaction. Choose based on how much of the sequence you know ahead of time.
 
 ### Tier 1 — `desktop_look` (orientation)
-Take a screenshot and reason about it yourself. Use this whenever you need to understand the current state of the screen before deciding what to do next. It is always valid. No model is invoked — you interpret the image directly.
+Take a screenshot and reason about it yourself. Use this whenever you need to understand the current state of the screen before deciding what to do next. No model is invoked — you interpret the image directly.
 
 ```
-→ desktop_look(task_id=<id>)   # see what's on screen
-→ task_update(...)             # describe what you observe
-→ decide your next action
+-> desktop_look(task_id=<id>)   # see what's on screen
+-> task_update(...)             # describe what you observe
+-> decide your next action
 ```
 
-### Tier 2 — `gui_do` / `desktop_action` (single known action)
-Use when you know the next action but not what comes after — i.e. you need to see the result before deciding step N+2. UI-TARS grounds your natural language description to screen coordinates and executes via xdotool.
+### Tier 2 — `gui_agent` (any GUI interaction, single or multi-step)
+AI-powered GUI agent that uses Gemini Flash for reasoning and UI-TARS for precise cursor placement. Handles everything from a single click to complex multi-step workflows autonomously. The agent sees screenshots after each action, uses a specialized grounding model to place the cursor precisely on targets, and verifies placement before clicking.
 
 **Use this when:**
-- You are taking one action at a time with LLM reasoning between each step
-- The next page or result is unpredictable and you need to re-orient after every click
-- You want precise pixel control (`desktop_action` with exact coordinates from `desktop_look`)
-
-```
-→ desktop_look(task_id=<id>)           # orient
-→ gui_do("click the search bar", ...)  # act
-→ desktop_look(task_id=<id>)           # re-orient before deciding next step
-→ gui_do("type 'sourdough bread'", ...)
-```
-
-### Tier 3 — `live_ui` (delegated multi-step sequence)
-Use when you have a chain of actions that a vision model can handle without needing you in the loop for every step. The model sees a fresh screenshot after every action with ruler overlays for precise coordinate estimation and cursor position verification. It takes actions and calls `done()` or `escalate()` when finished. Typically completes multi-step flows in under 2 minutes.
-
-**Use this when:**
-- The workflow has many steps and `gui_do` + `desktop_look` round-trips would be too slow
-- UI-TARS is consistently mis-clicking or struggling with the UI (complex layouts, overlapping elements, dynamic menus)
-- The sequence is predictable enough for the model to complete autonomously (login flows, search + scroll, form filling, multi-page navigation)
-- You know the goal but not each individual step — describe the outcome, let `live_ui` figure out the path
+- Any GUI interaction: clicks, typing, navigation, form filling, scrolling
+- Single-step OR multi-step workflows
+- The workflow has many steps and `desktop_look` round-trips would be too slow
+- You know the goal but not each individual step — describe the outcome
 
 **Do not use this when:**
-- The next step depends on complex reasoning that only you can do (e.g. reading a report and deciding whether a number is acceptable)
-- You need the result of each step before proceeding (use `gui_do` + `desktop_look` instead)
+- The next step depends on complex reasoning that only you can do (e.g. reading a report and deciding whether a number is acceptable) — use `desktop_look` instead
+- You need explicit pixel-level control — use `desktop_action` with coordinates from `desktop_look`
 
 ```
-→ live_ui(task_id=<id>, instruction="Navigate to Settings > Export and click Export as PDF", timeout=60)
-→ # model handles the full chain; returns {success, summary, actions_taken}
-→ desktop_look(task_id=<id>)   # re-orient after live_ui returns
+-> gui_agent(task_id=<id>, instruction="Navigate to Settings > Export and click Export as PDF", timeout=60)
+-> # agent handles the full chain; returns {success, summary, actions_taken}
+-> # Trust the result — gui_agent already verified the outcome visually
+-> # Only take desktop_look if YOU need to read specific content from the screen
 ```
 
 ### Decision guide
@@ -189,18 +209,17 @@ Use when you have a chain of actions that a vision model can handle without need
 | Situation | Tool |
 |---|---|
 | "I need to see where I am before deciding anything" | `desktop_look` |
-| "I know the next click but not what comes after" | `gui_do` + `desktop_look` |
-| "UI-TARS keeps missing, or I need 8+ steps" | `live_ui` |
-| "I have a predictable multi-step flow (login, form, search)" | `live_ui` |
-| "I need to re-orient after a `live_ui` call" | `desktop_look` |
+| "Click this button / type in this field / navigate this menu" | `gui_agent` |
+| "I have a predictable multi-step flow (login, form, search)" | `gui_agent` |
+| "I need to read specific content from the screen after gui_agent" | `desktop_look` |
 | "One explicit pixel-precise click from known coordinates" | `desktop_action` |
 
 ## Browser interaction — visual only
 
 **Always interact with browsers visually.** This is the primary way to use the browser with DETM.
 
-- Use `desktop_look` to see what's on screen, then `gui_do` or `desktop_action` to click, scroll, and type
-- Use `gui_do("click the search bar")`, `gui_do("scroll down")`, `gui_do("click the first result")` etc.
+- Use `gui_agent` for multi-step browser interactions (navigate, click, type, scroll)
+- Use `desktop_look` to see what's on screen and read content from screenshots
 - Read content by looking at the screenshot — not by extracting it programmatically
 
 **Never use:**
@@ -209,38 +228,26 @@ Use when you have a chain of actions that a vision model can handle without need
 - DOM inspection or scraping via CLI tools (`curl`, `wget` for HTML parsing, `lynx`, `w3m`)
 - Browser extension APIs or CDP/Playwright/Selenium automation
 
-The entire point is to interact the way a human would — looking at the screen and clicking. If you find yourself wanting to run JS or scrape HTML, stop and use `desktop_look` + `gui_do` instead.
+The entire point is to interact the way a human would — looking at the screen and clicking. If you find yourself wanting to run JS or scrape HTML, stop and use `gui_agent` instead.
 
 **How to start a browser research session:**
 ```
-→ gui_do("open Firefox", task_id=<id>)              # launch the browser
-→ smart_wait(target="window:Firefox", wake_when="browser is open and ready", task_id=<id>)
-→ desktop_look(task_id=<id>)                         # confirm it's open
-→ gui_do("click the address bar", task_id=<id>)
-→ desktop_action(action="type", text="https://google.com", task_id=<id>)
-→ desktop_action(action="press_key", text="Return", task_id=<id>)
+-> gui_agent(instruction="Open a web browser and navigate to google.com", task_id=<id>)
+-> # gui_agent reports success — browser is open. Proceed immediately.
 ```
 
 **Typical browser workflow:**
 ```
-→ desktop_look(task_id=<id>)          # see the current browser state
-→ gui_do("click the address bar", task_id=<id>)
-→ desktop_action(action="type", text="https://youtube.com", task_id=<id>)
-→ desktop_action(action="press_key", text="Return", task_id=<id>)
-→ smart_wait(target="window:browser", wake_when="page has loaded", task_id=<id>)
-→ desktop_look(task_id=<id>)          # see what loaded
-→ gui_do("click the search bar", task_id=<id>)
-→ desktop_action(action="type", text="fitness supplement creators", task_id=<id>)
-→ desktop_action(action="press_key", text="Return", task_id=<id>)
-→ smart_wait(target="window:browser", wake_when="search results have loaded", task_id=<id>)
-→ desktop_look(task_id=<id>)          # read results from the screenshot
-→ task_update(task_id=<id>, message="Search results show: ...")
+-> gui_agent(instruction="Navigate to youtube.com, search for fitness supplement creators", task_id=<id>, timeout=90)
+-> # gui_agent succeeded — now I need to READ the results, so desktop_look is justified:
+-> desktop_look(task_id=<id>)          # read results from the screenshot
+-> task_update(task_id=<id>, message="Search results show: ...")
 ```
 
 **Scrolling to read more:**
 ```
-→ gui_do("scroll down", task_id=<id>)
-→ desktop_look(task_id=<id>)          # see what's now visible
+-> gui_agent(instruction="Scroll down on the current page", task_id=<id>)
+-> desktop_look(task_id=<id>)          # see what's now visible
 ```
 
 ## Task lifecycle pattern
@@ -282,7 +289,7 @@ For **every** tool call that involves the desktop or GUI:
 
 ```
 1. ANNOUNCE  →  task_log_action(task_id=<id>, action_type=<type>, summary="<what I'm about to do and why>", status="started")
-2. EXECUTE   →  call the tool (desktop_look, gui_do, desktop_action, etc.)
+2. EXECUTE   →  call the tool (desktop_look, gui_agent, desktop_action, etc.)
 3. REPORT    →  task_update(task_id=<id>, message="<what I observed or what happened>")
 ```
 
@@ -293,7 +300,7 @@ Do not skip steps. The announce creates a visible entry in the dashboard. The re
 | action_type | Use for |
 |---|---|
 | `vision` | desktop_look, observing the screen |
-| `gui` | gui_do, desktop_action (click/type/key) |
+| `gui` | gui_agent, desktop_action (click/type/key) |
 | `cli` | shell commands |
 | `wait` | smart_wait calls |
 | `reasoning` | decision-making, planning, deductions |
@@ -372,17 +379,15 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 - `wait_cancel` — cancel a wait job
 
 ### GUI Agent
-- `gui_do` — execute NL action ("click the Export button", "double-click the timeline clip"). ALWAYS natural language — never raw coordinates. Uses iterative narrowing for precision.
-- `gui_find` — locate element by description, return coords without acting
+- `gui_agent` — AI-powered GUI agent for any desktop interaction. Uses Gemini Flash for reasoning/monitoring and UI-TARS for precise cursor placement. Handles single clicks to complex multi-step workflows autonomously. Replaces gui_do, gui_find, and live_ui.
 
 ### Desktop Control
-- `desktop_action` — explicit pixel coordinates: click(x,y), drag(x1,y1,x2,y2), type, press_key, window management. Use this when you have exact coords from `desktop_look` or `gui_find`.
+- `desktop_action` — explicit pixel coordinates: click(x,y), drag(x1,y1,x2,y2), type, press_key, window management. Use this when you have exact coords from `desktop_look`.
 - `desktop_look` — returns a screenshot **image** directly to you. Use this to observe the current screen state before deciding your next action. You interpret the image yourself — no local vision model is involved.
 - `video_record` — record screen/window clip
 
-### Video & Live Vision
+### Video Intelligence
 - `mavi_understand` — record screen, upload to MAVI, ask a question, get an answer. Use for video-heavy UIs where motion or audio is the key information (TikTok sounds, animation text, live feeds). Pass a specific, concrete prompt. Not for static page reading — use `desktop_look` for that.
-- `live_ui` — delegate a complete multi-step UI workflow to a live AI model that watches the screen and acts autonomously. See section below.
 
 ### System
 - `health_check` — daemon + vision backend + system status
@@ -395,7 +400,7 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 → desktop_look(task_id=<id>)
   # You receive an image — look at it carefully
 → task_update(task_id=<id>, message="Screen shows DaVinci Resolve with the timeline open. The Export button is visible in the top-right toolbar. I'll click it now.")
-→ gui_do(instruction="click the Export button", task_id=<id>)
+→ gui_agent(instruction="click the Export button", task_id=<id>)
 → task_update(task_id=<id>, message="Clicked Export. A render dialog appeared with format options.")
 → desktop_look(task_id=<id>)
   # Observe the dialog
@@ -406,7 +411,7 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 ```
 → task_register(name="Export 4K video", plan=["Open project", "Set export settings", "Start export", "Verify output"])
 → task_item_update(task_id=<id>, ordinal=0, status="active")
-→ gui_do(instruction="click the Export button", window_name="DaVinci Resolve", task_id=<id>)
+→ gui_agent(instruction="Click the Export button in DaVinci Resolve", task_id=<id>)
 → task_item_update(task_id=<id>, ordinal=0, status="completed")
 → task_item_update(task_id=<id>, ordinal=2, status="active")
 → smart_wait(target=window:DaVinci Resolve, wake_when="export progress reaches 100% or error dialog", task_id=<id>)
@@ -440,13 +445,28 @@ When a task is cancelled or paused from the dashboard, you'll see the status cha
 ## Stuck detection and automatic resumption
 
 If an active task has no updates and no active smart waits for 5+ minutes, the daemon automatically wakes you with a `[task_stuck_resume]` event containing a resume packet. The resume packet includes:
-- Task name, status, progress percentage
+- Task name, status, progress percentage, **agent_id** (which agent owns the task)
 - Completed/current/remaining plan items
 - The active item expanded with full action details and logs
 - Last 5 messages from the task thread
 - Wait state summary
 
 When you receive this event, use the resume packet to orient yourself and continue the task. You do NOT need to call `task_summary` — the packet already contains everything.
+
+### Sub-agent routing on resume
+
+If the resume packet contains `agent_id` (e.g., `"linkedin-test"`), you MUST spawn that agent to continue the task — do not resume it yourself. Use:
+```
+/subagents spawn <agent_id> "Resume DETM task <task_id>. <paste the resume packet or a summary of it>"
+```
+The sub-agent has its own SOUL.md and AGENTS.md with specialized instructions for that task type. It will pick up where it left off using the resume context.
+
+### Human handoff resumption
+
+Some tasks pause for human intervention (e.g., completing a login, CAPTCHA, or 2FA). When the human says they're done and you should continue:
+1. Call `task_summary(task_id=<id>)` or check the resume packet to see current state.
+2. If the task has an `agent_id`, spawn that sub-agent with the resume context.
+3. If no `agent_id`, resume the task yourself using the resume packet.
 
 ## Logs & debugging
 - Debug log: `~/.agentic-computer-use/logs/debug.log`
@@ -460,25 +480,37 @@ When you receive this event, use the resume packet to orient yourself and contin
 
 ---
 
-## live_ui — autonomous multi-step UI navigation
+## gui_agent — AI-Powered GUI Agent
 
-`live_ui` delegates a complete UI workflow to a vision AI model. The model sees a screenshot after every action, decides the next step, and executes it — repeating until the task is done or it escalates. It draws ruler overlays on screenshots for precise coordinate estimation and verifies cursor position after each action. Uses OpenRouter with a configurable VLM (default: `google/gemini-3-flash-preview`).
+Autonomous GUI agent for any desktop interaction. Uses Gemini Flash for reasoning/monitoring and UI-TARS for precise cursor placement via iterative refinement.
 
 ### When to use
 
 | Situation | Use |
 |---|---|
-| Multi-step flow: login → navigate → fill form → submit | `live_ui` |
-| Deep menu navigation (Settings > Network > Proxy > Manual) | `live_ui` |
-| You'd write 8+ `desktop_look` + `gui_do` pairs in sequence | `live_ui` |
-| Single click or single action | `desktop_action` or `gui_do` |
+| Any GUI interaction (click, type, scroll, navigate) | `gui_agent` |
+| Multi-step flow: login, navigate, fill form, submit | `gui_agent` |
+| Deep menu navigation (Settings > Network > Proxy > Manual) | `gui_agent` |
+| Single click or single action | `gui_agent` |
 | Just need to see the screen | `desktop_look` |
 | Waiting for something to appear | `smart_wait` |
+| Explicit pixel-precise control from known coordinates | `desktop_action` |
+
+### Parameters
+
+- `instruction` (required): What to accomplish
+- `task_id`: Link to active task for logging
+- `timeout`: Max seconds (default 180, max 300)
+- `context`: Extra context (credentials, URLs, prior state)
+
+### Returns
+
+`{success, summary, escalated, escalation_reason, actions_taken, session_id, elapsed_s}`
 
 ### Basic usage
 
 ```python
-result = live_ui(
+result = gui_agent(
     task_id=task_id,
     instruction="Click the Settings gear, go to Export, and click Export as PDF",
     timeout=60,
@@ -488,7 +520,7 @@ result = live_ui(
 ### With credentials / context
 
 ```python
-result = live_ui(
+result = gui_agent(
     task_id=task_id,
     instruction="Log in with email user@example.com and the password from context. Confirm the inbox loads.",
     context="password: MySecurePass123",
@@ -499,12 +531,12 @@ result = live_ui(
 ### Longer workflow
 
 ```python
-result = live_ui(
+result = gui_agent(
     task_id=task_id,
     instruction=(
         "Open the contact form at the bottom of the page. "
         "Fill in: Name='Surge Energy', Email='hello@surgeenergy.co.uk', "
-        "Message='Partnership inquiry — we are a UK energy drink brand'. "
+        "Message='Partnership inquiry -- we are a UK energy drink brand'. "
         "Click Submit and confirm the success message appears."
     ),
     timeout=90,
@@ -514,35 +546,32 @@ result = live_ui(
 ### Handling the result
 
 ```python
-result = live_ui(task_id=task_id, instruction="...", timeout=60)
+result = gui_agent(task_id=task_id, instruction="...", timeout=60)
 
 if result.get("error"):
-    # Hard error: API key missing, timeout, WebSocket failure
-    task_update(task_id=task_id, message=f"live_ui error: {result['error']}")
+    task_update(task_id=task_id, message=f"gui_agent error: {result['error']}")
 
 elif result.get("escalated"):
-    # Model hit a blocker and needs human input
     task_update(task_id=task_id, message=(
-        f"live_ui escalated: {result['escalation_reason']}. "
+        f"gui_agent escalated: {result['escalation_reason']}. "
         "Please resolve in the browser, then reply to continue."
     ))
-    # Poll task_update(query="status") until user confirms, then retry
 
 elif result.get("success"):
-    task_update(task_id=task_id, message=f"live_ui done: {result['summary']}")
+    task_update(task_id=task_id, message=f"gui_agent done: {result['summary']}")
 
 else:
-    task_update(task_id=task_id, message=f"live_ui failed: {result['summary']}")
+    task_update(task_id=task_id, message=f"gui_agent failed: {result['summary']}")
 ```
 
 ### Common escalation scenarios
 
-- **Login / auth wall** — site is asking for credentials you don't have in context
-- **CAPTCHA** — solver required before proceeding
-- **2FA prompt** — needs SMS/email code from user
-- **Unexpected page** — navigation led somewhere unexpected, human needs to reorient
+- **Login / auth wall** -- site is asking for credentials you don't have in context
+- **CAPTCHA** -- solver required before proceeding
+- **2FA prompt** -- needs SMS/email code from user
+- **Unexpected page** -- navigation led somewhere unexpected, human needs to reorient
 
-When escalated, tell the user what the model reported, ask them to resolve it in the browser (VNC on display :99), and poll `task_update(query="status")` until they confirm.
+When escalated, tell the user what the agent reported, ask them to resolve it in the browser (VNC on display :99), and poll `task_update(query="status")` until they confirm.
 
 ---
 

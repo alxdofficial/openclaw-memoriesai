@@ -123,8 +123,12 @@ ensure_virtual_desktop() {
     fi
 }
 
+# shellcheck source=scripts/deploy-agents.sh
+source "$REPO_DIR/scripts/deploy-agents.sh"
+
 cmd_start() {
     ensure_virtual_desktop
+    deploy_agents
 
     if session_running; then
         info "Killing existing session '$SESSION'..."

@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""Inspect a live_ui session — turn-by-turn debug view with frame references.
+
+Usage:
+    # List recent sessions (most recent first)
+    python3 scripts/inspect_session.py --list
+
+    # Show full turn-by-turn debug view
+    python3 scripts/inspect_session.py <session_id>
+
+    # Show only turns N through M
+    python3 scripts/inspect_session.py <session_id> --turns 3-8
+
+    # Show a specific frame (opens or saves it)
+    python3 scripts/inspect_session.py <session_id> --frame 5
+
+    # Save frame to a path for Claude Code to read
+    python3 scripts/inspect_session.py <session_id> --frame 5 --save /tmp/frame.jpg
+
+    # Use "latest" to inspect the most recent session
+    python3 scripts/inspect_session.py latest
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import sys
+from datetime import datetime
+from pathlib import Path
+
+DATA_DIR = Path(os.environ.get("ACU_DATA_DIR", os.path.expanduser("~/.agentic-computer-use")))
+SESSIONS_DIR = DATA_DIR / "live_sessions"
+
+
+def list_sessions(limit: int = 20) -> None:
+    if not SESSIONS_DIR.exists():
+        print("No sessions directory found.")
+        return
+
+    sessions = []
+    for d in SESSIONS_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        events_path = d / "events.jsonl"
+        if not events_path.exists():
+            continue
+        mtime = events_path.stat().st_mtime
+        # Read first and last event for summary
+        lines = events_path.read_text().strip().split("\n")
+        first = json.loads(lines[0]) if lines else {}
+        last = json.loads(lines[-1]) if lines else {}
+        frame_count = sum(1 for l in lines if '"type": "frame"' in l or (json.loads(l) if l else {}).get("type") == "frame")
+        # Quick frame count from directory
+        frames_dir = d / "frames"
+        frame_count = len(list(frames_dir.glob("*.jpg"))) if frames_dir.exists() else 0
+
+        sessions.append({
+            "id": d.name,
+            "mtime": mtime,
+            "instruction": first.get("instruction", "")[:80],
+            "status": last.get("type", "?"),
+            "success": last.get("success", None),
+            "frames": frame_count,
+        })
+
+    sessions.sort(key=lambda s: s["mtime"], reverse=True)
+
+    print(f"{'SESSION ID':<40} {'WHEN':<20} {'STATUS':<10} {'FRAMES':>6}  INSTRUCTION")
+    print("-" * 120)
+    for s in sessions[:limit]:
+        when = datetime.fromtimestamp(s["mtime"]).strftime("%Y-%m-%d %H:%M")
+        status = s["status"]
+        if s["success"] is True:
+            status = "success"
+        elif s["success"] is False and s["status"] == "done":
+            status = "failed"
+        print(f"{s['id']:<40} {when:<20} {status:<10} {s['frames']:>6}  {s['instruction']}")
+
+
+def resolve_session_id(sid: str) -> str:
+    if sid == "latest":
+        if not SESSIONS_DIR.exists():
+            print("No sessions found.", file=sys.stderr)
+            sys.exit(1)
+        latest = max(SESSIONS_DIR.iterdir(), key=lambda d: (d / "events.jsonl").stat().st_mtime if (d / "events.jsonl").exists() else 0)
+        return latest.name
+    # Allow prefix match
+    if not (SESSIONS_DIR / sid).exists():
+        matches = [d.name for d in SESSIONS_DIR.iterdir() if d.name.startswith(sid)]
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            print(f"Ambiguous prefix '{sid}': {matches[:5]}", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print(f"Session not found: {sid}", file=sys.stderr)
+            sys.exit(1)
+    return sid
+
+
+def inspect_session(sid: str, turn_range: str | None = None) -> None:
+    session_dir = SESSIONS_DIR / sid
+    events_path = session_dir / "events.jsonl"
+    if not events_path.exists():
+        print(f"No events.jsonl found for session {sid}", file=sys.stderr)
+        sys.exit(1)
+
+    events = []
+    with open(events_path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+
+    # Group events into turns: each turn = [model_text?, tool_call, grounding*, tool_response?, frame?]
+    turns: list[dict] = []
+    current_turn: dict = {}
+    start_ts = events[0]["ts"] if events else 0
+
+    for ev in events:
+        t = ev["type"]
+        rel = f"+{ev['ts'] - start_ts:.1f}s" if "ts" in ev else ""
+
+        if t == "instruction":
+            print(f"SESSION: {sid}")
+            print(f"  Instruction: {ev.get('instruction', '')}")
+            if ev.get("context"):
+                print(f"  Context: {ev['context'][:200]}")
+            print(f"  Timeout: {ev.get('timeout', '?')}s")
+            print(f"  Started: {datetime.fromtimestamp(ev['ts']).strftime('%Y-%m-%d %H:%M:%S')}")
+            print()
+            continue
+
+        if t == "model_text":
+            if current_turn.get("tool_call"):
+                turns.append(current_turn)
+                current_turn = {}
+            current_turn["thought"] = ev.get("text", "")
+            current_turn["thought_ts"] = rel
+
+        elif t == "tool_call":
+            current_turn["tool_call"] = ev
+            current_turn["tool_call_ts"] = rel
+
+        elif t == "grounding":
+            current_turn.setdefault("groundings", []).append(ev)
+
+        elif t == "tool_response":
+            current_turn["tool_response"] = ev
+            current_turn["tool_response_ts"] = rel
+
+        elif t == "frame":
+            current_turn["frame"] = ev.get("n")
+            current_turn["frame_ts"] = rel
+
+        elif t in ("done", "escalate", "error"):
+            current_turn["terminal"] = ev
+            current_turn["terminal_ts"] = rel
+            turns.append(current_turn)
+            current_turn = {}
+
+    if current_turn:
+        turns.append(current_turn)
+
+    # Apply turn range filter
+    start_turn, end_turn = 0, len(turns)
+    if turn_range:
+        parts = turn_range.split("-")
+        start_turn = int(parts[0]) - 1
+        end_turn = int(parts[1]) if len(parts) > 1 else start_turn + 1
+
+    print(f"Total turns: {len(turns)}")
+    print("=" * 100)
+
+    for i, turn in enumerate(turns[start_turn:end_turn], start=start_turn + 1):
+        print(f"\n--- Turn {i} ---")
+
+        if turn.get("thought"):
+            ts = turn.get("thought_ts", "")
+            # Truncate very long thoughts but show key info
+            thought = turn["thought"]
+            if len(thought) > 500:
+                thought = thought[:500] + f"... [{len(thought)} chars total]"
+            print(f"  [Gemini] THOUGHT ({ts}): {thought}")
+
+        if turn.get("tool_call"):
+            tc = turn["tool_call"]
+            ts = turn.get("tool_call_ts", "")
+            name = tc.get("name", "?")
+            args = tc.get("args", {})
+            # Format args concisely
+            if name == "move_to":
+                args_str = f'target={args.get("target", "")!r}'
+            elif name in ("click", "double_click", "right_click"):
+                args_str = ""
+                if name == "click" and args.get("button", "left") != "left":
+                    args_str = f"button={args['button']}"
+            elif name == "scroll":
+                args_str = f"dir={args.get('direction')}, amt={args.get('amount', 3)}"
+            elif name == "type_text":
+                args_str = f'"{args.get("text", "")}"'
+            elif name == "key_press":
+                args_str = args.get("key", "")
+            elif name == "drag":
+                args_str = f'from={args.get("from_target", "")!r}, to={args.get("to_target", "")!r}'
+            elif name == "done":
+                args_str = f"success={args.get('success')}, summary={args.get('summary', '')!r}"
+            elif name == "escalate":
+                args_str = f"reason={args.get('reason', '')!r}"
+            else:
+                args_str = json.dumps(args)[:100]
+            print(f"  [Gemini] ACTION ({ts}): {name}({args_str})")
+
+        # Show grounding events (UI-TARS predictions) between action and result
+        for g in turn.get("groundings", []):
+            g_rel = f"+{g['ts'] - start_ts:.1f}s" if "ts" in g else ""
+            model_short = g.get("model", "ui-tars").split("/")[-1]
+            rnd = g.get("round", 0)
+            if g.get("error"):
+                print(f"  [{model_short}] GROUNDING ({g_rel}): FAILED round={rnd} — {g['error']}")
+            elif g.get("converged"):
+                print(f"  [{model_short}] GROUNDING ({g_rel}): CONVERGED round={rnd} at ({g.get('x')}, {g.get('y')})")
+            else:
+                target = g.get("target", "")
+                if len(target) > 80:
+                    target = target[:80] + "..."
+                print(f"  [{model_short}] GROUNDING ({g_rel}): round={rnd} target={target!r} -> ({g.get('x')}, {g.get('y')})")
+
+        if turn.get("tool_response"):
+            tr = turn["tool_response"]
+            ts = turn.get("tool_response_ts", "")
+            result = tr.get("result", "")
+            print(f"  RESULT ({ts}): {result}")
+
+        if turn.get("frame") is not None:
+            ts = turn.get("frame_ts", "")
+            frame_path = session_dir / "frames" / f"{turn['frame']:05d}.jpg"
+            print(f"  FRAME ({ts}): #{turn['frame']}  ->  {frame_path}")
+
+        if turn.get("terminal"):
+            te = turn["terminal"]
+            ts = turn.get("terminal_ts", "")
+            if te["type"] == "done":
+                ok = "SUCCESS" if te.get("success") else "FAILED"
+                print(f"  {ok} ({ts}): {te.get('summary', '')}")
+            elif te["type"] == "escalate":
+                print(f"  ESCALATED ({ts}): {te.get('reason', '')}")
+            elif te["type"] == "error":
+                print(f"  ERROR ({ts}): {te.get('message', '')}")
+
+    # Summary
+    print("\n" + "=" * 100)
+    total_frames = sum(1 for ev in events if ev["type"] == "frame")
+    total_actions = sum(1 for ev in events if ev["type"] == "tool_call" and ev.get("name") not in ("done", "escalate"))
+    grounding_evs = [ev for ev in events if ev["type"] == "grounding"]
+    total_groundings = len(grounding_evs)
+    converged_groundings = sum(1 for ev in grounding_evs if ev.get("converged"))
+    failed_groundings = sum(1 for ev in grounding_evs if ev.get("error"))
+    duration = events[-1]["ts"] - events[0]["ts"] if len(events) > 1 else 0
+    terminal = [ev for ev in events if ev["type"] in ("done", "escalate", "error")]
+    status = terminal[-1] if terminal else None
+    grounding_str = f" | Groundings: {total_groundings} ({converged_groundings} converged, {failed_groundings} failed)" if total_groundings else ""
+    print(f"Duration: {duration:.1f}s | Actions: {total_actions} | Frames: {total_frames}{grounding_str}")
+    if status:
+        if status["type"] == "done":
+            print(f"Outcome: {'SUCCESS' if status.get('success') else 'FAILED'} — {status.get('summary', '')}")
+        else:
+            print(f"Outcome: {status['type'].upper()} — {status.get('reason', status.get('message', ''))}")
+
+
+def show_frame(sid: str, frame_n: int, save_path: str | None = None) -> None:
+    frame_path = SESSIONS_DIR / sid / "frames" / f"{frame_n:05d}.jpg"
+    if not frame_path.exists():
+        print(f"Frame {frame_n} not found at {frame_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if save_path:
+        shutil.copy2(frame_path, save_path)
+        print(f"Frame {frame_n} saved to {save_path}")
+    else:
+        # Just print the path so Claude Code can use Read to view it
+        print(f"Frame path: {frame_path}")
+        print(f"Size: {frame_path.stat().st_size} bytes")
+        print(f"Use: Read tool on {frame_path} to view")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Inspect a live_ui session")
+    parser.add_argument("session_id", nargs="?", help="Session ID or 'latest'")
+    parser.add_argument("--list", action="store_true", help="List recent sessions")
+    parser.add_argument("--turns", help="Turn range to show, e.g. '3-8' or '5'")
+    parser.add_argument("--frame", type=int, help="Show a specific frame")
+    parser.add_argument("--save", help="Save frame to this path (with --frame)")
+    parser.add_argument("--limit", type=int, default=20, help="Max sessions to list")
+    args = parser.parse_args()
+
+    if args.list:
+        list_sessions(args.limit)
+        return
+
+    if not args.session_id:
+        parser.print_help()
+        return
+
+    sid = resolve_session_id(args.session_id)
+
+    if args.frame is not None:
+        show_frame(sid, args.frame, args.save)
+    else:
+        inspect_session(sid, args.turns)
+
+
+if __name__ == "__main__":
+    main()

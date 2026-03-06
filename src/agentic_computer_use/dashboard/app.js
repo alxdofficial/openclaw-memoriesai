@@ -159,6 +159,9 @@ const App = (() => {
     // Start screen stream
     ScreenViewer.showTask(taskId);
 
+    // Switch usage stats to per-task view
+    UsageStats.showTask(taskId);
+
     // Fetch full detail immediately
     pollSelectedTask();
 

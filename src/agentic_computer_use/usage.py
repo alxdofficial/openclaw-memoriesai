@@ -107,7 +107,7 @@ def record_nowait(
         pass  # no running event loop — skip silently
 
 
-async def get_stats(since_ts: float | None = None) -> dict:
+async def get_stats(since_ts: float | None = None, task_id: str | None = None) -> dict:
     """Return aggregated usage stats grouped by provider+model.
 
     Returns:
@@ -131,8 +131,16 @@ async def get_stats(since_ts: float | None = None) -> dict:
     try:
         await conn.executescript(_SCHEMA)
 
-        where = "WHERE ts >= ?" if since_ts else ""
-        params = (since_ts,) if since_ts else ()
+        clauses = []
+        params = []
+        if since_ts:
+            clauses.append("ts >= ?")
+            params.append(since_ts)
+        if task_id:
+            clauses.append("task_id = ?")
+            params.append(task_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params = tuple(params)
 
         rows = []
         async with conn.execute(

@@ -1153,6 +1153,20 @@ html, body {
   font-weight: 600;
   color: var(--text);
 }
+.usage-back-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+.usage-back-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
 
 .usage-since-select {
   background: var(--bg-panel);

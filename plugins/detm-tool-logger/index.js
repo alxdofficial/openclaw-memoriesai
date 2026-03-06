@@ -17,7 +17,7 @@ const SKIP_TOOLS = new Set([
   "task_item_update", "task_summary", "task_drill_down", "task_thread",
   "task_list", "smart_wait", "wait_status", "wait_update", "wait_cancel",
   "memory_search", "memory_read", "memory_append",
-  "video_record", "mavi_understand", "live_ui",
+  "video_record", "mavi_understand", "live_ui", "gui_agent",
 ]);
 
 let cachedTaskId = null;
@@ -83,7 +83,7 @@ export default {
     });
 
     api.on("after_tool_call", async (event) => {
-      const { toolName, params = {}, error } = event;
+      const { toolName, params = {}, result, error } = event;
       if (SKIP_TOOLS.has(toolName)) return;
 
       const taskId = await getActiveTaskId();
@@ -91,6 +91,25 @@ export default {
 
       const summary = summarize(toolName, params);
       const status = error ? "failed" : "completed";
+
+      // Build input_data from params (truncated to avoid bloat)
+      let inputData = null;
+      if (toolName === "Bash" || toolName === "exec") {
+        inputData = String(params.command ?? "").slice(0, 2000);
+      } else if (params) {
+        const s = JSON.stringify(params);
+        if (s.length > 2 && s !== "{}") inputData = s.slice(0, 2000);
+      }
+
+      // Build output_data from result (truncated)
+      let outputData = null;
+      if (result !== undefined && result !== null) {
+        const s = typeof result === "string" ? result : JSON.stringify(result);
+        if (s.length > 0) outputData = s.slice(0, 3000);
+      }
+      if (error) {
+        outputData = `ERROR: ${String(error).slice(0, 2000)}`;
+      }
 
       try {
         await fetch(`${DETM_BASE}/task_log_action`, {
@@ -101,6 +120,8 @@ export default {
             action_type: "cli",
             summary,
             status,
+            ...(inputData ? { input_data: inputData } : {}),
+            ...(outputData ? { output_data: outputData } : {}),
           }),
         });
       } catch {

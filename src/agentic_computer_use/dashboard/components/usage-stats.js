@@ -5,6 +5,7 @@ const UsageStats = (() => {
   let _container = null;
   let _pollTimer = null;
   let _since = "7";  // days
+  let _taskId = null; // null = global view, string = per-task view
 
   const POLL_MS = 30000;  // refresh every 30s
 
@@ -15,9 +16,16 @@ const UsageStats = (() => {
     _pollTimer = setInterval(_poll, POLL_MS);
   }
 
+  function showTask(taskId) {
+    _taskId = taskId || null;
+    _poll();
+  }
+
   async function _poll() {
     try {
-      const r = await fetch(`/api/usage/stats?since=${_since}`);
+      let url = `/api/usage/stats?since=${_since}`;
+      if (_taskId) url += `&task_id=${encodeURIComponent(_taskId)}`;
+      const r = await fetch(url);
       if (!r.ok) return;
       const data = await r.json();
       _render(data);
@@ -46,10 +54,12 @@ const UsageStats = (() => {
     if (!_container) return;
     const { rows, totals, daily } = data;
 
+    const titleText = _taskId ? `Task Usage (${_taskId.slice(0, 8)})` : "AI API Usage";
     const filterHtml = `
       <div class="usage-filter-row">
-        <span class="usage-title">AI API Usage</span>
-        <select class="usage-since-select">
+        <span class="usage-title">${titleText}</span>
+        ${_taskId ? `<button class="usage-back-btn" title="Show global usage">← All</button>` : ""}
+        <select class="usage-since-select"${_taskId ? ' style="display:none"' : ""}>
           <option value="1" ${_since==="1"?"selected":""}>Today</option>
           <option value="7" ${_since==="7"?"selected":""}>7 days</option>
           <option value="30" ${_since==="30"?"selected":""}>30 days</option>
@@ -80,8 +90,8 @@ const UsageStats = (() => {
       </div>
     `;
 
-    // Cost bar chart (daily)
-    const chartHtml = daily.length > 0 ? _renderChart(daily) : "";
+    // Cost bar chart (daily) — only in global view
+    const chartHtml = (!_taskId && daily.length > 0) ? _renderChart(daily) : "";
 
     // Per-model breakdown table
     const tableHtml = rows.length === 0
@@ -105,10 +115,20 @@ const UsageStats = (() => {
 
     _container.innerHTML = filterHtml + cardsHtml + chartHtml + tableHtml;
 
-    _container.querySelector(".usage-since-select").addEventListener("change", e => {
-      _since = e.target.value;
-      _poll();
-    });
+    const sinceSelect = _container.querySelector(".usage-since-select");
+    if (sinceSelect) {
+      sinceSelect.addEventListener("change", e => {
+        _since = e.target.value;
+        _poll();
+      });
+    }
+    const backBtn = _container.querySelector(".usage-back-btn");
+    if (backBtn) {
+      backBtn.addEventListener("click", () => {
+        _taskId = null;
+        _poll();
+      });
+    }
   }
 
   function _renderRow(r, totalCost) {
@@ -145,5 +165,5 @@ const UsageStats = (() => {
     return `<div class="usage-chart">${bars}</div>`;
   }
 
-  return { init };
+  return { init, showTask };
 })();

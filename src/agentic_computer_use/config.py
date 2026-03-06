@@ -40,6 +40,9 @@ VLLM_MODEL = os.environ.get("ACU_VLLM_MODEL", "ui-tars-1.5-7b")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_VISION_MODEL = os.environ.get("ACU_OPENROUTER_VISION_MODEL", "google/gemini-2.0-flash-lite-001")
 
+# UI-TARS grounding model via OpenRouter (used by gui_agent for precise cursor placement)
+UITARS_OPENROUTER_MODEL = os.environ.get("ACU_UITARS_OPENROUTER_MODEL", "bytedance/ui-tars-1.5-7b")
+
 # UI-TARS local via Ollama (used when no OpenRouter key)
 UITARS_OLLAMA_MODEL = os.environ.get("ACU_UITARS_OLLAMA_MODEL", "0000/ui-tars-1.5-7b")
 UITARS_KEEP_ALIVE = os.environ.get("ACU_UITARS_KEEP_ALIVE", "5m")

@@ -224,46 +224,34 @@ TOOLS = [
         },
     ),
 
-    # ── GUI Agent (grounding layer) ────────────────────────────
+    # ── GUI Agent (unified: Gemini supervisor + UI-TARS grounding) ─
     Tool(
-        name="gui_do",
+        name="gui_agent",
         description=(
-            "Execute a GUI action using a natural language description. "
-            "UI-TARS grounds the description to screen coordinates with iterative narrowing "
-            "(two-pass zoom-in for precision), then executes via xdotool. "
-            "ALWAYS use natural language — never pass raw coordinates here. "
-            "For explicit pixel-level control use desktop_action instead. "
-            "Examples: 'click the Export button', 'double-click the timeline clip', "
-            "'type hello in the search box', 'right-click the project panel'."
+            "AI-powered GUI agent that autonomously completes multi-step UI tasks. "
+            "Uses vision AI to monitor the screen and a specialized grounding model "
+            "for precise cursor placement. Handles clicks, typing, scrolling, drag-and-drop, "
+            "and keyboard shortcuts. Use for any GUI interaction — from single clicks to "
+            "complex multi-step workflows like form filling, navigation, or file management. "
+            "Returns when the task is complete (success/fail) or when the agent escalates."
         ),
         inputSchema={
             "type": "object",
             "properties": {
+                "task_id": {"type": "string", "description": "Link to active task for logging"},
                 "instruction": {
                     "type": "string",
                     "description": (
-                        "Natural language description of what to do. "
-                        "Examples: 'click the Save button', 'double-click the video clip at 0:12', "
-                        "'right-click the Effects panel', 'type Project Name in the filename field'. "
-                        "Do NOT pass coordinates — use desktop_action for that."
+                        "What to accomplish. Be specific and complete. "
+                        "Examples: 'Click the search bar and type hello', "
+                        "'Navigate to Settings > Export and click Export as PDF', "
+                        "'Find the contact named Eddy and send a message saying hello'"
                     ),
                 },
-                "task_id": {"type": "string", "description": "Link action to a task (logged under active plan item)"},
-                "window_name": {"type": "string", "description": "Target window (auto-focused before action)"},
+                "timeout": {"type": "integer", "description": "Max seconds (default 180, max 300)"},
+                "context": {"type": "string", "description": "Extra context (credentials, URLs, prior state)"},
             },
             "required": ["instruction"],
-        },
-    ),
-    Tool(
-        name="gui_find",
-        description="Locate a UI element by natural language description. Returns coordinates without acting. Use to verify element positions before acting.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "description": {"type": "string", "description": "What to find — e.g., 'the Export button', 'the timeline scrubber'"},
-                "window_name": {"type": "string", "description": "Target window to search in"},
-            },
-            "required": ["description"],
         },
     ),
 
@@ -324,52 +312,6 @@ TOOLS = [
             "required": ["prompt"],
         },
     ),
-    # ── Live UI vision/control ──────────────────────────────────
-    Tool(
-        name="live_ui",
-        description=(
-            "Delegate a multi-step UI workflow to a live AI vision model that watches "
-            "the screen and executes actions autonomously (clicks, typing, scrolling, "
-            "key presses). The model sees screenshots as they change and decides what "
-            "to do next — you don't drive each step. "
-            "Use for complex flows: login sequences, multi-page forms, deep menu "
-            "navigation, or any workflow where each step depends on seeing the previous "
-            "result. Returns when done (success/fail) or when the model escalates. "
-            "NOT needed for single-step actions — use desktop_action or gui_do for those."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "Task ID — links this session to the active task log",
-                },
-                "instruction": {
-                    "type": "string",
-                    "description": (
-                        "What to accomplish. Be specific and complete. Examples: "
-                        "'Navigate to Settings > Export and click Export as PDF', "
-                        "'Log in with email user@example.com and the password from context', "
-                        "'Search for energy drink trends on TikTok and screenshot the results page'"
-                    ),
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Max seconds to run before giving up. Default 60, max 300.",
-                    "default": 60,
-                },
-                "context": {
-                    "type": "string",
-                    "description": (
-                        "Extra context for the AI: credentials, brand details, "
-                        "what page is currently open, etc."
-                    ),
-                },
-            },
-            "required": ["instruction"],
-        },
-    ),
-
     Tool(
         name="health_check",
         description="Check if the DETM daemon, vision backends, and system are healthy.",
@@ -434,12 +376,10 @@ ROUTE_MAP = {
     "task_list": ("POST", "/task_list"),
     "health_check": ("GET", "/health"),
     "desktop_action": ("POST", "/desktop_action"),
-    "gui_do": ("POST", "/gui_do"),
-    "gui_find": ("POST", "/gui_find"),
+    "gui_agent": ("POST", "/gui_agent"),
     "desktop_look": ("POST", "/desktop_look"),
     "video_record": ("POST", "/video_record"),
     "mavi_understand": ("POST", "/mavi_understand"),
-    "live_ui": ("POST", "/live_ui"),
     "memory_search": ("POST", "/memory_search"),
     "memory_read": ("POST", "/memory_read"),
     "memory_append": ("POST", "/memory_append"),
