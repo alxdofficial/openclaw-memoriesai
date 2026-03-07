@@ -132,6 +132,8 @@ def frame_to_jpeg(frame: np.ndarray, max_dim: int = None, quality: int = None) -
     max_dim = max_dim or config.FRAME_MAX_DIM
     quality = quality or config.FRAME_JPEG_QUALITY
     img = Image.fromarray(frame)
+    if img.mode == "RGBA":
+        img = img.convert("RGB")
     ratio = max_dim / max(img.size)
     if ratio < 1:
         img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.BILINEAR)

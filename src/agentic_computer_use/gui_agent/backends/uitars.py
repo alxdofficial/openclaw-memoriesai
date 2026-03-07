@@ -1,5 +1,13 @@
-"""UI-TARS backend — dual-mode grounding via OpenRouter (cloud) or Ollama (local)."""
+"""UI-TARS backend — dual-mode grounding via OpenRouter (cloud) or Ollama (local).
+
+Uses the official GROUNDING_DOUBAO prompt from bytedance/UI-TARS.
+With this prompt, UI-TARS outputs coordinates as pixel values in the
+image space it receives.  To map back to original image coordinates:
+    pixel_x = raw_x * (orig_w / jpeg_w)
+    pixel_y = raw_y * (orig_h / jpeg_h)
+"""
 import base64
+import io
 import re
 import httpx
 import logging
@@ -11,6 +19,16 @@ log = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = "bytedance/ui-tars-1.5-7b"
+
+# Official GROUNDING_DOUBAO prompt — exact copy from bytedance/UI-TARS prompt.py.
+# This prompt makes the model output structured `Action: click(point='(x,y)')` with
+# pixel coordinates in the image space.  No Thought/reasoning, just the action.
+_GROUNDING_PROMPT = (
+    "You are a GUI agent. You are given a task and your action history, with "
+    "screenshots. You need to perform the next action to complete the task. "
+    "\n\n## Output Format\n\nAction: ...\n\n\n## Action Space\n"
+    "click(point='<point>x1 y1</point>'')\n\n## User Instruction\n{instruction}"
+)
 
 # Persistent HTTP clients — reused across calls to avoid TLS handshake overhead
 _or_client: httpx.AsyncClient | None = None  # OpenRouter
@@ -59,6 +77,7 @@ class UITARSBackend(GUIAgentBackend):
         self, description: str, screenshot: bytes, image_size: tuple[int, int]
     ) -> GroundingResult | None:
         b64 = base64.b64encode(screenshot).decode()
+        prompt_text = _GROUNDING_PROMPT.format(instruction=description)
         payload = {
             "model": OPENROUTER_MODEL,
             "messages": [
@@ -66,7 +85,7 @@ class UITARSBackend(GUIAgentBackend):
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                        {"type": "text", "text": f"Find the UI element: {description}\nReturn the click coordinates as (x, y) normalized to [0, 1]."},
+                        {"type": "text", "text": prompt_text},
                     ],
                 }
             ],
@@ -89,7 +108,7 @@ class UITARSBackend(GUIAgentBackend):
                 output_tokens=_u.get("completion_tokens", 0),
             )
 
-            coords = _parse_coordinates(text, image_size)
+            coords = _parse_coordinates(text, screenshot, image_size)
             if coords:
                 return GroundingResult(
                     x=coords[0], y=coords[1],
@@ -106,12 +125,13 @@ class UITARSBackend(GUIAgentBackend):
     ) -> GroundingResult | None:
         b64 = base64.b64encode(screenshot).decode()
         model = config.UITARS_OLLAMA_MODEL
+        prompt_text = _GROUNDING_PROMPT.format(instruction=description)
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "user",
-                    "content": f"Find the UI element: {description}\nReturn the click coordinates as (x, y) normalized to [0, 1].",
+                    "content": prompt_text,
                     "images": [b64],
                 }
             ],
@@ -126,7 +146,7 @@ class UITARSBackend(GUIAgentBackend):
             text = data["message"]["content"].strip()
             log.debug(f"Ollama UI-TARS response: {text}")
 
-            coords = _parse_coordinates(text, image_size)
+            coords = _parse_coordinates(text, screenshot, image_size)
             if coords:
                 return GroundingResult(
                     x=coords[0], y=coords[1],
@@ -181,29 +201,68 @@ class UITARSBackend(GUIAgentBackend):
 
 def _parse_coordinates(
     text: str,
-    image_size: tuple[int, int] = (1920, 1080),
+    jpeg_bytes: bytes,
+    orig_size: tuple[int, int] = (1920, 1080),
 ) -> tuple[int, int] | None:
-    """Parse coordinates from model output. Handles (x, y) and <point>x, y</point> formats.
+    """Parse coordinates from UI-TARS output and convert to original image pixels.
 
-    Normalized [0, 1] coordinates are scaled by image_size so callers can pass
-    the actual screenshot dimensions rather than assuming 1920×1080.
+    With the GROUNDING_DOUBAO prompt, UI-TARS outputs pixel coordinates in
+    the image space it received (the JPEG we sent).  We scale proportionally
+    from JPEG dimensions to the original image dimensions.
+
+    Supported output formats:
+      - point='(x,y)' or point='<point>x y</point>' — official GROUNDING format
+      - start_box='(x,y)' — COMPUTER_USE format (also handled)
+      - (x, y) — fallback
     """
-    w, h = image_size
+    from PIL import Image
+    jpeg_w, jpeg_h = Image.open(io.BytesIO(jpeg_bytes)).size
+    orig_w, orig_h = orig_size
 
-    # Try <point>x, y</point> format
-    point_match = re.search(r'<point>\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*</point>', text)
+    raw = _extract_raw_coords(text)
+    if raw is None:
+        return None
+
+    raw_x, raw_y = raw
+
+    # Scale from JPEG pixel space to original image space
+    scale_x = orig_w / jpeg_w
+    scale_y = orig_h / jpeg_h
+    pixel_x = int(raw_x * scale_x)
+    pixel_y = int(raw_y * scale_y)
+
+    # Clamp to image bounds
+    pixel_x = max(0, min(pixel_x, orig_w - 1))
+    pixel_y = max(0, min(pixel_y, orig_h - 1))
+
+    log.debug(f"UI-TARS coords: raw=({raw_x},{raw_y}) jpeg=({jpeg_w}x{jpeg_h}) "
+              f"scale=({scale_x:.2f},{scale_y:.2f}) "
+              f"pixel=({pixel_x},{pixel_y}) orig=({orig_w}x{orig_h})")
+
+    return (pixel_x, pixel_y)
+
+
+def _extract_raw_coords(text: str) -> tuple[float, float] | None:
+    """Extract raw coordinate values from UI-TARS output text."""
+
+    # start_box='(x,y)' or start_box='(x, y)' — official GROUNDING format
+    box_match = re.search(r"start_box='?\((\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\)'?", text)
+    if box_match:
+        return float(box_match.group(1)), float(box_match.group(2))
+
+    # <point>x y</point> — official point format (space-separated)
+    point_match = re.search(r'<point>\s*(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*</point>', text)
     if point_match:
-        x, y = float(point_match.group(1)), float(point_match.group(2))
-        if max(x, y) <= 1.0:
-            x, y = x * w, y * h
-        return (int(x), int(y))
+        return float(point_match.group(1)), float(point_match.group(2))
 
-    # Try (x, y) format
+    # <point>x, y</point> — point format with comma
+    point_match2 = re.search(r'<point>\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*</point>', text)
+    if point_match2:
+        return float(point_match2.group(1)), float(point_match2.group(2))
+
+    # (x, y) — generic fallback
     paren_match = re.search(r'\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)', text)
     if paren_match:
-        x, y = float(paren_match.group(1)), float(paren_match.group(2))
-        if max(x, y) <= 1.0:
-            x, y = x * w, y * h
-        return (int(x), int(y))
+        return float(paren_match.group(1)), float(paren_match.group(2))
 
     return None
