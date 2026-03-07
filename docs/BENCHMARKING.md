@@ -1,11 +1,42 @@
 # DETM Benchmarking Plan
 
-## Objective
+## TL;DR
 
-Establish where DETM stands relative to the state-of-the-art in computer use
-agents. Identify the right benchmarks, collect published baselines (so we don't
-re-run what's already been run), and define exactly what we need to execute
-ourselves.
+DETM uses cheap models (Gemini Flash ~$0.10/M + UI-TARS-7B ~$0.15/M) instead of frontier models ($15-75/M). The question: can smart orchestration (iterative grounding, two-model split, edge detection) close the gap with agents that brute-force it with expensive models?
+
+**Three benchmarks:** OSWorld (369 desktop tasks), ScreenSpot-Pro (1,581 grounding samples), WebArena (137 web tasks).
+
+**Execution order:** ScreenSpot-Pro first (hours, no VMs), then OSWorld (days), then WebArena (stretch).
+
+### Unified Comparison Table
+
+All agents we compare against. **TBR** = to be run by us. **--** = unknown/not planned.
+
+| Agent | Cost | OSWorld (Pass@1) | ScreenSpot-Pro | WebArena Hard | Notes |
+|---|---|---|---|---|---|
+| Human | -- | 72.4% | -- | 78.2% | Ceiling |
+| GPT-5.4 (CU agent) | $$$$ | 75.0% | -- | 67.3% | New SOTA, screenshot-based CU |
+| Claude Opus 4.6 | $$$$$ | 72.7% | -- | 68.0% | Top frontier, published |
+| Claude Sonnet 4.6 | $$$$ | 72.5% | -- | 65.6% | Published |
+| Agent S3 (GPT-5, Pass@1) | $$$$ | 62.6% | -- | -- | Closest arch to DETM, published |
+| Agent S3 (GPT-4o) | $$$ | **TBR** | -- | -- | Controlled baseline, we run this |
+| CoACT-1 | -- | 60.8% | -- | -- | Published |
+| EvoCUA-32B | $$ | 56.7% | -- | -- | Published, 50 steps |
+| UI-TARS-1.5-7B (standalone) | $ | 42.5% | 35.7% | -- | Our grounding model alone |
+| UI-TARS-7B + RegionFocus | $ | -- | 41.2% | -- | Published (arXiv:2505.00684) |
+| **DETM Config B (ours)** | **$** | **TBR** | **41.3%** | -- | **UI-TARS-7B + iterative narrowing** |
+| OpenAI CUA | $$$$ | 38.1% | 23.4% | 58.1% | Published |
+| GPT-4o (bare) | $$ | 5.0% | 0.8% | 42.8% | Floor for frontier models |
+| **DETM @15 steps (ours)** | **$** | **TBR** | **TBR** | **TBR** | **Gemini Flash + UI-TARS-7B** |
+| **DETM @50 steps (ours)** | **$** | **TBR** | -- | -- | **Extended step budget** |
+
+Cost tiers: $ = <$0.01/task, $$ = $0.01-0.10, $$$ = $0.10-0.50, $$$$ = $0.50-2.00, $$$$$ = $2.00+
+
+---
+
+## Additional Technical Detail
+
+Everything below is reference material: benchmark descriptions, agent breakdowns, implementation plans, and methodology.
 
 ---
 
@@ -19,15 +50,16 @@ ourselves.
 
 ---
 
-## Master Comparison Table
+## Per-Benchmark Score Tables
 
-All published scores in one place. DETM rows to be filled in after benchmarking.
+Detailed published scores with step counts, rollout methods, and sources.
 
 ### OSWorld (Desktop Agent -- Primary Benchmark)
 
 | Agent | OSWorld % | Steps | Rollout | Cost Tier | Source |
 |---|---|---|---|---|---|
 | Human | 72.36 | -- | -- | -- | OSWorld paper |
+| GPT-5.4 (CU agent) | 75.0 | -- | -- | $$$$ | OpenAI |
 | Claude Opus 4.6 | 72.7 | -- | Pass@1 | $$$$$ | Anthropic |
 | Claude Sonnet 4.6 | 72.5 | -- | Pass@1 | $$$$ | Anthropic |
 | Agent S3 (GPT-5, bBoN N=10) | 69.9 | 100 | Best-of-10 | $$$$$ | Simular |
@@ -41,22 +73,25 @@ All published scores in one place. DETM rows to be filled in after benchmarking.
 | Claude 3.7 Sonnet | 35.8 | -- | -- | $$$ | Multiple |
 | Agent S2 (Claude 3.7) | 34.5 | 50 | Pass@1 | $$$ | Simular |
 | GPT-4o (bare) | 5.0 | 15 | Pass@1 | $$ | OSWorld paper |
-| **DETM (ours)** | **--** | **15** | **Pass@1** | **$** | **TBD** |
-| **DETM (ours)** | **--** | **50** | **Pass@1** | **$** | **TBD** |
+| **DETM (ours)** | **TBR** | **15** | **Pass@1** | **$** | -- |
+| **DETM (ours)** | **TBR** | **50** | **Pass@1** | **$** | -- |
 
 ### ScreenSpot-Pro (Grounding Accuracy)
 
 | Agent | Accuracy % | Method | Source |
 |---|---|---|---|
 | UI-TARS-1.5 (72B) | 61.6 | End-to-end | ByteDance |
-| UI-TARS-1.5-7B | 49.6 | End-to-end | ByteDance |
+| UI-TARS-1.5-7B | 35.7 | End-to-end | ByteDance |
+| UI-TARS-7B + RegionFocus | 41.2 | Iterative crop-zoom | arXiv:2505.00684 |
+| **DETM Config B (ours)** | **41.3** | **Iterative narrowing (300px+150px)** | **This work** |
 | UI-TARS-72B-DPO (v1) | 38.1 | End-to-end | ByteDance |
 | Claude 3.7 Sonnet | 27.7 | End-to-end | ByteDance comparison |
 | OpenAI CUA | 23.4 | End-to-end | ByteDance comparison |
 | OS-Atlas-7B | 18.9 | End-to-end (baseline) | ScreenSpot-Pro paper |
 | GPT-4o | 0.8 | Direct grounding | ScreenSpot-Pro paper |
-| **DETM iterative narrowing (ours)** | **--** | **3-pass refine** | **TBD** |
-| **UI-TARS-1.5-7B standalone (ours, control)** | **--** | **End-to-end** | **TBD** |
+| **DETM Config A: UI-TARS standalone (ours)** | **TBR** | **Single-shot** | -- |
+| **DETM Config B: +iterative narrowing (ours)** | **TBR** | **3-pass crop-zoom** | -- |
+| **DETM Config C: +convergence loop (ours)** | **TBR** | **Full refinement + cursor overlay** | -- |
 
 ### WebArena Verified Hard (Web Agent)
 
@@ -64,12 +99,13 @@ All published scores in one place. DETM rows to be filled in after benchmarking.
 |---|---|---|
 | Human | 78.24 | WebArena paper |
 | Claude Opus 4.6 | 68.0 | Anthropic |
+| GPT-5.4 (CU agent) | 67.3 | OpenAI |
 | Claude Sonnet 4.6 | 65.6 | Anthropic |
 | Claude Opus 4.5 | 65.3 | Anthropic |
 | OpenAI CUA | 58.1 | OpenAI |
 | Claude 3.7 Sonnet | 52.0 | AgentOccam |
 | GPT-4o (AgentOccam) | 42.8 | WebChoreArena paper |
-| **DETM (ours)** | **--** | **TBD** |
+| **DETM (ours)** | **TBR** | -- |
 
 ---
 
@@ -176,11 +212,17 @@ numbers directly.
 | Claude Sonnet 4.6 | 72.5% | 65.6% | -- | Anthropic announcement |
 | Claude Opus 4.6 | 72.7% | 68.0% | -- | Anthropic; Vellum benchmarks |
 
-#### OpenAI CUA / Operator
+#### OpenAI GPT-5.4 / CUA
 
 | Version | OSWorld | WebArena | ScreenSpot-Pro | Source |
 |---|---|---|---|---|
+| GPT-5.4 (native CU agent) | 75.0% | 67.3% | -- | OpenAI blog |
 | OpenAI CUA (computer-use-preview) | 38.1% | 58.1% | 23.4% | OpenAI; ByteDance comparison |
+
+GPT-5.4 pricing: $2.50/$15.00 per M tokens (input/output). Native computer use
+via screenshot + mouse/keyboard -- same observation mode as DETM. Step budget
+and rollout method (Pass@1 vs best-of-N) not published by OpenAI. Currently the
+top OSWorld score at 75.0%, surpassing human baseline (72.4%).
 
 #### Simular Agent S3
 
@@ -225,14 +267,14 @@ DETM orchestration layer adds on top of raw UI-TARS.
 | Benchmark | Published Score | Source |
 |---|---|---|
 | OSWorld (100 steps) | 42.5% | ByteDance GitHub |
-| ScreenSpot-Pro | 49.6% | ByteDance GitHub |
+| ScreenSpot-Pro | 35.7% | ByteDance GitHub |
 | WebVoyager | 84.8-87.0% | ByteDance GitHub |
 | Online-Mind2Web | 75.8% | ByteDance GitHub |
 
 **How to run:** Via OpenRouter (`bytedance/ui-tars-1.5-7b`) or local
 HuggingFace deployment. OSWorld has an existing UI-TARS integration.
 
-**Decision:** Use published ScreenSpot-Pro number (49.6%). Re-run on OSWorld
+**Decision:** Use published ScreenSpot-Pro number (35.7%). Re-run on OSWorld
 only if our adapter works cleanly, since ByteDance's number (42.5%) was at 100
 steps and we want 15-step and 50-step numbers too.
 
@@ -287,6 +329,7 @@ These have well-established published numbers. We just cite them.
 
 | Agent | OSWorld | WebArena | ScreenSpot-Pro | Notes |
 |---|---|---|---|---|
+| GPT-5.4 (CU agent) | 75.0% | 67.3% | -- | New SOTA, screenshot-based CU |
 | Human | 72.36% | 78.24% | N/A | Reference ceiling |
 | GPT-4o (bare) | 5.0% | 42.8% | 0.8% | Floor for frontier models |
 | GPT-4V | 11.77% | 14.41% | -- | Original WebArena paper |
@@ -319,16 +362,18 @@ When we run DETM on these benchmarks, we report:
 
 ### Phase 1: ScreenSpot-Pro (fastest, highest signal-to-noise)
 - Download dataset from HuggingFace
-- Write evaluation script that runs each sample through our grounding pipeline
-- Compare: UI-TARS-1.5-7B standalone (49.6%) vs DETM iterative narrowing
-- Expected time: 2-4 hours
+- Run three configs through `benchmarks/screenspot_pro/eval.py`:
+  - Config A: UI-TARS standalone (baseline, should reproduce ~35.7%)
+  - Config B: UI-TARS + iterative narrowing (crop-zoom refinement only)
+  - Config C: Full DETM refinement via `_refine_cursor()` with convergence loop + cursor overlay
+- Expected time: 2-4 hours per config at OpenRouter speeds
 
-### Phase 2: OSWorld Setup + Baseline Run
+### Phase 2: OSWorld Setup + Baseline Run (adapter done, Docker pending)
 - Clone OSWorld, build Docker environments
-- Write DETM adapter (bridges OSWorld harness to our daemon HTTP API)
+- DETM adapter already built (`benchmarks/osworld/detm_agent.py`) via callback injection
 - Run UI-TARS-1.5-7B standalone as baseline (verify we reproduce ~42.5%)
 - Run Agent S3 with GPT-4o as baseline
-- Expected time: 1-2 days for setup, 4-8 hours per agent run
+- Expected time: 1-2 days for Docker setup, 4-8 hours per agent run
 
 ### Phase 3: DETM on OSWorld
 - Run DETM through the adapter at 15-step and 50-step budgets
@@ -371,35 +416,37 @@ When we run DETM on these benchmarks, we report:
 
 | Agent | OSWorld | ScreenSpot-Pro | WebArena |
 |---|---|---|---|
+| GPT-5.4 (CU agent) | 75.0% | -- | 67.3% |
 | Human | 72.36% | -- | 78.24% |
 | Claude Opus 4.6 | 72.7% | -- | 68.0% |
 | Claude Sonnet 4.5 | 61.4% | -- | -- |
 | Agent S3 (Pass@1, GPT-5) | 62.6% | -- | -- |
 | Agent S3 (bBoN, GPT-5) | 69.9% | -- | -- |
 | OpenAI CUA | 38.1% | 23.4% | 58.1% |
-| UI-TARS-1.5-7B | 42.5% | 49.6% | -- |
+| UI-TARS-1.5-7B | 42.5% | 35.7% | -- |
 | OS-Atlas-7B | -- | 18.9% | -- |
 | GPT-4o (bare) | 5.0% | 0.8% | 42.8% |
 
 ### Need to Run Ourselves:
 
-| What | Why | Priority |
-|---|---|---|
-| DETM on ScreenSpot-Pro | Measure our grounding pipeline | P0 |
-| DETM on OSWorld (15 + 50 steps) | Primary benchmark number | P0 |
-| Agent S3 w/ GPT-4o on OSWorld | Controlled baseline (same infra) | P1 |
-| UI-TARS-1.5-7B standalone on OSWorld (15 steps) | Ablation baseline | P1 |
-| DETM on WebArena Verified Hard | Web task performance | P2 |
-| Yutori N1 on WebArena via API | Cross-compare browser agent | P3 |
+| What | Why | Priority | Status |
+|---|---|---|---|
+| ScreenSpot-Pro Config A (UI-TARS standalone) | Reproduce 35.7% baseline | P0 | Not yet run |
+| ScreenSpot-Pro Config B (+iterative narrowing) | Ablation: crop-zoom only | P0 | **Done: 41.3% (653/1581)** |
+| ScreenSpot-Pro Config C (+convergence loop) | Full refinement pipeline | P0 | Not yet run |
+| DETM on OSWorld (15 + 50 steps) | Primary benchmark number | P0 | Adapter ready |
+| Agent S3 w/ GPT-4o on OSWorld | Controlled baseline (same infra) | P1 | Not started |
+| UI-TARS-1.5-7B standalone on OSWorld (15 steps) | Ablation baseline | P1 | Not started |
+| DETM on WebArena Verified Hard | Web task performance | P2 | Not started |
+| Yutori N1 on WebArena via API | Cross-compare browser agent | P3 | Not started |
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: ScreenSpot-Pro Evaluation
+### Phase 1: ScreenSpot-Pro Evaluation (code complete, runs pending)
 
-This is the fastest benchmark to implement. No VMs, no Docker, just a static
-dataset + our grounding pipeline.
+No VMs, no Docker, just a static dataset + our grounding pipeline.
 
 #### Dataset
 
@@ -420,43 +467,49 @@ dataset + our grounding pipeline.
 #### What We Run
 
 **Config A: UI-TARS-1.5-7B standalone (baseline)**
-- Send screenshot + instruction directly to UI-TARS via OpenRouter
-- Prompt: "Click on: {instruction}" (UI-TARS native format)
-- Parse output coordinates, normalize to [0,1]
-- Expected: ~49.6% (should reproduce published number)
+- Single API call: screenshot + instruction directly to UI-TARS via OpenRouter
+- Uses `UITARSBackend.ground()` directly
+- Expected: ~35.7% (published baseline for UI-TARS-1.5-7B)
 
-**Config B: DETM iterative narrowing**
-- Send screenshot + instruction through our `_refine_cursor()` pipeline
-- This is the 3-pass iterative narrowing that crops, re-grounds, checks
-  convergence
-- This directly measures the value of our refinement loop
+**Config B: UI-TARS + iterative narrowing (crop-zoom only)**
+- Initial grounding via UI-TARS, then two crop-zoom-reground passes via
+  `_iterative_narrow()` (radii: 300px, 150px)
+- 3 API calls total per sample
+- Tests whether RegionFocus-style crop refinement helps on its own
+- Note: RegionFocus paper already published iterative narrowing results, so
+  this config is mainly for our own ablation rather than a novel claim
 
-**Config C: UI-TARS-1.5-7B + single-pass crop (ablation)**
-- One center crop at predicted location, re-ground once
-- Tests whether iterative narrowing's multiple passes help vs just one
+**Config C: Full DETM refinement (narrowing + convergence with cursor overlay)**
+- Calls `_refine_cursor(target=instruction, display=None, frame=np_array)`
+- Runs the full pipeline: initial grounding, iterative narrowing, then
+  convergence loop where a cursor overlay is drawn on the static image
+  (via `draw_cursor_overlay()`) and re-grounded to verify placement
+- This is the interesting test: Gemini is NOT in the loop for ScreenSpot-Pro
+  (it's a grounding-only benchmark), but the full convergence machinery
+  (cursor overlay + stability check) is exercised
 
-#### Script: `benchmarks/screenspot_pro/eval.py`
+#### Script: `benchmarks/screenspot_pro/eval.py` (implemented)
 
+```bash
+PYTHONPATH=src python3 benchmarks/screenspot_pro/eval.py --config A          # UI-TARS standalone
+PYTHONPATH=src python3 benchmarks/screenspot_pro/eval.py --config B          # +narrowing
+PYTHONPATH=src python3 benchmarks/screenspot_pro/eval.py --config C          # +convergence
+PYTHONPATH=src python3 benchmarks/screenspot_pro/eval.py --config C --limit 10  # smoke test
 ```
-benchmarks/
-  screenspot_pro/
-    eval.py              # main eval script
-    results/             # output JSONs
-    README.md            # how to run
-```
 
-The eval script:
-1. Loads dataset from HuggingFace
-2. For each sample, runs the grounding config
-3. Checks point-in-box
-4. Reports: overall accuracy, per-group, per-application, per-ui_type, per-platform
-5. Saves full results JSON for analysis
+Features:
+- Loads `lmms-lab/ScreenSpot-Pro` from HuggingFace (1,581 samples)
+- Point-in-box accuracy check per sample
+- Reports: overall accuracy, per-group, per-application, per-ui_type, per-platform
+- Resume support (`--resume results/config_C.json`) for interrupted runs
+- Periodic saves every 50 samples to `benchmarks/screenspot_pro/results/`
 
-Expected runtime: ~2-3 hours at OpenRouter speeds (1,581 API calls per config).
+Expected runtime: ~2-3 hours at OpenRouter speeds (1,581 API calls for Config A,
+~4,700 for Config B, variable for Config C depending on convergence rounds).
 
 ---
 
-### Phase 2: OSWorld Setup
+### Phase 2: OSWorld Setup (adapter complete, Docker setup pending)
 
 #### OSWorld Agent Interface
 
@@ -501,38 +554,81 @@ Coordinate space: 1920x1080 by default.
 "WAIT"   # pause
 ```
 
-#### DETM Adapter Design
+#### DETM Adapter Design: Callback Injection (implemented)
 
-The adapter bridges OSWorld's harness to our Gemini supervisor + UI-TARS
-grounding pipeline. Two options:
+Rather than duplicating code or running a daemon, we added optional callback
+parameters directly to our pipeline functions in `openrouter.py`. When
+callbacks are provided, the system operates in "benchmark mode" -- no X11,
+no xdotool. When they're `None`, the existing production code path is
+unchanged.
 
-**Option A: Lightweight adapter (recommended)**
+**Changes to `OpenRouterVLMProvider.run()`:**
 
-Directly call our `gui_agent` logic in-process. No daemon needed.
+Three optional callback parameters:
+
+```python
+async def run(
+    self,
+    instruction, timeout, task_id, display, context="", session=None,
+    # Benchmark mode (all None = production path unchanged):
+    get_screenshot=None,         # () -> (jpeg_b64, cursor_pos | None)
+    execute_override=None,       # (name, args) -> str
+    display_size_override=None,  # (width, height)
+) -> dict:
+```
+
+- `get_screenshot`: replaces `_capture_jpeg_b64()` -- caller provides the frame
+- `execute_override`: replaces `execute_action()` -- caller collects actions
+- `display_size_override`: replaces `_get_display_size()` -- caller sets resolution
+
+**Changes to `_refine_cursor()`:**
+
+```python
+async def _refine_cursor(
+    target, display, session=None, max_rounds=3,
+    frame=None,  # injected screenshot for benchmark mode
+) -> dict:
+```
+
+When `frame` is provided: skips `capture_screen(display)`, skips
+`_smooth_mousemove()`, uses `draw_cursor_overlay(frame.copy(), x, y)` instead
+of `capture_screen_with_cursor(display)`. The convergence loop still works
+identically -- it just draws a synthetic cursor on the provided image instead
+of moving a real one.
+
+**OSWorld adapter (`benchmarks/osworld/detm_agent.py`):**
 
 ```python
 class DETMAgent:
     action_space = "pyautogui"
 
     def predict(self, instruction, obs):
-        screenshot_b64 = base64.b64encode(obs["screenshot"]).decode()
-        # Call Gemini supervisor with screenshot + instruction
-        # Gemini returns high-level action (e.g., "click save button")
-        # UI-TARS grounds it to pixel coordinates
-        # Convert to pyautogui string
-        return response_text, [f"pyautogui.click({x}, {y})"]
+        frame = decode_png(obs["screenshot"])
+        jpeg_b64 = encode_jpeg(frame)
+
+        collected_actions = []
+
+        def get_screenshot():
+            return jpeg_b64, None
+
+        def execute_override(name, args):
+            collected_actions.append(_action_to_pyautogui(name, args))
+            return "ok"
+
+        result = provider.run(
+            instruction=instruction,
+            get_screenshot=get_screenshot,
+            execute_override=execute_override,
+            display_size_override=(w, h),
+            ...
+        )
+        return response_text, collected_actions
 ```
 
-This is cleaner -- avoids network round-trips to daemon, runs everything
-in-process. We import from `src/agentic_computer_use/live_ui/` directly.
-
-**Option B: Daemon adapter (full integration test)**
-
-Run the DETM daemon, have the adapter POST to its HTTP API. More realistic
-but harder to set up inside OSWorld's Docker envs.
-
-We start with Option A for benchmarking, since it tests the same model
-pipeline without infrastructure complexity.
+This runs the full Gemini supervisor + UI-TARS grounding pipeline in-process,
+with no X11, no xdotool, no daemon. The same code path that runs in
+production is exercised -- the only difference is where screenshots come from
+and where actions go.
 
 #### Docker Environment
 
@@ -540,15 +636,14 @@ pipeline without infrastructure complexity.
 git clone https://github.com/xlang-ai/OSWorld
 cd OSWorld
 pip install -r requirements.txt
+```
 
-# Docker provider (needs KVM for nested virtualization)
-python run.py \
-    --provider_name docker \
-    --model detm \
-    --action_space pyautogui \
-    --observation_type screenshot \
-    --max_steps 15 \
-    --result_dir ./results/detm_15step
+To plug DETM into OSWorld's evaluation loop:
+
+```python
+from benchmarks.osworld.detm_agent import DETMAgent
+agent = DETMAgent()
+# Use in OSWorld's run script with agent.predict() / agent.reset()
 ```
 
 Minimum: 16GB RAM, Docker with KVM support. Each task gets a fresh container
@@ -568,17 +663,26 @@ from a base Ubuntu image (~25GB download once).
 - Use GPT-4o as backend (cheaper than GPT-5, gives controlled comparison)
 - Run at 15-step and 50-step
 
-#### File Structure
+#### File Structure (implemented)
 
 ```
 benchmarks/
+  screenspot_pro/
+    eval.py              # ScreenSpot-Pro eval (configs A/B/C)
+    results/             # output JSONs (config_A.json, config_B.json, config_C.json)
   osworld/
-    detm_agent.py        # DETMAgent class (Option A adapter)
-    run_detm.py          # run script (copies OSWorld's run.py pattern)
-    run_baselines.sh     # script to run UI-TARS + Agent S3 baselines
-    results/             # output dirs per agent per step-budget
-    README.md
+    detm_agent.py        # DETMAgent class with callback injection
+    results/             # output dirs per step-budget
+
+src/agentic_computer_use/live_ui/
+    openrouter.py        # Modified: benchmark callbacks on run() and _refine_cursor()
 ```
+
+Files NOT modified (confirmed display-independent):
+- `gui_agent/agent.py` -- `_iterative_narrow()` is pure numpy + API
+- `gui_agent/backends/uitars.py` -- `UITARSBackend.ground()` is pure API
+- `capture/screen.py` -- `draw_cursor_overlay()` and `frame_to_jpeg()` are pure numpy/PIL
+- `live_ui/actions.py` -- production xdotool code, bypassed via `execute_override` callback
 
 ---
 
@@ -612,13 +716,14 @@ DETM's full desktop capabilities).
 
 ## Implementation Timeline
 
-| Week | What | Deliverable |
-|---|---|---|
-| Week 1 | ScreenSpot-Pro eval script + run all configs | Grounding accuracy numbers |
-| Week 2 | OSWorld Docker setup + UI-TARS baseline | Reproduced baseline, working env |
-| Week 3 | DETM adapter + OSWorld run | DETM OSWorld score |
-| Week 4 | Agent S3 baseline + analysis | Full comparison report |
-
+| Week | What | Deliverable | Status |
+|---|---|---|---|
+| Week 1 | ScreenSpot-Pro eval script + run all configs | Grounding accuracy numbers | Config B done (41.3%), A+C pending |
+| Week 1 | OSWorld adapter (callback injection) | DETMAgent class | Done |
+| Week 2 | OSWorld Docker setup + UI-TARS baseline | Reproduced baseline, working env | Not started |
+| Week 3 | DETM OSWorld run (15 + 50 steps) | DETM OSWorld score | Not started |
+| Week 4 | Agent S3 baseline + analysis | Full comparison report | Not started |
+ho
 ---
 
 ## References

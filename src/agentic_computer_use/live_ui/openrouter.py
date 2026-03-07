@@ -337,6 +337,7 @@ async def _refine_cursor(
     display: str,
     session=None,
     max_rounds: int = 3,
+    frame: "np.ndarray | None" = None,
 ) -> dict:
     """Use UI-TARS to position cursor on a target element with iterative refinement.
 
@@ -348,17 +349,25 @@ async def _refine_cursor(
     5. Re-ground same target on new screenshot -- if prediction shifted >30px, follow it
     6. Repeat steps 3-5 up to max_rounds times
 
+    When ``frame`` is provided, operates in benchmark mode: no X11 capture,
+    no xdotool.  Cursor overlay is drawn on the provided frame instead of
+    re-capturing from a live display.
+
     Returns: {"ok": True, "x": final_x, "y": final_y} or {"ok": False, "error": "..."}
     """
+    import numpy as np
     from ..gui_agent.backends.uitars import UITARSBackend
     from ..gui_agent.agent import _iterative_narrow
-    from ..capture.screen import capture_screen, capture_screen_with_cursor, frame_to_jpeg
+    from ..capture.screen import capture_screen, capture_screen_with_cursor, frame_to_jpeg, draw_cursor_overlay
+
+    _benchmark = frame is not None   # benchmark mode — no display interaction
 
     backend = UITARSBackend()
     loop = asyncio.get_event_loop()
 
     # Step 1: Initial grounding on clean screenshot
-    frame = await loop.run_in_executor(None, capture_screen, display)
+    if not _benchmark:
+        frame = await loop.run_in_executor(None, capture_screen, display)
     if frame is None:
         return {"ok": False, "error": "Failed to capture screen"}
 
@@ -381,12 +390,16 @@ async def _refine_cursor(
     CONVERGE_THRESHOLD = 30  # pixels
 
     for round_n in range(max_rounds):
-        # Step 3: Move cursor to predicted position
-        await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
-        await asyncio.sleep(0.05)
+        # Step 3: Move cursor to predicted position (skip in benchmark mode)
+        if not _benchmark:
+            await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
+            await asyncio.sleep(0.05)
 
         # Step 4: Capture screenshot with cursor overlay visible
-        frame2 = await loop.run_in_executor(None, capture_screen_with_cursor, display)
+        if _benchmark:
+            frame2 = draw_cursor_overlay(frame.copy(), x, y)
+        else:
+            frame2 = await loop.run_in_executor(None, capture_screen_with_cursor, display)
         if frame2 is None:
             break
         jpeg2 = await loop.run_in_executor(None, frame_to_jpeg, frame2)
@@ -414,8 +427,9 @@ async def _refine_cursor(
             session.record_grounding(target, grounding_model, refined.x, refined.y, round_n=round_n+1)
         x, y = refined.x, refined.y
 
-    # Final move to ensure cursor is at the last position
-    await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
+    # Final move to ensure cursor is at the last position (skip in benchmark mode)
+    if not _benchmark:
+        await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
 
     # Warn if target is near screen edge (high risk of misclick onto taskbar/panel)
     EDGE_MARGIN = 30
@@ -449,13 +463,20 @@ class OpenRouterVLMProvider(LiveUIProvider):
         display: str,
         context: str = "",
         session=None,
+        # Benchmark mode callbacks (all None = production path unchanged):
+        get_screenshot=None,         # () -> (jpeg_b64: str, cursor_pos: tuple|None)
+        execute_override=None,       # (name: str, args: dict) -> str
+        display_size_override=None,  # (width, height)
     ) -> dict:
         api_key = config.OPENROUTER_API_KEY
         if not api_key:
             return {"error": "OPENROUTER_API_KEY not set", "success": False, "actions_taken": 0}
 
+        _benchmark = get_screenshot is not None
+        _do_execute = execute_override or (lambda name, args: execute_action(name, args, display))
+
         model = config.OPENROUTER_LIVE_MODEL
-        disp_w, disp_h = _get_display_size(display)
+        disp_w, disp_h = display_size_override or _get_display_size(display)
         sid = session.id[:8] if session else "--------"
 
         system_text = _SYSTEM_PROMPT
@@ -476,12 +497,25 @@ class OpenRouterVLMProvider(LiveUIProvider):
         last_usage_data = None
         cursor_x: int | None = None
         cursor_y: int | None = None
+        _current_frame = None  # numpy array of latest screenshot (benchmark mode only)
         messages: list[dict] = [{"role": "system", "content": system_text}]
 
+        def _decode_frame_from_b64(b64: str):
+            """Decode JPEG base64 to numpy array for _refine_cursor benchmark mode."""
+            import io, numpy as np
+            from PIL import Image
+            raw = base64.b64decode(b64)
+            return np.array(Image.open(io.BytesIO(raw)).convert("RGB"))
+
         # First user message: instruction + initial screenshot
-        screenshot_b64, init_cursor = await asyncio.get_running_loop().run_in_executor(
-            None, _capture_jpeg_b64, display, session
-        )
+        if _benchmark:
+            screenshot_b64, init_cursor = get_screenshot()
+        else:
+            screenshot_b64, init_cursor = await asyncio.get_running_loop().run_in_executor(
+                None, _capture_jpeg_b64, display, session
+            )
+        if _benchmark and screenshot_b64:
+            _current_frame = _decode_frame_from_b64(screenshot_b64)
         if init_cursor:
             cursor_x, cursor_y = init_cursor
         user_content: list[dict] = [
@@ -611,7 +645,10 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         if fn_name == "move_to":
                             target_desc = fn_args.get("target", "")
-                            result = await _refine_cursor(target_desc, display, session)
+                            # In benchmark mode, pass current frame so _refine_cursor
+                            # skips X11 capture and draws cursor overlay instead.
+                            _rc_frame = _current_frame if _benchmark else None
+                            result = await _refine_cursor(target_desc, display, session, frame=_rc_frame)
                             if result["ok"]:
                                 action_result = f"ok -- cursor moved to ({result['x']}, {result['y']}){result.get('edge_warning', '')}"
                                 cursor_x, cursor_y = result["x"], result["y"]
@@ -621,55 +658,56 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         elif fn_name == "click":
                             button = fn_args.get("button", "left")
                             if cursor_x is not None:
-                                action_result = execute_action("click", {"x": cursor_x, "y": cursor_y, "button": button}, display)
+                                action_result = _do_execute("click", {"x": cursor_x, "y": cursor_y, "button": button})
                             else:
                                 action_result = "error: no cursor position -- call move_to first"
 
                         elif fn_name == "double_click":
                             if cursor_x is not None:
-                                action_result = execute_action("double_click", {"x": cursor_x, "y": cursor_y}, display)
+                                action_result = _do_execute("double_click", {"x": cursor_x, "y": cursor_y})
                             else:
                                 action_result = "error: no cursor position -- call move_to first"
 
                         elif fn_name == "type_text":
-                            action_result = execute_action("type_text", {"text": fn_args.get("text", "")}, display)
+                            action_result = _do_execute("type_text", {"text": fn_args.get("text", "")})
 
                         elif fn_name == "key_press":
-                            action_result = execute_action("key_press", {"key": fn_args.get("key", "Return")}, display)
+                            action_result = _do_execute("key_press", {"key": fn_args.get("key", "Return")})
 
                         elif fn_name == "scroll":
                             sx = cursor_x if cursor_x is not None else disp_w // 2
                             sy = cursor_y if cursor_y is not None else disp_h // 2
-                            action_result = execute_action("scroll", {
+                            action_result = _do_execute("scroll", {
                                 "x": sx, "y": sy,
                                 "direction": fn_args.get("direction", "down"),
                                 "amount": fn_args.get("amount", 3),
-                            }, display)
+                            })
 
                         elif fn_name == "drag":
-                            from_result = await _refine_cursor(fn_args.get("from_target", ""), display, session)
+                            _rc_frame = _current_frame if _benchmark else None
+                            from_result = await _refine_cursor(fn_args.get("from_target", ""), display, session, frame=_rc_frame)
                             if not from_result["ok"]:
                                 action_result = f"error: could not find drag start: {from_result['error']}"
                             else:
-                                to_result = await _refine_cursor(fn_args.get("to_target", ""), display, session)
+                                to_result = await _refine_cursor(fn_args.get("to_target", ""), display, session, frame=_rc_frame)
                                 if not to_result["ok"]:
                                     action_result = f"error: could not find drag end: {to_result['error']}"
                                 else:
-                                    action_result = execute_action("drag", {
+                                    action_result = _do_execute("drag", {
                                         "start_x": from_result["x"], "start_y": from_result["y"],
                                         "end_x": to_result["x"], "end_y": to_result["y"],
-                                    }, display)
+                                    })
 
                         elif fn_name == "mouse_down":
                             button = fn_args.get("button", "left")
                             if cursor_x is not None:
-                                action_result = execute_action("mouse_down", {"x": cursor_x, "y": cursor_y, "button": button}, display)
+                                action_result = _do_execute("mouse_down", {"x": cursor_x, "y": cursor_y, "button": button})
                             else:
                                 action_result = "error: no cursor position -- call move_to first"
 
                         elif fn_name == "mouse_up":
                             button = fn_args.get("button", "left")
-                            action_result = execute_action("mouse_up", {"button": button}, display)
+                            action_result = _do_execute("mouse_up", {"button": button})
 
                         else:
                             action_result = f"error: unknown tool {fn_name}"
@@ -683,12 +721,18 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         # Settle + screenshot
                         settle = _SETTLE.get(fn_name, 0.08)
-                        await asyncio.sleep(settle)
+                        if not _benchmark:
+                            await asyncio.sleep(settle)
 
                         t_shot0 = asyncio.get_running_loop().time()
-                        screenshot_b64, shot_cursor = await asyncio.get_running_loop().run_in_executor(
-                            None, _capture_jpeg_b64, display, session
-                        )
+                        if _benchmark:
+                            screenshot_b64, shot_cursor = get_screenshot()
+                        else:
+                            screenshot_b64, shot_cursor = await asyncio.get_running_loop().run_in_executor(
+                                None, _capture_jpeg_b64, display, session
+                            )
+                        if _benchmark and screenshot_b64:
+                            _current_frame = _decode_frame_from_b64(screenshot_b64)
                         if shot_cursor:
                             cursor_x, cursor_y = shot_cursor
                         t_shot1 = asyncio.get_running_loop().time()
