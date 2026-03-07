@@ -330,6 +330,233 @@ When we run DETM on these benchmarks, we report:
 
 ---
 
+## Implementation Plan
+
+### Phase 1: ScreenSpot-Pro Evaluation
+
+This is the fastest benchmark to implement. No VMs, no Docker, just a static
+dataset + our grounding pipeline.
+
+#### Dataset
+
+- HuggingFace: `lmms-lab/ScreenSpot-Pro` (1,581 samples, single `train` split)
+- Each sample: `image` (PIL), `instruction` (str), `bbox` [x1,y1,x2,y2] in
+  pixels, `img_size` [width, height], `ui_type` (text/icon), `group`, `application`
+- Resolutions range from 1920x1080 to 6016x3384 (many are 2560x1440+)
+- Targets are tiny (~0.07% of image area on average)
+
+#### Evaluation Logic
+
+```python
+# Ground truth: bbox [x1,y1,x2,y2] in pixel coords, normalize by img_size
+# Prediction: (x, y) in normalized [0,1] coords
+# Pass if: x1/w <= pred_x <= x2/w AND y1/h <= pred_y <= y2/h
+```
+
+#### What We Run
+
+**Config A: UI-TARS-1.5-7B standalone (baseline)**
+- Send screenshot + instruction directly to UI-TARS via OpenRouter
+- Prompt: "Click on: {instruction}" (UI-TARS native format)
+- Parse output coordinates, normalize to [0,1]
+- Expected: ~49.6% (should reproduce published number)
+
+**Config B: DETM iterative narrowing**
+- Send screenshot + instruction through our `_refine_cursor()` pipeline
+- This is the 3-pass iterative narrowing that crops, re-grounds, checks
+  convergence
+- This directly measures the value of our refinement loop
+
+**Config C: UI-TARS-1.5-7B + single-pass crop (ablation)**
+- One center crop at predicted location, re-ground once
+- Tests whether iterative narrowing's multiple passes help vs just one
+
+#### Script: `benchmarks/screenspot_pro/eval.py`
+
+```
+benchmarks/
+  screenspot_pro/
+    eval.py              # main eval script
+    results/             # output JSONs
+    README.md            # how to run
+```
+
+The eval script:
+1. Loads dataset from HuggingFace
+2. For each sample, runs the grounding config
+3. Checks point-in-box
+4. Reports: overall accuracy, per-group, per-application, per-ui_type, per-platform
+5. Saves full results JSON for analysis
+
+Expected runtime: ~2-3 hours at OpenRouter speeds (1,581 API calls per config).
+
+---
+
+### Phase 2: OSWorld Setup
+
+#### OSWorld Agent Interface
+
+OSWorld expects an agent class with:
+
+```python
+class MyAgent:
+    action_space = "pyautogui"  # or "computer_13"
+
+    def predict(self, instruction: str, obs: dict) -> tuple[str, list]:
+        """
+        obs = {
+            "screenshot": bytes,        # raw PNG bytes
+            "accessibility_tree": str,   # XML or None
+            "terminal": str,             # or None
+            "instruction": str
+        }
+        Returns: (response_text, [list of pyautogui code strings])
+        Special actions: "WAIT", "DONE", "FAIL"
+        """
+
+    def reset(self, _logger=None, vm_ip=None, **kwargs):
+        """Called before each task."""
+```
+
+The main loop calls `agent.predict()`, passes each returned action to
+`env.step()`, which executes it on the VM via pyautogui over HTTP.
+
+Coordinate space: 1920x1080 by default.
+
+#### Action Format (pyautogui strings)
+
+```python
+"pyautogui.click(500, 300)"
+"pyautogui.typewrite('hello world')"
+"pyautogui.hotkey('ctrl', 'c')"
+"pyautogui.scroll(-3)"
+"pyautogui.moveTo(100, 200)"
+"pyautogui.dragTo(400, 500, duration=1.0)"
+"DONE"   # task complete
+"FAIL"   # task impossible
+"WAIT"   # pause
+```
+
+#### DETM Adapter Design
+
+The adapter bridges OSWorld's harness to our Gemini supervisor + UI-TARS
+grounding pipeline. Two options:
+
+**Option A: Lightweight adapter (recommended)**
+
+Directly call our `gui_agent` logic in-process. No daemon needed.
+
+```python
+class DETMAgent:
+    action_space = "pyautogui"
+
+    def predict(self, instruction, obs):
+        screenshot_b64 = base64.b64encode(obs["screenshot"]).decode()
+        # Call Gemini supervisor with screenshot + instruction
+        # Gemini returns high-level action (e.g., "click save button")
+        # UI-TARS grounds it to pixel coordinates
+        # Convert to pyautogui string
+        return response_text, [f"pyautogui.click({x}, {y})"]
+```
+
+This is cleaner -- avoids network round-trips to daemon, runs everything
+in-process. We import from `src/agentic_computer_use/live_ui/` directly.
+
+**Option B: Daemon adapter (full integration test)**
+
+Run the DETM daemon, have the adapter POST to its HTTP API. More realistic
+but harder to set up inside OSWorld's Docker envs.
+
+We start with Option A for benchmarking, since it tests the same model
+pipeline without infrastructure complexity.
+
+#### Docker Environment
+
+```bash
+git clone https://github.com/xlang-ai/OSWorld
+cd OSWorld
+pip install -r requirements.txt
+
+# Docker provider (needs KVM for nested virtualization)
+python run.py \
+    --provider_name docker \
+    --model detm \
+    --action_space pyautogui \
+    --observation_type screenshot \
+    --max_steps 15 \
+    --result_dir ./results/detm_15step
+```
+
+Minimum: 16GB RAM, Docker with KVM support. Each task gets a fresh container
+from a base Ubuntu image (~25GB download once).
+
+#### Baseline Runs on OSWorld
+
+**Run 1: UI-TARS-1.5-7B standalone**
+- Use OSWorld's existing `UITARSAgent` from `mm_agents/uitars_agent.py`
+- Point it at OpenRouter's `bytedance/ui-tars-1.5-7b`
+- Run at 15-step and 50-step
+- Verify we reproduce ~42.5% (published at 100 steps)
+
+**Run 2: Agent S3 with GPT-4o**
+- Clone `github.com/simular-ai/Agent-S`, install
+- Write OSWorld integration (Agent S3 has its own env loop, need to adapt)
+- Use GPT-4o as backend (cheaper than GPT-5, gives controlled comparison)
+- Run at 15-step and 50-step
+
+#### File Structure
+
+```
+benchmarks/
+  osworld/
+    detm_agent.py        # DETMAgent class (Option A adapter)
+    run_detm.py          # run script (copies OSWorld's run.py pattern)
+    run_baselines.sh     # script to run UI-TARS + Agent S3 baselines
+    results/             # output dirs per agent per step-budget
+    README.md
+```
+
+---
+
+### Phase 3: WebArena Verified Hard (Stretch Goal)
+
+#### Setup
+
+5 Docker containers:
+- Shopping (Magento): port 7770
+- Shopping Admin: port 7780
+- Reddit (Postmill): port 9999
+- GitLab: port 8023
+- Maps (OpenStreetMap): port 3000
+
+~50-100GB disk for Docker images. 16GB+ RAM.
+
+#### Adapter
+
+Similar to OSWorld adapter but for browser actions. WebArena agents interact
+via Playwright. The DETM adapter would:
+1. Capture browser screenshot
+2. Send to Gemini supervisor
+3. Get action (click, type, scroll)
+4. Ground via UI-TARS
+5. Execute via Playwright
+
+Lower priority than OSWorld since WebArena is browser-only (doesn't test
+DETM's full desktop capabilities).
+
+---
+
+## Implementation Timeline
+
+| Week | What | Deliverable |
+|---|---|---|
+| Week 1 | ScreenSpot-Pro eval script + run all configs | Grounding accuracy numbers |
+| Week 2 | OSWorld Docker setup + UI-TARS baseline | Reproduced baseline, working env |
+| Week 3 | DETM adapter + OSWorld run | DETM OSWorld score |
+| Week 4 | Agent S3 baseline + analysis | Full comparison report |
+
+---
+
 ## References
 
 - OSWorld: https://os-world.github.io / https://github.com/xlang-ai/OSWorld
