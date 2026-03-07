@@ -17,6 +17,8 @@ class GUIAgentBackend(ABC):
         description: str,
         screenshot: bytes,
         image_size: tuple[int, int] = (1920, 1080),
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         """Locate a UI element by natural language description.
 
@@ -27,6 +29,9 @@ class GUIAgentBackend(ABC):
                 scale normalized [0,1] coordinates returned by the model back
                 to pixel space. Pass the actual screen or crop dimensions —
                 do not assume 1920×1080.
+            cursor_pos: If provided, (x, y) pixel coordinates of the current
+                cursor overlay visible in the screenshot. Used during refinement
+                rounds so the model knows what the cursor marker is.
 
         Returns:
             GroundingResult with pixel coordinates, or None if not found.

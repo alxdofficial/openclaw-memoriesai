@@ -11,6 +11,8 @@ class DirectBackend(GUIAgentBackend):
         description: str,
         screenshot: bytes,
         image_size: tuple[int, int] = (1920, 1080),
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         """Direct backend cannot ground NL descriptions — returns None."""
         return None

@@ -54,7 +54,11 @@ Before calling any tool, confirm the target element EXISTS in the current screen
 3. **Act** — call click(), double_click(), type_text(), or key_press() once the cursor is confirmed on target.
 4. **Observe** — check the result in the next screenshot before proceeding.
 
-If the cursor missed, call move_to again with a more specific description.
+If the cursor missed, call move_to again with a more specific description and use the **hint** parameter to give spatial feedback. Look at where the red crosshair landed relative to the intended target and describe the correction needed. Examples:
+- move_to(target="Save button", hint="target is about 30px above where the cursor landed")
+- move_to(target="search bar", hint="cursor landed on the bookmark bar, target is the wider text field just below it")
+- move_to(target="Send button", hint="cursor is on the right button, target is the blue button to its left")
+
 Use type_text after clicking an input field. Use key_press for keyboard shortcuts.
 Use scroll at the current cursor position — move cursor to the scrollable area first if needed.
 
@@ -108,12 +112,13 @@ _TOOLS = [
         "type": "function",
         "function": {
             "name": "move_to",
-            "description": "Move cursor to a UI element. Cursor appears as red circle. Verify placement in next screenshot before clicking.",
+            "description": "Move cursor to a UI element. Cursor appears as red circle. Verify placement in next screenshot before clicking. If the cursor missed on a previous move_to, use 'hint' to tell the grounding model where the target is relative to the current cursor.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     **_THOUGHT_PROP,
                     "target": {"type": "string", "description": "Natural language description of the element to move to"},
+                    "hint": {"type": "string", "description": "Spatial correction hint when retrying a missed move_to. E.g. 'target is about 50px above the current cursor', 'target is to the right of where the cursor landed', 'cursor landed on the wrong button, target is the next button to the left'"},
                 },
                 "required": ["thought", "target"],
             },
@@ -338,6 +343,7 @@ async def _refine_cursor(
     session=None,
     max_rounds: int = 3,
     frame: "np.ndarray | None" = None,
+    hint: str | None = None,
 ) -> dict:
     """Use UI-TARS to position cursor on a target element with iterative refinement.
 
@@ -375,14 +381,16 @@ async def _refine_cursor(
     screen_h, screen_w = frame.shape[:2]
 
     grounding_model = config.UITARS_OPENROUTER_MODEL
-    grounding = await backend.ground(target, jpeg, image_size=(screen_w, screen_h))
+    # If Gemini provided a spatial hint, append it to the target description
+    ground_desc = f"{target} (hint: {hint})" if hint else target
+    grounding = await backend.ground(ground_desc, jpeg, image_size=(screen_w, screen_h))
     if grounding is None:
         if session:
             session.record_grounding(target, grounding_model, 0, 0, round_n=0, error=f"Could not find: {target}")
         return {"ok": False, "error": f"Could not find: {target}"}
 
-    # Step 2: Iterative narrow (RegionFocus-style crop zoom)
-    grounding = await _iterative_narrow(backend, target, frame, grounding, loop)
+    # Step 2: Iterative narrow (RegionFocus-style crop zoom) on clean screenshot
+    grounding = await _iterative_narrow(backend, ground_desc, frame, grounding, loop)
 
     x, y = grounding.x, grounding.y
     if session:
@@ -405,12 +413,12 @@ async def _refine_cursor(
         jpeg2 = await loop.run_in_executor(None, frame_to_jpeg, frame2)
 
         # Step 5: Re-ground same target -- does UI-TARS agree with cursor placement?
-        refined = await backend.ground(target, jpeg2, image_size=(screen_w, screen_h))
+        # Pass cursor position so UI-TARS knows what the red circle overlay is.
+        # No iterative narrowing here — crops of the cursor-overlaid frame would
+        # contain the red circle without context, confusing the model.
+        refined = await backend.ground(target, jpeg2, image_size=(screen_w, screen_h), cursor_pos=(x, y), hint=hint)
         if refined is None:
             break  # keep current position
-
-        # Apply iterative narrow to the refinement too
-        refined = await _iterative_narrow(backend, target, frame2, refined, loop)
 
         dx = abs(refined.x - x)
         dy = abs(refined.y - y)
@@ -645,10 +653,11 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         if fn_name == "move_to":
                             target_desc = fn_args.get("target", "")
+                            move_hint = fn_args.get("hint")
                             # In benchmark mode, pass current frame so _refine_cursor
                             # skips X11 capture and draws cursor overlay instead.
                             _rc_frame = _current_frame if _benchmark else None
-                            result = await _refine_cursor(target_desc, display, session, frame=_rc_frame)
+                            result = await _refine_cursor(target_desc, display, session, frame=_rc_frame, hint=move_hint)
                             if result["ok"]:
                                 action_result = f"ok -- cursor moved to ({result['x']}, {result['y']}){result.get('edge_warning', '')}"
                                 cursor_x, cursor_y = result["x"], result["y"]

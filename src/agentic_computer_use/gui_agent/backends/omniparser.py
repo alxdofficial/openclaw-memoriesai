@@ -185,6 +185,8 @@ class OmniParserBackend(GUIAgentBackend):
         description: str,
         screenshot: bytes,
         image_size: tuple[int, int] = (1920, 1080),
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         loop = asyncio.get_event_loop()
         try:

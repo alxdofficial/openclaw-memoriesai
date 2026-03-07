@@ -38,6 +38,8 @@ class ClaudeCUBackend(GUIAgentBackend):
         description: str,
         screenshot: bytes,
         image_size: tuple[int, int] = (1920, 1080),
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         api_key = config.CLAUDE_API_KEY
         if not api_key:

@@ -30,6 +30,18 @@ _GROUNDING_PROMPT = (
     "click(point='<point>x1 y1</point>'')\n\n## User Instruction\n{instruction}"
 )
 
+# Refinement prompt — used when cursor overlay is visible on the screenshot.
+# Tells UI-TARS what the red circle is and asks it to correct the position.
+_REFINE_PROMPT = (
+    "You are a GUI agent. You are given a task and your action history, with "
+    "screenshots. You need to perform the next action to complete the task. "
+    "\n\nThe red circle with crosshair at ({cursor_x}, {cursor_y}) is the "
+    "current cursor position. It may not be exactly on the target element. "
+    "Click on the precise location of the target element.{hint_text}"
+    "\n\n## Output Format\n\nAction: ...\n\n\n## Action Space\n"
+    "click(point='<point>x1 y1</point>'')\n\n## User Instruction\n{instruction}"
+)
+
 # Persistent HTTP clients — reused across calls to avoid TLS handshake overhead
 _or_client: httpx.AsyncClient | None = None  # OpenRouter
 _ol_client: httpx.AsyncClient | None = None  # Ollama
@@ -68,16 +80,33 @@ class UITARSBackend(GUIAgentBackend):
         description: str,
         screenshot: bytes,
         image_size: tuple[int, int] = (1920, 1080),
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         if self._use_openrouter:
-            return await self._ground_openrouter(description, screenshot, image_size)
-        return await self._ground_ollama(description, screenshot, image_size)
+            return await self._ground_openrouter(description, screenshot, image_size, cursor_pos, hint)
+        return await self._ground_ollama(description, screenshot, image_size, cursor_pos, hint)
 
     async def _ground_openrouter(
-        self, description: str, screenshot: bytes, image_size: tuple[int, int]
+        self, description: str, screenshot: bytes, image_size: tuple[int, int],
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         b64 = base64.b64encode(screenshot).decode()
-        prompt_text = _GROUNDING_PROMPT.format(instruction=description)
+        if cursor_pos:
+            # Convert cursor_pos from original screen space to JPEG pixel space
+            # so the coordinates in the prompt match what UI-TARS sees visually.
+            from PIL import Image
+            jpeg_w, jpeg_h = Image.open(io.BytesIO(screenshot)).size
+            orig_w, orig_h = image_size
+            cx = int(cursor_pos[0] * jpeg_w / orig_w)
+            cy = int(cursor_pos[1] * jpeg_h / orig_h)
+            hint_text = f" Hint: {hint}" if hint else ""
+            prompt_text = _REFINE_PROMPT.format(
+                instruction=description, cursor_x=cx, cursor_y=cy, hint_text=hint_text,
+            )
+        else:
+            prompt_text = _GROUNDING_PROMPT.format(instruction=description)
         payload = {
             "model": OPENROUTER_MODEL,
             "messages": [
@@ -121,11 +150,24 @@ class UITARSBackend(GUIAgentBackend):
             return None
 
     async def _ground_ollama(
-        self, description: str, screenshot: bytes, image_size: tuple[int, int]
+        self, description: str, screenshot: bytes, image_size: tuple[int, int],
+        cursor_pos: tuple[int, int] | None = None,
+        hint: str | None = None,
     ) -> GroundingResult | None:
         b64 = base64.b64encode(screenshot).decode()
         model = config.UITARS_OLLAMA_MODEL
-        prompt_text = _GROUNDING_PROMPT.format(instruction=description)
+        if cursor_pos:
+            from PIL import Image
+            jpeg_w, jpeg_h = Image.open(io.BytesIO(screenshot)).size
+            orig_w, orig_h = image_size
+            cx = int(cursor_pos[0] * jpeg_w / orig_w)
+            cy = int(cursor_pos[1] * jpeg_h / orig_h)
+            hint_text = f" Hint: {hint}" if hint else ""
+            prompt_text = _REFINE_PROMPT.format(
+                instruction=description, cursor_x=cx, cursor_y=cy, hint_text=hint_text,
+            )
+        else:
+            prompt_text = _GROUNDING_PROMPT.format(instruction=description)
         payload = {
             "model": model,
             "messages": [
