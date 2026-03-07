@@ -9,6 +9,70 @@ ourselves.
 
 ---
 
+## Benchmark Descriptions
+
+| Benchmark | What It Measures | Tasks | How It Works | Metric |
+|---|---|---|---|---|
+| **OSWorld** | End-to-end desktop agent capability. Can the agent complete real multi-step tasks on a Linux desktop using mouse, keyboard, and apps? | 369 tasks: Chrome, LibreOffice, GIMP, VS Code, terminal, file mgmt, cross-app workflows | Agent gets dropped into a real Ubuntu VM. Sees only screenshots. Sends mouse/keyboard actions. Eval scripts inspect actual system state (files, configs, app state) after agent finishes. | Success rate (%). Binary pass/fail per task. No partial credit. |
+| **ScreenSpot-Pro** | GUI element grounding accuracy. Given a screenshot and an instruction like "click the save button", can the model predict the right pixel? | 1,581 samples across 23 pro apps (VS Code, Photoshop, AutoCAD, Blender, etc.) on Win/Mac/Linux | Static dataset. Model receives screenshot + instruction, returns (x, y) coordinates. Point-in-box check against ground-truth bounding box. | Click accuracy (%). Binary correct/wrong per sample. |
+| **WebArena Verified Hard** | Web agent task completion. Can the agent accomplish real tasks on self-hosted web applications? | 137 tasks (curated hard subset) across e-commerce, GitLab, Reddit-like forum, CMS, maps | Agent interacts with 5 real web apps running in Docker. Info-seeking tasks checked via string matching. State-changing tasks verified by querying backend DB/API. | Success rate (%). Binary pass/fail per task. |
+
+---
+
+## Master Comparison Table
+
+All published scores in one place. DETM rows to be filled in after benchmarking.
+
+### OSWorld (Desktop Agent -- Primary Benchmark)
+
+| Agent | OSWorld % | Steps | Rollout | Cost Tier | Source |
+|---|---|---|---|---|---|
+| Human | 72.36 | -- | -- | -- | OSWorld paper |
+| Claude Opus 4.6 | 72.7 | -- | Pass@1 | $$$$$ | Anthropic |
+| Claude Sonnet 4.6 | 72.5 | -- | Pass@1 | $$$$ | Anthropic |
+| Agent S3 (GPT-5, bBoN N=10) | 69.9 | 100 | Best-of-10 | $$$$$ | Simular |
+| Claude Opus 4.5 | 66.3 | -- | Pass@1 | $$$$$ | Anthropic |
+| Agent S3 (GPT-5, single) | 62.6 | 100 | Pass@1 | $$$$ | Simular |
+| Claude Sonnet 4.5 | 61.4 | -- | Pass@1 | $$$ | Anthropic |
+| CoACT-1 | 60.76 | -- | -- | -- | OSWorld-Verified |
+| EvoCUA-32B | 56.7 | 50 | Pass@1 | $$ | Meituan |
+| UI-TARS-1.5-7B | 42.5 | 100 | Pass@1 | $ | ByteDance |
+| OpenAI CUA | 38.1 | -- | -- | $$$$ | OpenAI |
+| Claude 3.7 Sonnet | 35.8 | -- | -- | $$$ | Multiple |
+| Agent S2 (Claude 3.7) | 34.5 | 50 | Pass@1 | $$$ | Simular |
+| GPT-4o (bare) | 5.0 | 15 | Pass@1 | $$ | OSWorld paper |
+| **DETM (ours)** | **--** | **15** | **Pass@1** | **$** | **TBD** |
+| **DETM (ours)** | **--** | **50** | **Pass@1** | **$** | **TBD** |
+
+### ScreenSpot-Pro (Grounding Accuracy)
+
+| Agent | Accuracy % | Method | Source |
+|---|---|---|---|
+| UI-TARS-1.5 (72B) | 61.6 | End-to-end | ByteDance |
+| UI-TARS-1.5-7B | 49.6 | End-to-end | ByteDance |
+| UI-TARS-72B-DPO (v1) | 38.1 | End-to-end | ByteDance |
+| Claude 3.7 Sonnet | 27.7 | End-to-end | ByteDance comparison |
+| OpenAI CUA | 23.4 | End-to-end | ByteDance comparison |
+| OS-Atlas-7B | 18.9 | End-to-end (baseline) | ScreenSpot-Pro paper |
+| GPT-4o | 0.8 | Direct grounding | ScreenSpot-Pro paper |
+| **DETM iterative narrowing (ours)** | **--** | **3-pass refine** | **TBD** |
+| **UI-TARS-1.5-7B standalone (ours, control)** | **--** | **End-to-end** | **TBD** |
+
+### WebArena Verified Hard (Web Agent)
+
+| Agent | Success % | Source |
+|---|---|---|
+| Human | 78.24 | WebArena paper |
+| Claude Opus 4.6 | 68.0 | Anthropic |
+| Claude Sonnet 4.6 | 65.6 | Anthropic |
+| Claude Opus 4.5 | 65.3 | Anthropic |
+| OpenAI CUA | 58.1 | OpenAI |
+| Claude 3.7 Sonnet | 52.0 | AgentOccam |
+| GPT-4o (AgentOccam) | 42.8 | WebChoreArena paper |
+| **DETM (ours)** | **--** | **TBD** |
+
+---
+
 ## Benchmarks We Will Run
 
 ### 1. OSWorld (Primary -- Desktop Agent Evaluation)
