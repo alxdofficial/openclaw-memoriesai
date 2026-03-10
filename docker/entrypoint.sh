@@ -23,9 +23,9 @@ if ! xdpyinfo -display :99 &>/dev/null; then
 fi
 echo "[detm] Xvfb ready"
 
-# ── Window manager ─────────────────────────────────────────────────
-echo "[detm] Starting fluxbox"
-DISPLAY=:99 fluxbox &>/dev/null &
+# ── Desktop environment ───────────────────────────────────────────
+echo "[detm] Starting XFCE4 desktop"
+DISPLAY=:99 DBUS_SESSION_BUS_ADDRESS=autolaunch: XDG_SESSION_TYPE=x11 startxfce4 &>/dev/null &
 
 # ── VNC server ─────────────────────────────────────────────────────
 echo "[detm] Starting x11vnc on :5901"

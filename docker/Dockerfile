@@ -6,8 +6,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Python
     python3 python3-venv python3-pip python3-dev \
-    # X11 virtual display + window manager
-    xvfb fluxbox xterm x11-utils \
+    # X11 virtual display + desktop environment
+    xvfb xfce4 xfce4-terminal xfce4-whiskermenu-plugin xterm x11-utils \
     # Desktop control
     xdotool scrot xclip xsel \
     # VNC + web viewer

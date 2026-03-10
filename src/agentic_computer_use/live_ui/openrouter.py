@@ -85,7 +85,9 @@ The grounding model finds elements by your description, so be specific:
 ## When things go wrong
 
 - If the same approach fails twice, try a different one — keyboard shortcut, different menu path, or a URL.
-- Prefer keyboard shortcuts when clicking is unreliable: ctrl+l for address bar, key_press(key="super") to launch apps.
+- Prefer keyboard shortcuts when clicking is unreliable: ctrl+l for address bar, ctrl+alt+t for terminal.
+- To open applications: key_press(key="super") opens the XFCE Whisker Menu (app launcher). Type the app name and press Enter. Or right-click the desktop for a context menu.
+- This is an XFCE4 desktop. The panel is at the bottom with an app menu, task list, and system tray.
 - type_text automatically selects and replaces existing text in the focused field. No need to clear the field manually first.
 - If an element is cut off at the screen edge, scroll it into view before clicking.
 - If you can't reach an element after 3 attempts, try a completely different path to the goal.

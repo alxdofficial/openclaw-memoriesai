@@ -88,7 +88,7 @@ ok "Python: $($PYTHON --version)"
 MISSING_PKGS=()
 command -v xdotool    &>/dev/null || MISSING_PKGS+=("xdotool")
 command -v ffmpeg     &>/dev/null || MISSING_PKGS+=("ffmpeg")
-command -v fluxbox    &>/dev/null || MISSING_PKGS+=("fluxbox")
+command -v xfce4-session &>/dev/null || MISSING_PKGS+=("xfce4" "xfce4-terminal" "xfce4-whiskermenu-plugin" "thunar")
 command -v Xvfb       &>/dev/null || MISSING_PKGS+=("xvfb")
 command -v scrot      &>/dev/null || MISSING_PKGS+=("scrot")
 command -v xdpyinfo   &>/dev/null || MISSING_PKGS+=("x11-utils")
@@ -217,10 +217,10 @@ RestartSec=3
 WantedBy=multi-user.target
 SVCEOF
 
-    # ── Window manager ───────────────────────────────────────
-    sudo tee /etc/systemd/system/detm-fluxbox.service > /dev/null <<SVCEOF
+    # ── Desktop environment (XFCE4) ──────────────────────────
+    sudo tee /etc/systemd/system/detm-desktop.service > /dev/null <<SVCEOF
 [Unit]
-Description=DETM Window Manager (fluxbox)
+Description=DETM Desktop (XFCE4)
 After=detm-xvfb.service
 Requires=detm-xvfb.service
 
@@ -228,7 +228,9 @@ Requires=detm-xvfb.service
 Type=simple
 User=$(whoami)
 Environment=DISPLAY=$DETM_DISPLAY
-ExecStart=/usr/bin/fluxbox
+Environment=DBUS_SESSION_BUS_ADDRESS=autolaunch:
+Environment=XDG_SESSION_TYPE=x11
+ExecStart=/usr/bin/startxfce4
 Restart=on-failure
 RestartSec=3
 
@@ -237,7 +239,7 @@ WantedBy=multi-user.target
 SVCEOF
 
     sudo systemctl daemon-reload
-    for svc in detm-xvfb detm-fluxbox detm-vnc detm-novnc; do
+    for svc in detm-xvfb detm-desktop detm-vnc detm-novnc; do
         sudo systemctl enable "$svc"
         sudo systemctl restart "$svc"
     done
@@ -252,6 +254,43 @@ SVCEOF
 fi
 
 export DISPLAY="$DETM_DISPLAY"
+
+# ─── XFCE defaults ────────────────────────────────────────────────
+# Ensure keyboard shortcuts work (Super → app finder, Ctrl+Alt+T → terminal)
+
+XFCE_KEYS_DIR="$HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
+mkdir -p "$XFCE_KEYS_DIR"
+
+if [ ! -f "$XFCE_KEYS_DIR/xfce4-keyboard-shortcuts.xml" ]; then
+    info "Configuring XFCE keyboard shortcuts..."
+    cat > "$XFCE_KEYS_DIR/xfce4-keyboard-shortcuts.xml" <<'XFCEEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-keyboard-shortcuts" version="1.0">
+  <property name="commands" type="empty">
+    <property name="custom" type="empty">
+      <property name="&lt;Primary&gt;&lt;Alt&gt;t" type="string" value="xfce4-terminal"/>
+      <property name="&lt;Primary&gt;&lt;Alt&gt;Delete" type="string" value="xfce4-session-logout"/>
+      <property name="Super_L" type="string" value="xfce4-popup-whiskermenu"/>
+      <property name="&lt;Super&gt;e" type="string" value="thunar"/>
+      <property name="Print" type="string" value="xfce4-screenshooter"/>
+    </property>
+  </property>
+  <property name="xfwm4" type="empty">
+    <property name="custom" type="empty">
+      <property name="&lt;Alt&gt;F4" type="string" value="close_window_key"/>
+      <property name="&lt;Alt&gt;F9" type="string" value="hide_window_key"/>
+      <property name="&lt;Alt&gt;F10" type="string" value="maximize_window_key"/>
+      <property name="&lt;Alt&gt;Tab" type="string" value="cycle_windows_key"/>
+      <property name="&lt;Super&gt;Up" type="string" value="maximize_window_key"/>
+      <property name="&lt;Super&gt;Down" type="string" value="minimize_window_key"/>
+      <property name="&lt;Super&gt;Left" type="string" value="tile_left_key"/>
+      <property name="&lt;Super&gt;Right" type="string" value="tile_right_key"/>
+    </property>
+  </property>
+</channel>
+XFCEEOF
+    ok "XFCE keyboard shortcuts configured"
+fi
 
 # ─── Python package ──────────────────────────────────────────────
 
