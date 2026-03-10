@@ -96,6 +96,7 @@ command -v x11vnc     &>/dev/null || MISSING_PKGS+=("x11vnc")
 command -v websockify  &>/dev/null || MISSING_PKGS+=("novnc")
 command -v xterm      &>/dev/null || MISSING_PKGS+=("xterm")
 command -v xclip      &>/dev/null || MISSING_PKGS+=("xclip")
+command -v dbus-launch &>/dev/null || MISSING_PKGS+=("dbus-x11")
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
     info "Installing system packages: ${MISSING_PKGS[*]}"
@@ -228,9 +229,8 @@ Requires=detm-xvfb.service
 Type=simple
 User=$(whoami)
 Environment=DISPLAY=$DETM_DISPLAY
-Environment=DBUS_SESSION_BUS_ADDRESS=autolaunch:
 Environment=XDG_SESSION_TYPE=x11
-ExecStart=/usr/bin/startxfce4
+ExecStart=/usr/bin/dbus-run-session /usr/bin/startxfce4
 Restart=on-failure
 RestartSec=3
 

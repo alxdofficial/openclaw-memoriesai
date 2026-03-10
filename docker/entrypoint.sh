@@ -25,7 +25,7 @@ echo "[detm] Xvfb ready"
 
 # ── Desktop environment ───────────────────────────────────────────
 echo "[detm] Starting XFCE4 desktop"
-DISPLAY=:99 DBUS_SESSION_BUS_ADDRESS=autolaunch: XDG_SESSION_TYPE=x11 startxfce4 &>/dev/null &
+DISPLAY=:99 XDG_SESSION_TYPE=x11 dbus-run-session startxfce4 &>/dev/null &
 
 # ── VNC server ─────────────────────────────────────────────────────
 echo "[detm] Starting x11vnc on :5901"
