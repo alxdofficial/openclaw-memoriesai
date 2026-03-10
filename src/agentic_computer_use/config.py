@@ -91,6 +91,9 @@ MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
 STUCK_DETECTION_ENABLED = os.environ.get("ACU_STUCK_DETECTION", "0") in ("1", "true", "yes")
 FRAME_MAX_DIM = int(os.environ.get("ACU_FRAME_MAX_DIM", "960"))  # 960px is sufficient for YES/NO condition checks
 FRAME_JPEG_QUALITY = int(os.environ.get("ACU_FRAME_JPEG_QUALITY", "72"))
+# Grounding needs higher resolution than SmartWait — 1px error at 960px = 2px at 1920px
+GROUNDING_MAX_DIM = int(os.environ.get("ACU_GROUNDING_MAX_DIM", "1920"))
+GROUNDING_JPEG_QUALITY = int(os.environ.get("ACU_GROUNDING_JPEG_QUALITY", "80"))
 # OpenClaw re-encodes images >1200px before forwarding to Claude, causing double-compression.
 # Match that ceiling so images pass through unmodified at our chosen quality.
 DESKTOP_LOOK_MAX_DIM = int(os.environ.get("ACU_DESKTOP_LOOK_DIM", "1200"))

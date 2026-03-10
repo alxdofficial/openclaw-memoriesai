@@ -80,7 +80,10 @@ def execute_action(name: str, args: dict, display: str) -> str:
     if name == "click":
         x, y = int(args["x"]), int(args["y"])
         btn = _MOUSE_BUTTON.get(str(args.get("button", "left")), "1")
+        clicks = int(args.get("clicks", 1))
         _smooth_mousemove(x, y, display)
+        if clicks > 1:
+            return _xdotool(["click", "--repeat", str(clicks), btn], display)
         return _xdotool(["click", btn], display)
 
     if name == "double_click":

@@ -52,6 +52,7 @@ async def _iterative_narrow(
     frame,
     initial: GroundingResult,
     loop,
+    save_callback=None,
 ) -> GroundingResult:
     """Multi-round crop-and-reground for sub-element precision (RegionFocus style).
 
@@ -86,7 +87,7 @@ async def _iterative_narrow(
             break
 
         crop_frame = frame[y1:y2, x1:x2]
-        crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame)
+        crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
 
         refined = await backend.ground(instruction, crop_jpeg, image_size=(crop_w, crop_h))
         if refined is None:
@@ -94,15 +95,30 @@ async def _iterative_narrow(
             break
 
         # Map crop-local coords → full-screen coords
+        new_x = x1 + refined.x
+        new_y = y1 + refined.y
+
+        # Divergence check: if the refined position shifted too far from the
+        # crop center, the initial prediction was too far off for narrowing
+        # to help — the target may be at the edge or outside the crop.
+        shift = ((new_x - x0) ** 2 + (new_y - y0) ** 2) ** 0.5
+        if shift > radius * 0.7:
+            log.warning("Iterative narrowing round %d: prediction shifted %.0fpx (>70%% of %dpx radius), aborting",
+                        round_idx + 1, shift, radius)
+            break
+
         current = GroundingResult(
-            x=x1 + refined.x,
-            y=y1 + refined.y,
+            x=new_x,
+            y=new_y,
             confidence=refined.confidence,
             description=refined.description,
             element_text=refined.element_text,
         )
-        log.debug("Iterative narrowing round %d (radius=%dpx): (%d,%d) → (%d,%d)",
-                  round_idx + 1, radius, initial.x, initial.y, current.x, current.y)
+        log.info("Iterative narrowing round %d (radius=%dpx): crop=(%d,%d)-(%d,%d) raw=(%d,%d) mapped=(%d,%d)",
+                  round_idx + 1, radius, x1, y1, x2, y2, refined.x, refined.y, current.x, current.y)
+
+        if save_callback is not None:
+            save_callback(round_idx, crop_frame, current)
 
     return current
 

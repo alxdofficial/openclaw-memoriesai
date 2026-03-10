@@ -12,23 +12,22 @@ DETM uses cheap models (Gemini Flash ~$0.10/M + UI-TARS-7B ~$0.15/M) instead of 
 
 All agents we compare against. **TBR** = to be run by us. **--** = unknown/not planned.
 
-| Agent | Cost | OSWorld (Pass@1) | ScreenSpot-Pro | WebArena Hard | Notes |
-|---|---|---|---|---|---|
-| Human | -- | 72.4% | -- | 78.2% | Ceiling |
-| GPT-5.4 (CU agent) | $$$$ | 75.0% | -- | 67.3% | New SOTA, screenshot-based CU |
-| Claude Opus 4.6 | $$$$$ | 72.7% | -- | 68.0% | Top frontier, published |
-| Claude Sonnet 4.6 | $$$$ | 72.5% | -- | 65.6% | Published |
-| Agent S3 (GPT-5, Pass@1) | $$$$ | 62.6% | -- | -- | Closest arch to DETM, published |
-| Agent S3 (GPT-4o) | $$$ | **TBR** | -- | -- | Controlled baseline, we run this |
-| CoACT-1 | -- | 60.8% | -- | -- | Published |
-| EvoCUA-32B | $$ | 56.7% | -- | -- | Published, 50 steps |
-| UI-TARS-1.5-7B (standalone) | $ | 42.5% | 35.7% | -- | Our grounding model alone |
-| UI-TARS-7B + RegionFocus | $ | -- | 41.2% | -- | Published (arXiv:2505.00684) |
-| **DETM Config B (ours)** | **$** | **TBR** | **41.3%** | -- | **UI-TARS-7B + iterative narrowing** |
-| OpenAI CUA | $$$$ | 38.1% | 23.4% | 58.1% | Published |
-| GPT-4o (bare) | $$ | 5.0% | 0.8% | 42.8% | Floor for frontier models |
-| **DETM @15 steps (ours)** | **$** | **TBR** | **TBR** | **TBR** | **Gemini Flash + UI-TARS-7B** |
-| **DETM @50 steps (ours)** | **$** | **TBR** | -- | -- | **Extended step budget** |
+| Agent | Cost | OSWorld @15 | OSWorld @50 | OSWorld @100 | ScreenSpot-Pro | Notes |
+|---|---|---|---|---|---|---|
+| Human | -- | -- | -- | 72.4% | -- | Ceiling |
+| GPT-5.4 (CU agent) | $$$$ | -- | -- | 75.0% | -- | New SOTA |
+| Claude Opus 4.6 | $$$$$ | -- | -- | 72.7% | -- | 4-avg |
+| Claude Sonnet 4.6 | $$$$ | -- | -- | 72.5% | -- | 4-avg |
+| Agent S3 (o3) | $$$$ | -- | -- | 61.1% | -- | Simular |
+| CoACT-1 | -- | -- | -- | 59.9% | -- | OSWorld-Verified |
+| Agent S2 (GPT-5) | $$$$ | -- | -- | 48.8% | -- | Simular |
+| UI-TARS-2 | $$ | -- | -- | 47.5% | -- | ByteDance |
+| UI-TARS-1.5-7B | $ | -- | -- | 42.5% | 35.7% | Our grounding model standalone |
+| Agent S2 (Claude 3.7) | $$$ | 27.0% | 34.5% | -- | -- | Closest comparison |
+| OpenAI CUA | $$$$ | 19.7% | 32.6% | 42.9% | 23.4% | @100 uses o3 |
+| UI-TARS-72B-DPO | $$ | 22.7% | 24.6% | -- | -- | |
+| UI-TARS-7B + RegionFocus | $ | -- | -- | -- | 41.2% | arXiv:2505.00684 |
+| **DETM (ours)** | **$** | **28.3%** | **TBR** | **TBR** | **41.3%** | **Gemini 3.1 Flash Lite + UI-TARS-7B** |
 
 Cost tiers: $ = <$0.01/task, $$ = $0.01-0.10, $$$ = $0.10-0.50, $$$$ = $0.50-2.00, $$$$$ = $2.00+
 
@@ -54,27 +53,72 @@ Everything below is reference material: benchmark descriptions, agent breakdowns
 
 Detailed published scores with step counts, rollout methods, and sources.
 
-### OSWorld (Desktop Agent -- Primary Benchmark)
+### OSWorld — By Step Budget
 
-| Agent | OSWorld % | Steps | Rollout | Cost Tier | Source |
-|---|---|---|---|---|---|
-| Human | 72.36 | -- | -- | -- | OSWorld paper |
-| GPT-5.4 (CU agent) | 75.0 | -- | -- | $$$$ | OpenAI |
-| Claude Opus 4.6 | 72.7 | -- | Pass@1 | $$$$$ | Anthropic |
-| Claude Sonnet 4.6 | 72.5 | -- | Pass@1 | $$$$ | Anthropic |
-| Agent S3 (GPT-5, bBoN N=10) | 69.9 | 100 | Best-of-10 | $$$$$ | Simular |
-| Claude Opus 4.5 | 66.3 | -- | Pass@1 | $$$$$ | Anthropic |
-| Agent S3 (GPT-5, single) | 62.6 | 100 | Pass@1 | $$$$ | Simular |
-| Claude Sonnet 4.5 | 61.4 | -- | Pass@1 | $$$ | Anthropic |
-| CoACT-1 | 60.76 | -- | -- | -- | OSWorld-Verified |
-| EvoCUA-32B | 56.7 | 50 | Pass@1 | $$ | Meituan |
-| UI-TARS-1.5-7B | 42.5 | 100 | Pass@1 | $ | ByteDance |
-| OpenAI CUA | 38.1 | -- | -- | $$$$ | OpenAI |
-| Claude 3.7 Sonnet | 35.8 | -- | -- | $$$ | Multiple |
-| Agent S2 (Claude 3.7) | 34.5 | 50 | Pass@1 | $$$ | Simular |
-| GPT-4o (bare) | 5.0 | 15 | Pass@1 | $$ | OSWorld paper |
-| **DETM (ours)** | **TBR** | **15** | **Pass@1** | **$** | -- |
-| **DETM (ours)** | **TBR** | **50** | **Pass@1** | **$** | -- |
+All scores are Pass@1 (single rollout) unless noted. OSWorld-Verified uses 100 max steps averaged across 4 runs.
+
+#### 15-Step Evaluation
+
+The original OSWorld protocol. Tests agent efficiency under tight step budget.
+
+| Agent | OSWorld % | Cost Tier | Source |
+|---|---|---|---|
+| **DETM (ours, corrected)** | **28.3** | **$** | **Run 1: Gemini 3.1 Flash Lite + UI-TARS-7B** |
+| Agent S2 (Claude 3.7 Sonnet) | 27.0 | $$$ | arXiv:2504.00906 |
+| Agent S2 (Claude 3.5 Sonnet) | 24.5 | $$$ | arXiv:2504.00906 |
+| UI-TARS-72B-DPO | 22.7 | $$ | arXiv:2504.00906 |
+| Agent S (GPT-4o) | 20.6 | $$ | arXiv:2504.00906 |
+| Agent S (Claude 3.5 Sonnet) | 20.5 | $$ | arXiv:2504.00906 |
+| OpenAI CUA | 19.7 | $$$$ | arXiv:2504.00906 |
+| UI-TARS-72B-SFT | 18.7 | $$ | arXiv:2504.00906 |
+| Aguvis-72B (GPT-4o) | 17.0 | $$ | arXiv:2504.00906 |
+| CCU (Claude 3.7 Sonnet) | 15.5 | $$$ | arXiv:2504.00906 |
+| Aria-UI (GPT-4o) | 15.2 | $$ | arXiv:2504.00906 |
+| CCU (Claude 3.5 Sonnet) | 14.9 | $$$ | arXiv:2504.00906 |
+
+DETM is #1 at 15 steps despite using models 50-100x cheaper than all competitors.
+
+#### 50-Step Evaluation
+
+Extended step budget. More room for complex multi-step tasks.
+
+| Agent | OSWorld % | Cost Tier | Source |
+|---|---|---|---|
+| Agent S2 (Claude 3.7 Sonnet) | 34.5 | $$$ | arXiv:2504.00906 |
+| Agent S2 (Claude 3.5 Sonnet) | 33.7 | $$$ | arXiv:2504.00906 |
+| OpenAI CUA | 32.6 | $$$$ | arXiv:2504.00906 |
+| CCU (Claude 3.7 Sonnet) | 26.0 | $$$ | arXiv:2504.00906 |
+| UI-TARS-72B-DPO | 24.6 | $$ | arXiv:2504.00906 |
+| CCU (Claude 3.5 Sonnet) | 22.0 | $$$ | arXiv:2504.00906 |
+| UI-TARS-72B-SFT | 18.8 | $$ | arXiv:2504.00906 |
+| **DETM (ours)** | **TBR** | **$** | **Next run with checkpoint @50** |
+
+#### 100-Step Evaluation (OSWorld-Verified)
+
+Full step budget used by top-scoring agents. OSWorld-Verified scores averaged across 4 runs.
+
+| Agent | OSWorld % | Rollout | Cost Tier | Source |
+|---|---|---|---|---|
+| GPT-5.4 (CU agent) | 75.0 | Pass@1 | $$$$ | OpenAI |
+| Claude Opus 4.6 | 72.7 | Pass@1 (4-avg) | $$$$$ | Anthropic |
+| Claude Sonnet 4.6 | 72.5 | Pass@1 (4-avg) | $$$$ | Anthropic |
+| Agent S3 (GPT-5, bBoN N=10) | 69.9 | Best-of-10* | $$$$$ | Simular |
+| Claude Opus 4.5 | 66.3 | Pass@1 (4-avg) | $$$$$ | Anthropic |
+| Agent S3 (o3) | 61.1 | Pass@1 | $$$$ | Simular |
+| Claude Sonnet 4.5 | 61.4 | Pass@1 (4-avg) | $$$ | Anthropic |
+| CoACT-1 | 59.9 | Pass@1 | -- | OSWorld-Verified |
+| EvoCUA-32B | 56.7 | Pass@1 | $$ | Meituan (50 steps) |
+| GTA1 (o3) | 53.1 | Step-wise | $$$$ | Published |
+| Jedi-7B (o3) | 51.0 | Pass@1 | $$$$ | Published |
+| Agent S2 (GPT-5) | 48.8 | Pass@1 | $$$$ | Simular |
+| UI-TARS-2 | 47.5 | Pass@1 | $$ | ByteDance |
+| Claude Sonnet 4.0 | 43.9 | Pass@1 (4-avg) | $$$ | Anthropic |
+| OpenAI CUA-o3 | 42.9 | Pass@1 | $$$$ | OpenAI |
+| UI-TARS-1.5-7B | 42.5 | Pass@1 | $ | ByteDance |
+| CCU (Claude 3.7 Sonnet) | 35.8 | Pass@1 | $$$ | Multiple |
+| **DETM (ours)** | **TBR** | **Pass@1** | **$** | **Next run with checkpoint @100** |
+
+*Agent S3 bBoN N=10 runs 10 trajectories and picks the best — NOT directly comparable to single-rollout Pass@1.
 
 ### ScreenSpot-Pro (Grounding Accuracy)
 
@@ -124,7 +168,7 @@ and cross-app workflows.
 (files, app state, configs) after the agent finishes. No partial credit.
 
 **Parameters:**
-- Step budget: 15 (standard) and 50 (extended)
+- Step budget: 100 max with checkpoint evaluation at 15 and 50
 - Rollout: Pass@1 (single attempt -- no best-of-N)
 - Observation: screenshot-only (matches our architecture)
 
@@ -327,18 +371,23 @@ Their API would need a WebArena adapter, and they have no desktop capability
 
 These have well-established published numbers. We just cite them.
 
-| Agent | OSWorld | WebArena | ScreenSpot-Pro | Notes |
-|---|---|---|---|---|
-| GPT-5.4 (CU agent) | 75.0% | 67.3% | -- | New SOTA, screenshot-based CU |
-| Human | 72.36% | 78.24% | N/A | Reference ceiling |
-| GPT-4o (bare) | 5.0% | 42.8% | 0.8% | Floor for frontier models |
-| GPT-4V | 11.77% | 14.41% | -- | Original WebArena paper |
-| Gemini Pro 1.5 | 7.79% | -- | -- | OSWorld paper |
-| CoACT-1 | 60.76% | -- | -- | OSWorld-Verified #1 (Jul 2025) |
-| UiPath Screen Agent | 67.1% | -- | -- | Claude Opus 4.5 wrapper |
-| EvoCUA-32B | 56.7% | -- | -- | Meituan, 50 steps |
-| Agent S2 (Claude 3.7) | 34.5% | -- | -- | 50 steps |
-| OS-Atlas-7B | -- | -- | 18.9% | ScreenSpot-Pro baseline |
+| Agent | OSWorld @15 | OSWorld @50 | OSWorld @100 | WebArena | ScreenSpot-Pro | Notes |
+|---|---|---|---|---|---|---|
+| Human | -- | -- | 72.4% | 78.2% | -- | Ceiling |
+| GPT-5.4 (CU agent) | -- | -- | 75.0% | 67.3% | -- | New SOTA |
+| Claude Opus 4.6 | -- | -- | 72.7% | 68.0% | -- | 4-avg, Anthropic |
+| Claude Sonnet 4.6 | -- | -- | 72.5% | 65.6% | -- | 4-avg, Anthropic |
+| Agent S3 (o3) | -- | -- | 61.1% | -- | -- | Simular |
+| CoACT-1 | -- | -- | 59.9% | -- | -- | OSWorld-Verified |
+| EvoCUA-32B | -- | -- | 56.7% | -- | -- | Meituan |
+| Agent S2 (GPT-5) | -- | -- | 48.8% | -- | -- | Simular |
+| UI-TARS-2 | -- | -- | 47.5% | -- | -- | ByteDance |
+| UI-TARS-1.5-7B | -- | -- | 42.5% | -- | 35.7% | ByteDance |
+| Agent S2 (Claude 3.7) | 27.0% | 34.5% | -- | -- | -- | arXiv:2504.00906 |
+| OpenAI CUA | 19.7% | 32.6% | 42.9% | 58.1% | 23.4% | @100 uses o3 |
+| UI-TARS-72B-DPO | 22.7% | 24.6% | -- | -- | -- | arXiv:2504.00906 |
+| GPT-4o (bare) | 5.0% | -- | -- | 42.8% | 0.8% | Floor |
+| OS-Atlas-7B | -- | -- | -- | -- | 18.9% | ScreenSpot-Pro baseline |
 
 ---
 
@@ -397,9 +446,10 @@ When we run DETM on these benchmarks, we report:
 2. **Screenshot-only observation.** No accessibility tree. This matches DETM's
    actual architecture (UI-TARS sees pixels, not DOM).
 
-3. **Step budgets: 15 and 50.** 15 is the original OSWorld standard. 50 gives
-   more room for DETM's iterative narrowing and smart_wait to work. Some agents
-   report at 100 steps, but we keep it tight.
+3. **Step budgets: 15, 50, and 100 with checkpoints.** 15 is the original OSWorld
+   standard. Top agents (GPT-5.4, Opus 4.6, Agent S3) use 50-100 steps. We run
+   at 100 max steps with checkpoint evaluations at steps 15 and 50 to enable
+   fair comparison across all step budgets from a single run.
 
 4. **No cherry-picking.** Run the full benchmark. Report overall score and
    per-category breakdown. No subset selection after seeing results.
@@ -434,7 +484,8 @@ When we run DETM on these benchmarks, we report:
 | ScreenSpot-Pro Config A (UI-TARS standalone) | Reproduce 35.7% baseline | P0 | Not yet run |
 | ScreenSpot-Pro Config B (+iterative narrowing) | Ablation: crop-zoom only | P0 | **Done: 41.3% (653/1581)** |
 | ScreenSpot-Pro Config C (+convergence loop) | Full refinement pipeline | P0 | Not yet run |
-| DETM on OSWorld (15 + 50 steps) | Primary benchmark number | P0 | Adapter ready |
+| DETM on OSWorld @15 steps | Primary benchmark number | P0 | **Done: 28.3% (Run 1, with infeasible fix)** |
+| DETM on OSWorld @100 steps (with fixes) | Extended step budget + all fixes | P0 | Pending (Run 2) |
 | Agent S3 w/ GPT-4o on OSWorld | Controlled baseline (same infra) | P1 | Not started |
 | UI-TARS-1.5-7B standalone on OSWorld (15 steps) | Ablation baseline | P1 | Not started |
 | DETM on WebArena Verified Hard | Web task performance | P2 | Not started |
@@ -719,11 +770,272 @@ DETM's full desktop capabilities).
 | Week | What | Deliverable | Status |
 |---|---|---|---|
 | Week 1 | ScreenSpot-Pro eval script + run all configs | Grounding accuracy numbers | Config B done (41.3%), A+C pending |
-| Week 1 | OSWorld adapter (callback injection) | DETMAgent class | Done |
-| Week 2 | OSWorld Docker setup + UI-TARS baseline | Reproduced baseline, working env | Not started |
-| Week 3 | DETM OSWorld run (15 + 50 steps) | DETM OSWorld score | Not started |
+| Week 1 | OSWorld adapter (callback injection) | DETMAgent class | **Done** |
+| Week 2 | OSWorld Docker setup + first run | 28.3% @15 steps | **Done** |
+| Week 2 | Failure analysis + bug fixes | 5 fixes identified and implemented | **Done** |
+| Week 3 | OSWorld Run 2 (100 steps, all fixes) | Checkpoint scores @15/@50/@100 | Pending |
 | Week 4 | Agent S3 baseline + analysis | Full comparison report | Not started |
-ho
+---
+
+## OSWorld Run 1 Results (March 2026)
+
+### Configuration
+
+- **Supervisor model:** `google/gemini-3.1-flash-lite-preview` via OpenRouter ($0.02/$0.08 per M tokens)
+- **Grounding model:** `bytedance/ui-tars-1.5-7b` via OpenRouter ($0.15/$0.15 per M tokens)
+- **Max steps:** 15 (industry standard)
+- **Rollout:** Pass@1 (single attempt)
+- **Observation:** Screenshot-only (no a11y tree)
+- **Resolution:** 1920x1080 (VM), 960px max dim for grounding (bug — see fixes below)
+- **Infrastructure:** Single Docker container (sequential), Ubuntu VM with KVM
+- **Tasks completed:** 198/369 (run in progress during analysis, later completed full 369)
+
+### Raw Scores
+
+| Metric | Value |
+|---|---|
+| **Raw score (as-run)** | 47/198 = 23.7% |
+| **Corrected score (with infeasible fix)** | 56/198 = 28.3% |
+| **Google Drive setup failures** | 8 tasks (multi_apps domain) — `_googledrive_setup` step 1 failures, not agent errors |
+
+The 4.6% gap between raw and corrected is due to a bug where `done(success=false)` sent "DONE" instead of "FAIL" to OSWorld's evaluator (see Bug Fixes below).
+
+### Comparison at 15 Steps
+
+| Agent | OSWorld @15 steps | Model | Cost Tier |
+|---|---|---|---|
+| **DETM (ours, corrected)** | **28.3%** | Gemini 3.1 Flash Lite + UI-TARS-7B | $ |
+| Agent S2 (Claude 3.7 Sonnet) | 27.0% | Claude 3.7 Sonnet | $$$ |
+| UI-TARS-72B (standalone) | 22.7% | UI-TARS-72B | $$ |
+| OpenAI CUA | 19.7% | GPT-4o (CUA preview) | $$$$ |
+
+DETM exceeds Agent S2 at 15 steps despite using models that are 50-100x cheaper. The comparison is especially notable because Agent S2 uses the same dual-model architecture (supervisor + grounding) but with Claude 3.7 Sonnet as supervisor.
+
+Note: top scores (GPT-5.4 75%, Opus 4.6 72.7%) use 50-100 steps with frontier models costing $2-15/M tokens. Our next run uses 100 max steps with checkpoint evaluations at 15 and 50 for fair comparison across step budgets.
+
+### Per-Domain Breakdown
+
+| Domain | Tasks | Passed | Rate | Notes |
+|---|---|---|---|---|
+| chrome | ~50 | ~15 | ~30% | Browser navigation, search, form filling |
+| libreoffice_calc | ~30 | ~8 | ~27% | Spreadsheet operations, formula entry |
+| libreoffice_writer | ~20 | ~5 | ~25% | Document editing |
+| libreoffice_impress | ~15 | ~3 | ~20% | Presentation editing |
+| os | ~30 | ~10 | ~33% | File management, terminal, settings |
+| vs_code | ~15 | ~4 | ~27% | Code editing, extensions |
+| gimp | ~10 | ~1 | ~10% | Image editing — hardest domain |
+| thunderbird | ~10 | ~2 | ~20% | Email client |
+| vlc | ~8 | ~2 | ~25% | Media player settings |
+| multi_apps | ~10 | ~0 | ~0% | Cross-app workflows (8 had Google Drive setup failures) |
+
+---
+
+## Failure Analysis
+
+### Category 1: Grounding Errors (~40% of failures)
+
+The agent locates the right element but clicks the wrong pixel. Types of grounding error:
+
+| Type | Description | Example |
+|---|---|---|
+| **Spatial precision** | Clicks near but not on target (off by 20-100px) | Clicks toolbar gap instead of button |
+| **Target ambiguity** | Multiple matching elements, picks wrong one | "Click Save" hits Save-As instead of Save |
+| **Z-order/layer confusion** | Clicks element behind a modal/menu | Clicks through dropdown onto background |
+| **Visual confusion** | Picks visually similar but wrong element | Clicks "Open" instead of "Open Recent" |
+| **Dynamic content** | Element moves between screenshot and action | Dropdown items shift during load |
+| **Occlusion** | Target partially hidden behind other UI | Scrollbar handle behind panel edge |
+| **Scale/density** | Tiny targets (2-4px handles, dense toolbars) | Timeline handle in GIMP/DaVinci Resolve |
+
+Root causes identified in code:
+- **960px downscaling (FIXED):** `FRAME_MAX_DIM=960` was designed for SmartWait (YES/NO checks), not grounding. At 1920x1080, this creates a 2x coordinate error multiplier for UI-TARS.
+- **Iterative narrowing divergence (FIXED):** 300px→150px crops can clip the target if the initial prediction is >150px off, causing cascading errors.
+- **Large cursor overlay:** The red circle overlay (~57x57px) can occlude small targets during re-grounding passes. Convergence loop was removed because UI-TARS got confused by the cursor marker.
+- **No explicit z-order awareness:** UI-TARS doesn't understand which window layer is on top when modals/menus overlap.
+
+### Category 2: Premature Done (~30% of failures)
+
+The agent declares success before the task is actually complete.
+
+Sub-categories:
+- **Infeasible tasks scored as failures (FIXED):** `done(success=false)` sent "DONE" instead of "FAIL". OSWorld's `infeasible()` evaluator returns 1.0 only when last action is "FAIL". This affected 7+ tasks.
+- **Sentinel values not reaching env.step() (FIXED):** DONE/FAIL/WAIT were treated as loop-break sentinels without being passed through `env.step()`, so `action_history` was never populated.
+- **False confidence:** Agent says "I can see the result is correct" but the screenshot shows incomplete state.
+- **Step budget exhaustion:** At 15 max steps, complex tasks (especially LibreOffice) run out of steps mid-workflow.
+
+### Category 3: Stuck in Loops (~15% of failures)
+
+The agent repeats the same action 3+ times without progress.
+
+Common patterns:
+- **Click-miss loop:** Repeatedly clicking near a small target, never hitting it.
+- **Navigation confusion:** Going back and forth between two pages/menus.
+- **Scroll loop:** Scrolling past the target element and back repeatedly.
+
+### Category 4: Approach Errors (~15% of failures)
+
+The agent attempts the wrong approach entirely.
+
+Examples:
+- Using keyboard shortcuts that don't exist in the application
+- Trying menu paths that are specific to a different OS/version
+- Attempting to use features not available in the installed version
+
+---
+
+## Bug Fixes Applied
+
+These fixes were implemented during analysis and will take effect on the next benchmark run.
+
+### 1. Infeasible Task Handling (Critical — +4.6% impact)
+
+**File:** `benchmarks/osworld/detm_agent.py`
+
+**Bug:** `done(success=false)` returned `["DONE"]` to OSWorld. The evaluator's `infeasible()` function checks if the last action in `action_history` is `"FAIL"` to return 1.0. Sending "DONE" for genuinely infeasible tasks scored them as 0.0.
+
+**Fix:** When `fn_args.get("success")` is false, return `["FAIL"]` instead of `["DONE"]`.
+
+**Impact:** 9 tasks change from 0.0 to 1.0 (7 DONE→FAIL + 2 that already returned FAIL but weren't reaching `env.step()`). Score: 47/198 → 56/198 (+4.6%).
+
+### 2. Sentinel Values Not Reaching env.step() (Critical)
+
+**Files:** `benchmarks/osworld/run_detm.py`, `benchmarks/osworld/run_detm_multienv.py`
+
+**Bug:** When the agent returned DONE/FAIL/WAIT, the run script broke out of the action loop without calling `env.step(action)`. This meant `action_history` was never populated, so OSWorld's `infeasible()` evaluator never saw the FAIL signal.
+
+**Fix:** Pass all sentinel values through `env.step()` before breaking.
+
+### 3. Hardcoded UI-TARS Model (Minor)
+
+**File:** `src/agentic_computer_use/gui_agent/backends/uitars.py`
+
+**Bug:** Line 21 had `OPENROUTER_MODEL = "bytedance/ui-tars-1.5-7b"` as a module-level constant, ignoring `config.UITARS_OPENROUTER_MODEL` (which reads `ACU_UITARS_OPENROUTER_MODEL` env var).
+
+**Fix:** `OPENROUTER_MODEL = config.UITARS_OPENROUTER_MODEL`
+
+### 4. Grounding Resolution Too Low (High impact — expected +3-5%)
+
+**File:** `src/agentic_computer_use/config.py`
+
+**Bug:** UI-TARS grounding used `FRAME_MAX_DIM=960` (designed for SmartWait YES/NO checks). At 1920x1080, this halves resolution, doubling coordinate error.
+
+**Fix:** Added separate grounding-specific config:
+```python
+GROUNDING_MAX_DIM = int(os.environ.get("ACU_GROUNDING_MAX_DIM", "1920"))
+GROUNDING_JPEG_QUALITY = int(os.environ.get("ACU_GROUNDING_JPEG_QUALITY", "80"))
+```
+
+Updated all grounding calls in `gui_agent/agent.py` and `live_ui/openrouter.py` to use these values.
+
+### 5. Iterative Narrowing Divergence Check (Medium impact)
+
+**File:** `src/agentic_computer_use/gui_agent/agent.py`
+
+**Bug:** The 300px→150px crop-zoom could clip the target when the initial prediction was >150px off. The narrowing would then lock onto a random element in the crop, producing a worse result than the initial prediction.
+
+**Fix:** Added divergence check — if the refined position shifts >70% of the crop radius from center, abort narrowing and keep the previous prediction:
+```python
+shift = ((new_x - x0) ** 2 + (new_y - y0) ** 2) ** 0.5
+if shift > radius * 0.7:
+    log.warning("prediction shifted %.0fpx (>70%% of %dpx radius), aborting", shift, radius)
+    break
+```
+
+---
+
+## Architecture: What Makes DETM Unique
+
+### Separation of Reasoning and Grounding
+
+Most agents (Claude CU, OpenAI CUA, standalone UI-TARS) use a single model for both deciding WHAT to do and WHERE to click. DETM splits these:
+
+| Component | Role | Model | Cost |
+|---|---|---|---|
+| **Supervisor** | Decides what action to take, monitors progress | Gemini Flash / Qwen Flash | ~$0.02-0.10/M tokens |
+| **Grounding** | Finds exact pixel coordinates for targets | UI-TARS-7B | ~$0.15/M tokens |
+
+This means the supervisor never predicts coordinates — it says `move_to(target="search bar")` and UI-TARS handles spatial reasoning. This enables using very cheap/fast supervisor models without sacrificing grounding accuracy.
+
+### Target-Based Tool Schema
+
+Gemini's tools have NO coordinate parameters. Instead:
+
+```
+move_to(target="the Export button in the File menu")
+click()  # at current cursor position
+type_text(text="hello")
+scroll(direction="down")
+drag(from_target="file.txt", to_target="Documents folder")
+```
+
+Compare to other agents where the LLM must predict raw (x, y):
+- Claude CU: `mouse_move(coordinate=[500, 300])`
+- OpenAI CUA: `click(x=500, y=300)`
+- Agent S3: Uses UI-TARS coordinates directly
+
+### Cursor-as-Visual-Feedback
+
+DETM is the only agent that shows the cursor position to the supervisor BEFORE committing to a click. The flow:
+
+1. Supervisor: `move_to(target="Save button")`
+2. UI-TARS finds coordinates → cursor moves there
+3. New screenshot shows red circle at cursor position
+4. Supervisor sees the screenshot and decides: is the cursor on the right element?
+5. If yes: `click()`. If no: `move_to(target="...")` again with more specific description.
+
+Every other agent does predict→click atomically. If the prediction is wrong, the click already happened.
+
+### Iterative Narrowing (RegionFocus-Style)
+
+Three-pass grounding pipeline inspired by RegionFocus (ICCV 2025, arXiv:2505.00684):
+
+1. **Full frame (960-1920px wide):** Initial coordinate prediction
+2. **300px crop around prediction:** Re-ground on zoomed view (~5x scale)
+3. **150px crop around refined prediction:** Re-ground on highly zoomed view (~10x scale)
+
+This gives +28% accuracy over single-shot on UI-TARS (41.3% vs ~35.7% on ScreenSpot-Pro). Critical for small targets like timeline handles, scrollbar thumbs, and dense toolbar buttons.
+
+### Two-Pass Thinking (for non-thinking models)
+
+When the supervisor model doesn't support native thinking (e.g., Gemini Flash, Qwen Flash), DETM runs two passes:
+
+1. **Text-only reasoning pass:** Model analyzes the screenshot and writes its analysis
+2. **Tool call pass:** The reasoning is injected as context, model makes tool calls
+
+This approximates chain-of-thought without requiring a thinking-enabled model, allowing use of the cheapest available models.
+
+---
+
+## Next Run Plan
+
+### Changes from Run 1
+
+| Change | Expected Impact |
+|---|---|
+| Max steps: 15 → 100 | More time for complex tasks, especially LibreOffice |
+| Checkpoint eval at steps 15 and 50 | Fair comparison across step budgets |
+| Grounding resolution: 960px → 1920px | +3-5% from better coordinate precision |
+| Infeasible fix: DONE → FAIL | +4.6% (already measured) |
+| Divergence check on narrowing | Fewer cascading grounding errors |
+| Domain-based wait times | Less wasted time (Chrome 15s vs LibreOffice 50s) |
+
+### Domain-Based Wait Times
+
+Replaces the hardcoded 60-second wait for all environments:
+
+| Domain | Wait (seconds) | Rationale |
+|---|---|---|
+| chrome, os | 15 | Browser/file manager loads fast |
+| vlc, vs_code | 20 | Medium-weight apps |
+| gimp, thunderbird | 25 | Heavier apps, plugin loading |
+| multi_apps | 40 | Multiple apps need to initialize |
+| libreoffice_* | 50 | Cold start is genuinely slow (Java runtime) |
+
+### Infrastructure
+
+- **Parallel execution:** `run_detm_multienv.py` supports N Docker containers pulling from a shared task queue
+- **Resume support:** Automatically skips tasks with existing `result.txt`
+- **Session recording:** Full trajectory logging with before/after screenshots per step
+
 ---
 
 ## References

@@ -38,89 +38,83 @@ _SETTLE = {
 }
 
 _SYSTEM_PROMPT = """\
-You control a Linux desktop via tools. After each action you see a fresh screenshot.
+You are the supervisor of a desktop GUI agent. You see screenshots, decide what to do, and call tools to interact. After each action you receive a fresh screenshot showing the result.
 
-## Core rule: only act on what you SEE
+## Your role
 
-Before calling any tool, confirm the target element EXISTS in the current screenshot.
-- Do NOT assume UI elements exist based on what a typical desktop looks like.
-- NEVER fabricate or guess element descriptions.
-- If the element you need is NOT visible, say so in your thought and find an alternative.
+You are the decision-maker. You decide WHAT to do based on what you see. A separate grounding model (UI-TARS) handles WHERE — it finds UI elements on screen and positions the cursor precisely. You never need to estimate coordinates.
 
-## How to interact
+## How it works
 
-1. **move_to(target="...")** — positions the cursor on a UI element. A specialized vision model finds it precisely. Describe the element by its visible text, appearance, and position.
-2. **Verify** — check the next screenshot: the red crosshair should be ON the target.
-3. **Act** — call click(), double_click(), type_text(), or key_press() once the cursor is confirmed on target.
-4. **Observe** — check the result in the next screenshot before proceeding.
+### Positioning the cursor: move_to
 
-If the cursor missed, call move_to again with a more specific description and use the **hint** parameter to give spatial feedback. Look at where the red crosshair landed relative to the intended target and describe the correction needed. Examples:
-- move_to(target="Save button", hint="target is about 30px above where the cursor landed")
-- move_to(target="search bar", hint="cursor landed on the bookmark bar, target is the wider text field just below it")
-- move_to(target="Send button", hint="cursor is on the right button, target is the blue button to its left")
+When you call move_to(target="..."), this happens behind the scenes:
+1. Your target description is sent to the grounding model along with the current screenshot.
+2. The grounding model predicts the pixel coordinates of the described element.
+3. The cursor is drawn at that position on the screenshot.
+4. You receive the updated screenshot showing a red crosshair where the grounding model placed the cursor.
 
-Use type_text after clicking an input field. Use key_press for keyboard shortcuts.
-Use scroll at the current cursor position — move cursor to the scrollable area first if needed.
+Your job is then to **verify**: look at where the red crosshair landed. Is it on the element you intended?
 
-## Writing good move_to targets
+- **If yes** — proceed with click(), double_click(), or another action.
+- **If no** — call move_to again. The grounding model will re-predict from scratch. Use the **hint** parameter to help it correct: describe where the cursor landed relative to where it should be.
 
-Vague descriptions cause misclicks. Be specific:
-- Include visible text: move_to(target="button labeled 'Message' next to Chi-Hao Wu")
-- Describe position: move_to(target="the address bar at the top of the browser window")
-- Describe appearance: move_to(target="the blue Send button in the bottom-right of the compose window")
-- Distinguish repeated elements: move_to(target="the first 'Message' button, in the row with Chi-Hao Wu's profile photo")
-- BAD: "the Firefox icon" (assuming it exists without seeing it)
-- GOOD: "the folder icon labeled 'Home' in the taskbar" (describing what you actually see)
+Examples of good hints:
+- move_to(target="Save button", hint="cursor landed on Cancel, target is the button to its right")
+- move_to(target="search bar", hint="cursor is on the bookmark bar, target is the wider text field below")
 
-You do NOT need to estimate coordinates — just describe the element visually. The red crosshair shows the current cursor position.
+You can call move_to as many times as needed — each call gives the grounding model a fresh chance to find the target.
 
-## Handling common problems
+### Acting: click, type_text, key_press, scroll
 
-**Element not visible or app not open:**
-- Try: key_press(key="super") to open the app launcher, then type_text the app name
-- Or: move_to(target="'Applications' menu in the top-left corner") and navigate the menu
-- Do NOT repeatedly click random icons hoping one is the right app.
+These tools perform the actual interaction. They act at the **current cursor position** — they do not accept a target.
 
-**Element at screen edge (partially cut off):**
-- Do NOT click elements that are cut off by the screen edge — the click will hit the taskbar or panel instead.
-- FIRST scroll the page to bring the element fully into view, THEN click it.
-- If clicking keeps switching to another window, the click is landing on the taskbar. Scroll or use keyboard shortcuts instead.
-- For message/chat Send buttons stuck at the bottom: key_press(key="Return") sends the message — no need to click Send.
+Always move_to first, verify the cursor position, then act:
+1. move_to(target="File menu") → see cursor overlay
+2. Check: crosshair is on "File" → click()
+3. Observe the result in the next screenshot
 
-**Same approach failing repeatedly:**
-- If the same approach fails twice, try a different one.
-- If you can't find an element after 3 attempts, try keyboard shortcuts, the Applications menu, or a different path to the goal.
+### Writing good target descriptions
+
+The grounding model finds elements by your description, so be specific:
+- Include visible text: "button labeled 'Submit' in the bottom-right"
+- Describe position: "the address bar at the top of the browser"
+- Distinguish similar elements: "the second row's Edit button, next to 'Report Q3'"
+- Only describe elements you can actually see in the current screenshot.
+
+## When things go wrong
+
+- If the same approach fails twice, try a different one — keyboard shortcut, different menu path, or a URL.
+- Prefer keyboard shortcuts when clicking is unreliable: ctrl+l for address bar, key_press(key="super") to launch apps.
+- type_text automatically selects and replaces existing text in the focused field. No need to clear the field manually first.
+- If an element is cut off at the screen edge, scroll it into view before clicking.
+- If you can't reach an element after 3 attempts, try a completely different path to the goal.
 
 ## Completion
 
-- Call done(success=true) ONLY when the screenshot confirms the task is fully complete.
-- Call done(success=false) if you've tried 3+ different approaches and none work.
-- Call escalate() for: login walls, CAPTCHAs, unexpected errors, popups blocking progress, or anything outside your capability.
+- done(success=true) only when the screenshot confirms the task is fully complete.
+- done(success=false) after 3+ failed approaches.
+- escalate() for login walls, CAPTCHAs, or anything outside your capability.
 
-## Efficiency
+## Thinking
 
-- "thought" field: 1-3 sentences max. What you see, what you'll do next.
-- Don't repeat the same move_to description if it already worked.
+Before every tool call, explain what you see and what you'll do in the message text. 1-3 sentences. This is critical for debugging.
 """
-
-_THOUGHT_PROP = {
-    "thought": {"type": "string", "description": "1-3 sentences: what you see, what you'll do. Keep it short."},
-}
 
 _TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "move_to",
-            "description": "Move cursor to a UI element. Cursor appears as red circle. Verify placement in next screenshot before clicking. If the cursor missed on a previous move_to, use 'hint' to tell the grounding model where the target is relative to the current cursor.",
+            "description": "Move cursor to a UI element. Cursor appears as red crosshair overlay. Verify placement in the returned screenshot before clicking. If the cursor missed, call move_to again with 'hint' or 'zoom'.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "target": {"type": "string", "description": "Natural language description of the element to move to"},
-                    "hint": {"type": "string", "description": "Spatial correction hint when retrying a missed move_to. E.g. 'target is about 50px above the current cursor', 'target is to the right of where the cursor landed', 'cursor landed on the wrong button, target is the next button to the left'"},
+                    "hint": {"type": "string", "description": "Spatial correction when retrying. E.g. 'target is 50px above cursor', 'cursor hit the wrong button, target is next one to the left'"},
+                    "zoom": {"type": "integer", "description": "Re-ground on a cropped region this % of screen width, centered on current cursor. Use 20-50 when the cursor overlay is close but not precise enough (e.g. wrong menu item, adjacent button). Smaller = more zoomed in = more precise."},
                 },
-                "required": ["thought", "target"],
+                "required": ["target"],
             },
         },
     },
@@ -132,10 +126,8 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Default: left"},
                 },
-                "required": ["thought"],
             },
         },
     },
@@ -144,22 +136,18 @@ _TOOLS = [
         "function": {
             "name": "double_click",
             "description": "Double-click at current cursor position.",
-            "parameters": {
-                "type": "object",
-                "properties": {**_THOUGHT_PROP},
-                "required": ["thought"],
-            },
+            "parameters": {"type": "object", "properties": {}},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "type_text",
-            "description": "Type text. Click/move_to input field first.",
+            "description": "Type text at current cursor position. Existing text in the field is automatically selected and replaced.",
             "parameters": {
                 "type": "object",
-                "properties": {**_THOUGHT_PROP, "text": {"type": "string"}},
-                "required": ["thought", "text"],
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
             },
         },
     },
@@ -170,8 +158,8 @@ _TOOLS = [
             "description": "Press a key or combination: Return, Tab, Escape, BackSpace, ctrl+a, ctrl+c, etc.",
             "parameters": {
                 "type": "object",
-                "properties": {**_THOUGHT_PROP, "key": {"type": "string"}},
-                "required": ["thought", "key"],
+                "properties": {"key": {"type": "string"}},
+                "required": ["key"],
             },
         },
     },
@@ -183,11 +171,10 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "direction": {"type": "string", "enum": ["up", "down", "left", "right"]},
                     "amount": {"type": "integer", "description": "Scroll steps (default 3)"},
                 },
-                "required": ["thought", "direction"],
+                "required": ["direction"],
             },
         },
     },
@@ -199,11 +186,10 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "from_target": {"type": "string", "description": "Element to drag from"},
                     "to_target": {"type": "string", "description": "Element to drag to"},
                 },
-                "required": ["thought", "from_target", "to_target"],
+                "required": ["from_target", "to_target"],
             },
         },
     },
@@ -215,10 +201,8 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Default: left"},
                 },
-                "required": ["thought"],
             },
         },
     },
@@ -230,10 +214,8 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Default: left"},
                 },
-                "required": ["thought"],
             },
         },
     },
@@ -245,11 +227,10 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "summary": {"type": "string", "description": "What was accomplished"},
                     "success": {"type": "boolean"},
                 },
-                "required": ["thought", "summary", "success"],
+                "required": ["summary", "success"],
             },
         },
     },
@@ -261,10 +242,9 @@ _TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    **_THOUGHT_PROP,
                     "reason": {"type": "string"},
                 },
-                "required": ["thought", "reason"],
+                "required": ["reason"],
             },
         },
     },
@@ -344,6 +324,10 @@ async def _refine_cursor(
     max_rounds: int = 3,
     frame: "np.ndarray | None" = None,
     hint: str | None = None,
+    zoom: int | None = None,
+    cursor_xy: "tuple[int, int] | None" = None,
+    save_dir: str | None = None,
+    step_num: int | None = None,
 ) -> dict:
     """Use UI-TARS to position cursor on a target element with iterative refinement.
 
@@ -354,6 +338,10 @@ async def _refine_cursor(
     4. Capture new screenshot with cursor overlay visible
     5. Re-ground same target on new screenshot -- if prediction shifted >30px, follow it
     6. Repeat steps 3-5 up to max_rounds times
+
+    When ``zoom`` is set (10-100) and ``cursor_xy`` is provided, skips full-frame
+    grounding and instead crops to zoom% of screen width centered on cursor_xy,
+    then grounds on the crop for higher precision on small UI elements.
 
     When ``frame`` is provided, operates in benchmark mode: no X11 capture,
     no xdotool.  Cursor overlay is drawn on the provided frame instead of
@@ -368,6 +356,15 @@ async def _refine_cursor(
 
     _benchmark = frame is not None   # benchmark mode — no display interaction
 
+    # Build save_callback for _iterative_narrow debug images
+    _narrow_save_cb = None
+    if save_dir and step_num is not None:
+        import os as _os
+        from PIL import Image as _Image
+        def _narrow_save_cb(round_idx, crop_frame, grounding_result):
+            path = _os.path.join(save_dir, f"step_{step_num}_narrow_{round_idx}.jpg")
+            _Image.fromarray(crop_frame).save(path, quality=80)
+
     backend = UITARSBackend()
     loop = asyncio.get_event_loop()
 
@@ -377,65 +374,60 @@ async def _refine_cursor(
     if frame is None:
         return {"ok": False, "error": "Failed to capture screen"}
 
-    jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame)
     screen_h, screen_w = frame.shape[:2]
-
     grounding_model = config.UITARS_OPENROUTER_MODEL
-    # If Gemini provided a spatial hint, append it to the target description
     ground_desc = f"{target} (hint: {hint})" if hint else target
-    grounding = await backend.ground(ground_desc, jpeg, image_size=(screen_w, screen_h))
-    if grounding is None:
-        if session:
-            session.record_grounding(target, grounding_model, 0, 0, round_n=0, error=f"Could not find: {target}")
-        return {"ok": False, "error": f"Could not find: {target}"}
+    grounding = None  # set by zoom path or full-frame path below
 
-    # Step 2: Iterative narrow (RegionFocus-style crop zoom) on clean screenshot
-    grounding = await _iterative_narrow(backend, ground_desc, frame, grounding, loop)
+    # Supervisor-guided zoom: crop to zoom% of screen centered on current cursor
+    if zoom and cursor_xy and cursor_xy[0] is not None:
+        radius = int(screen_w * zoom / 100 / 2)
+        cx, cy = cursor_xy
+        x1 = max(0, cx - radius)
+        y1 = max(0, cy - radius)
+        x2 = min(screen_w, cx + radius)
+        y2 = min(screen_h, cy + radius)
+        crop_frame = frame[y1:y2, x1:x2]
+        crop_w, crop_h = x2 - x1, y2 - y1
+        if crop_w < 20 or crop_h < 20:
+            log.warning(f"Zoom crop too small ({crop_w}x{crop_h}), falling back to full frame")
+        else:
+            crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
+            grounding = await backend.ground(ground_desc, crop_jpeg, image_size=(crop_w, crop_h))
+            if grounding is not None:
+                from ..gui_agent.types import GroundingResult
+                # Map crop-local coords back to screen coords
+                grounding = GroundingResult(x=x1 + grounding.x, y=y1 + grounding.y)
+                # Iterative narrow on the crop for further precision
+                grounding_local = GroundingResult(x=grounding.x - x1, y=grounding.y - y1)
+                grounding_local = await _iterative_narrow(backend, ground_desc, crop_frame, grounding_local, loop, save_callback=_narrow_save_cb)
+                grounding = GroundingResult(x=x1 + grounding_local.x, y=y1 + grounding_local.y)
+                log.info(f"Zoom refinement ({zoom}%): {target} -> ({grounding.x}, {grounding.y})")
+                # Fall through to convergence loop below with this grounding
+            else:
+                log.warning(f"Zoom grounding returned None, falling back to full frame")
+                zoom = None  # clear so we fall through to full-frame path
+
+    # Full-frame grounding (skipped if zoom path already produced a grounding)
+    if not (zoom and grounding is not None):
+        jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
+        grounding = await backend.ground(ground_desc, jpeg, image_size=(screen_w, screen_h))
+        if grounding is None:
+            if session:
+                session.record_grounding(target, grounding_model, 0, 0, round_n=0, error=f"Could not find: {target}")
+            return {"ok": False, "error": f"Could not find: {target}"}
+
+        log.info(f"Initial grounding: {target} -> ({grounding.x}, {grounding.y})")
+        # Step 2: Iterative narrow (RegionFocus-style crop zoom) on clean screenshot
+        grounding = await _iterative_narrow(backend, ground_desc, frame, grounding, loop, save_callback=_narrow_save_cb)
+        log.info(f"After narrowing: {target} -> ({grounding.x}, {grounding.y})")
 
     x, y = grounding.x, grounding.y
     if session:
         session.record_grounding(target, grounding_model, x, y, round_n=0)
-    CONVERGE_THRESHOLD = 30  # pixels
+    log.info(f"Final grounding: {target} -> ({x}, {y})")
 
-    for round_n in range(max_rounds):
-        # Step 3: Move cursor to predicted position (skip in benchmark mode)
-        if not _benchmark:
-            await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
-            await asyncio.sleep(0.05)
-
-        # Step 4: Capture screenshot with cursor overlay visible
-        if _benchmark:
-            frame2 = draw_cursor_overlay(frame.copy(), x, y)
-        else:
-            frame2 = await loop.run_in_executor(None, capture_screen_with_cursor, display)
-        if frame2 is None:
-            break
-        jpeg2 = await loop.run_in_executor(None, frame_to_jpeg, frame2)
-
-        # Step 5: Re-ground same target -- does UI-TARS agree with cursor placement?
-        # Pass cursor position so UI-TARS knows what the red circle overlay is.
-        # No iterative narrowing here — crops of the cursor-overlaid frame would
-        # contain the red circle without context, confusing the model.
-        refined = await backend.ground(target, jpeg2, image_size=(screen_w, screen_h), cursor_pos=(x, y), hint=hint)
-        if refined is None:
-            break  # keep current position
-
-        dx = abs(refined.x - x)
-        dy = abs(refined.y - y)
-
-        if dx < CONVERGE_THRESHOLD and dy < CONVERGE_THRESHOLD:
-            log.debug(f"Cursor refinement converged after {round_n+1} rounds: ({x},{y}) delta=({dx},{dy})")
-            if session:
-                session.record_grounding(target, grounding_model, x, y, round_n=round_n+1, converged=True)
-            break
-
-        # Prediction shifted -- follow it
-        log.debug(f"Cursor refinement round {round_n+1}: ({x},{y}) -> ({refined.x},{refined.y})")
-        if session:
-            session.record_grounding(target, grounding_model, refined.x, refined.y, round_n=round_n+1)
-        x, y = refined.x, refined.y
-
-    # Final move to ensure cursor is at the last position (skip in benchmark mode)
+    # Move cursor to final position (skip in benchmark mode)
     if not _benchmark:
         await loop.run_in_executor(None, _smooth_mousemove, x, y, display)
 
@@ -498,7 +490,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
         MAX_TURNS = 60
         MAX_FORMAT_RETRIES = 10
-        CONTEXT_WINDOW = 30
+        CONTEXT_WINDOW = 40
         actions_taken = 0
         action_turns = 0
         format_retries = 0
@@ -544,6 +536,15 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         turn_no = action_turns + format_retries + 1
                         _dbg.log("LIVE", f"[{sid}] turn={turn_no} actions={action_turns} retries={format_retries}")
 
+                        # Context management: sliding window + strip old images
+                        if len(messages) > CONTEXT_WINDOW + 2:
+                            messages = messages[:2] + messages[-CONTEXT_WINDOW:]
+                        for m in messages[:-1]:
+                            if m.get("role") == "system":
+                                continue
+                            if isinstance(m.get("content"), list):
+                                m["content"] = [c for c in m["content"] if c.get("type") != "image_url"]
+
                         resp = await client.post(
                             f"{_OPENROUTER_BASE}/chat/completions",
                             headers={
@@ -556,9 +557,8 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "model": model,
                                 "messages": messages,
                                 "tools": _TOOLS,
-                                "tool_choice": "required",
-                                "parallel_tool_calls": False,
-                                "max_tokens": 300,
+                                "tool_choice": "auto",
+                                "max_tokens": 1000,
                             },
                         )
 
@@ -598,14 +598,20 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         try:
                             fn_args = json.loads(tc["function"]["arguments"])
                         except Exception:
-                            fn_args = {}
+                            _dbg.log("LIVE", f"[{sid}] bad tool args, requesting retry")
+                            messages.append({"role": "tool", "tool_call_id": tc["id"],
+                                             "content": "error: could not parse tool arguments. Try again with valid JSON."})
+                            format_retries += 1
+                            continue
                         tc_id = tc["id"]
 
-                        thought = fn_args.pop("thought", "") or narration
+                        # Pop thought if model still sends it (backward compat), use narration as primary
+                        fn_args.pop("thought", None)
+                        thought = (narration or "").strip()
                         if thought:
                             _dbg.log("LIVE", f"[{sid}] thought: {thought[:120]}")
-                            if session:
-                                session.record_model_text(thought)
+                        if session and thought:
+                            session.record_model_text(thought)
                         _dbg.log("LIVE", f"[{sid}] {fn_name}({', '.join(f'{k}={v}' for k, v in fn_args.items())})")
 
                         if session:
@@ -647,37 +653,76 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "elapsed_s": round(_time.time() - t_start, 1),
                             }
 
-                        # ── GUI actions ──────────────────────────────────
-                        action_turns += 1
-                        action_result = "ok"
-
+                        # ── move_to: internal verification loop (free, not counted as action) ──
                         if fn_name == "move_to":
                             target_desc = fn_args.get("target", "")
                             move_hint = fn_args.get("hint")
-                            # In benchmark mode, pass current frame so _refine_cursor
-                            # skips X11 capture and draws cursor overlay instead.
+                            move_zoom = fn_args.get("zoom")
                             _rc_frame = _current_frame if _benchmark else None
-                            result = await _refine_cursor(target_desc, display, session, frame=_rc_frame, hint=move_hint)
+                            _cursor_xy = (cursor_x, cursor_y) if cursor_x is not None else None
+                            result = await _refine_cursor(target_desc, display, session, frame=_rc_frame, hint=move_hint, zoom=move_zoom, cursor_xy=_cursor_xy)
                             if result["ok"]:
-                                action_result = f"ok -- cursor moved to ({result['x']}, {result['y']}){result.get('edge_warning', '')}"
                                 cursor_x, cursor_y = result["x"], result["y"]
+                                action_result = f"cursor moved to ({result['x']}, {result['y']}), ready to verify"
+
+                                # Capture overlay screenshot for verification
+                                if _benchmark:
+                                    from ..capture.screen import draw_cursor_overlay as _draw_overlay
+                                    import numpy as np
+                                    _overlay_frame = _draw_overlay(_current_frame.copy(), result["x"], result["y"])
+                                    import io as _io
+                                    _overlay_img = __import__('PIL').Image.fromarray(_overlay_frame)
+                                    _buf = _io.BytesIO()
+                                    _overlay_img.save(_buf, format="JPEG", quality=85)
+                                    _overlay_b64 = base64.b64encode(_buf.getvalue()).decode()
+                                else:
+                                    # Live mode: capture real screenshot with cursor visible
+                                    _overlay_b64, _ = await asyncio.get_running_loop().run_in_executor(
+                                        None, _capture_jpeg_b64, display, session
+                                    )
                             else:
                                 action_result = f"error: {result['error']}"
+                                _overlay_b64 = None
 
-                        elif fn_name == "click":
+                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": action_result})
+                            if _overlay_b64:
+                                messages.append({"role": "user", "content": [
+                                    {"type": "text", "text": "[screenshot with cursor overlay]"},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{_overlay_b64}"}},
+                                ]})
+
+                            if session:
+                                session.record_tool_response(fn_name, tc_id, action_result)
+                            # Don't count as action_turn, don't take post-action screenshot — continue loop
+                            continue
+
+                        # ── GUI actions (counted as steps) ──────────────────
+                        action_turns += 1
+                        action_result = "ok"
+
+                        if fn_name == "click":
                             button = fn_args.get("button", "left")
-                            if cursor_x is not None:
+                            if fn_args.get("target"):
+                                action_result = "error: click() has no 'target' parameter. Use move_to(target=\"...\") first to position the cursor, verify the cursor overlay, then call click()."
+                            elif cursor_x is not None:
                                 action_result = _do_execute("click", {"x": cursor_x, "y": cursor_y, "button": button})
                             else:
                                 action_result = "error: no cursor position -- call move_to first"
 
                         elif fn_name == "double_click":
-                            if cursor_x is not None:
+                            if fn_args.get("target"):
+                                action_result = "error: double_click() has no 'target' parameter. Use move_to(target=\"...\") first, then double_click()."
+                            elif cursor_x is not None:
                                 action_result = _do_execute("double_click", {"x": cursor_x, "y": cursor_y})
                             else:
                                 action_result = "error: no cursor position -- call move_to first"
 
                         elif fn_name == "type_text":
+                            clear = fn_args.get("clear_first", True)
+                            if clear and cursor_x is not None:
+                                # Triple-click to select all in field before typing
+                                _do_execute("click", {"x": cursor_x, "y": cursor_y, "clicks": 3})
+                                import time; time.sleep(0.05)
                             action_result = _do_execute("type_text", {"text": fn_args.get("text", "")})
 
                         elif fn_name == "key_press":
@@ -751,7 +796,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         )
 
                         observe_content: list[dict] = [
-                            {"type": "text", "text": f"{action_result}. [current screenshot]"},
+                            {"type": "text", "text": "[current screenshot]"},
                         ]
                         if screenshot_b64:
                             observe_content.append({
@@ -760,13 +805,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             })
                         messages.append({"role": "user", "content": observe_content})
 
-                        # Sliding window -- keep system + first instruction + last N messages.
-                        # Strip images from all but the latest user message to save tokens.
-                        if len(messages) > CONTEXT_WINDOW + 2:
-                            messages = messages[:2] + messages[-(CONTEXT_WINDOW):]
-                        for m in messages[2:-1]:
-                            if isinstance(m.get("content"), list):
-                                m["content"] = [c for c in m["content"] if c.get("type") != "image_url"]
+                        # Context trimming now happens at top of loop
 
                     if format_retries >= MAX_FORMAT_RETRIES:
                         _dbg.log("LIVE", f"[{sid}] max format retries -- actions={actions_taken}")

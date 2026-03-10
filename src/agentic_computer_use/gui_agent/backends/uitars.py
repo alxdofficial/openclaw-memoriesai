@@ -18,7 +18,7 @@ from ..types import GroundingResult
 log = logging.getLogger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "bytedance/ui-tars-1.5-7b"
+OPENROUTER_MODEL = config.UITARS_OPENROUTER_MODEL
 
 # Official GROUNDING_DOUBAO prompt — exact copy from bytedance/UI-TARS prompt.py.
 # This prompt makes the model output structured `Action: click(point='(x,y)')` with
