@@ -49,8 +49,8 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
     echo ""
     echo "  Get one free at: https://openrouter.ai/keys"
     echo ""
-    if [ -t 0 ]; then
-        read -rp "  Enter your OpenRouter API key (or press Enter to skip): " user_key
+    if [ -t 1 ] && [ -e /dev/tty ]; then
+        read -rp "  Enter your OpenRouter API key (or press Enter to skip): " user_key < /dev/tty
         if [ -n "$user_key" ]; then
             export OPENROUTER_API_KEY="$user_key"
             ok "API key set"
@@ -59,7 +59,7 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
             warn "Set OPENROUTER_API_KEY later and restart the daemon."
         fi
     else
-        warn "Non-interactive shell — set OPENROUTER_API_KEY and re-run."
+        warn "Non-interactive — pass key via: OPENROUTER_API_KEY=sk-or-... bash"
     fi
 fi
 
