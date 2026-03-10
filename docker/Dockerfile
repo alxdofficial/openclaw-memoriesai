@@ -21,13 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dbus-x11 ca-certificates curl wget git \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Common desktop apps (extend as needed) ────────────────────────
-# Uncomment to pre-install apps users might automate:
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     firefox-esr \
-#     libreoffice-calc libreoffice-writer libreoffice-impress \
-#     thunar \
-#     && rm -rf /var/lib/apt/lists/*
+# ── Desktop apps ─────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    firefox \
+    thunar \
+    && rm -rf /var/lib/apt/lists/*
 
 # ── Python package ────────────────────────────────────────────────
 WORKDIR /opt/detm
