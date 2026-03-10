@@ -5,16 +5,15 @@
 **agentic-computer-use** is a Desktop Environment Task Manager (DETM) — an MCP server with a persistent HTTP daemon that provides hierarchical task tracking, smart visual waiting, GUI automation with natural language grounding, pluggable vision backends, and real-time live UI delegation.
 
 ```
-OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent + Live UI → Desktop (:99)
+OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop (:99)
 ```
 
-Six layers:
+Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
 2. **Smart Wait** — vision-based condition polling with adaptive intervals
-3. **GUI Agent** — NL-to-coordinates grounding (UI-TARS, Claude CU, or direct xdotool)
+3. **GUI Agent** — Gemini Flash supervisor + UI-TARS grounding (unified, replaces gui_do/gui_find/live_ui)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
-5. **Live UI** — iterative OpenRouter-backed multimodal session delegation
-6. **Display** — single shared display `:99` (XFCE desktop, visible via VNC)
+5. **Display** — single shared display `:99` (XFCE desktop, visible via VNC)
 
 ## System Architecture
 
@@ -25,14 +24,13 @@ Six layers:
 │  MCP tools available to the model:                           │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────┐ │
 │  │ Task Mgmt    │ │ Smart Wait   │ │ GUI Agent            │ │
-│  │ task_register│ │ smart_wait   │ │ gui_do (NL→click)    │ │
-│  │ task_summary │ │ wait_status  │ │ gui_find (NL→coords) │ │
-│  │ task_update  │ │ wait_update  │ │                      │ │
-│  │ task_item_*  │ │ wait_cancel  │ │ Desktop              │ │
-│  │ task_log_*   │ │              │ │ desktop_action       │ │
-│  │ task_drill_* │ │              │ │ desktop_look         │ │
-│  └──────┬───────┘ └──────┬──────┘ │ video_record         │ │
-│         │                │        └──────────┬───────────┘ │
+│  │ task_register│ │ smart_wait   │ │ gui_agent (unified)  │ │
+│  │ task_summary │ │ wait_status  │ │                      │ │
+│  │ task_update  │ │ wait_update  │ │ Desktop              │ │
+│  │ task_item_*  │ │ wait_cancel  │ │ desktop_action       │ │
+│  │ task_log_*   │ │              │ │ desktop_look         │ │
+│  │ task_drill_* │ │              │ │ video_record         │ │
+│  └──────┬───────┘ └──────┬──────┘ └──────────┬───────────┘ │
 └─────────┼────────────────┼───────────────────┼─────────────┘
           │     MCP (stdio)                    │
           ▼                ▼                   ▼
@@ -279,3 +277,92 @@ All environment variables use the `ACU_*` prefix:
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama API URL |
 | `ANTHROPIC_API_KEY` | (none) | Required for Claude vision/GUI backends |
 | `MAVI_API_KEY` | (none) | Required for mavi_understand (Memories.AI) |
+| `ACU_UITARS_OPENROUTER_MODEL` | `bytedance/ui-tars-1.5-7b` | OpenRouter model for UI-TARS grounding |
+
+## Deployment Modes
+
+### 1. Docker (recommended, any OS)
+
+Everything runs inside a single container: Xvfb virtual display, fluxbox window manager, x11vnc, websockify/noVNC, and the DETM daemon. The host only needs Docker and the MCP server proxy.
+
+```
+┌─────────────────────── Host ───────────────────────┐
+│                                                     │
+│  OpenClaw Gateway                                   │
+│    └─ MCP Server (stdio, thin HTTP proxy)           │
+│         └─ HTTP → 127.0.0.1:18790 ──────┐          │
+│                                          │          │
+│  ┌───────── Docker Container ────────────┼────────┐ │
+│  │                                       ▼        │ │
+│  │  DETM Daemon (:18790)                          │ │
+│  │    ├─ Task Manager + SQLite                    │ │
+│  │    ├─ Smart Wait Engine                        │ │
+│  │    ├─ GUI Agent (Gemini + UI-TARS)             │ │
+│  │    └─ Web Dashboard (/dashboard)               │ │
+│  │                                                │ │
+│  │  Xvfb :99 ──→ fluxbox                         │ │
+│  │    └─ x11vnc ──→ websockify (:6080)            │ │
+│  │                                                │ │
+│  │  Volume: /data (DB, screenshots, recordings)   │ │
+│  └────────────────────────────────────────────────┘ │
+│                                                     │
+│  Published ports:                                   │
+│    18790 → Daemon API + Dashboard                   │
+│    6080  → noVNC (browser-based desktop viewer)     │
+└─────────────────────────────────────────────────────┘
+```
+
+**Files:**
+- `docker/Dockerfile` — Ubuntu 24.04 base with all system deps
+- `docker/entrypoint.sh` — starts Xvfb, fluxbox, VNC, noVNC, daemon
+- `docker/detm-docker.sh` — start/stop/status/logs/build/shell helper
+- `.dockerignore` — excludes .venv, benchmarks, docs, etc.
+
+**Quick start:**
+```bash
+./docker/detm-docker.sh build
+OPENROUTER_API_KEY=sk-or-... ./docker/detm-docker.sh start
+```
+
+### 2. Bare-metal Linux (development / GPU)
+
+Direct install on the host. Required for local Ollama/vLLM GPU inference. Uses systemd services for Xvfb, VNC, noVNC, and the daemon.
+
+```bash
+./install.sh
+```
+
+See `install.sh` for full setup: Python venv, system deps, Ollama, systemd services, OpenClaw integration (mcporter, skill, plugin).
+
+## OpenClaw Integration
+
+DETM integrates with OpenClaw through four layers:
+
+### 1. MCP Server (tool registration)
+
+`server.py` is a stateless MCP server using stdio transport. OpenClaw launches it per-session. It defines 25+ tools and proxies all calls to the daemon at `http://127.0.0.1:18790`.
+
+Configured in `~/.openclaw/workspace/config/mcporter.json`:
+```json
+{
+  "mcpServers": {
+    "agentic-computer-use": {
+      "command": "python3",
+      "args": ["-m", "agentic_computer_use.server"],
+      "env": { "DISPLAY": ":99", "PYTHONPATH": "/path/to/src" }
+    }
+  }
+}
+```
+
+### 2. Skill (behavioral instructions)
+
+`skill/SKILL.md` provides behavioral instructions that OpenClaw reads at session start. Contains hard rules (task registration, narration, verification), tool usage patterns, and examples. YAML frontmatter declares metadata.
+
+### 3. Plugin (tool logging)
+
+`plugins/detm-tool-logger/` hooks `before_tool_call` and `after_tool_call` to log non-DETM tool calls to the dashboard, making all agent activity visible.
+
+### 4. Sub-agents
+
+Specialized agents in `openclaw/agents/` handle domain-specific tasks (e.g., LinkedIn research). The stuck detection system can route resume packets to the correct sub-agent via `agent_id`.

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 import httpx
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -10,7 +11,7 @@ from mcp.types import Tool, TextContent, ImageContent
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-DAEMON_URL = "http://127.0.0.1:18790"
+DAEMON_URL = os.environ.get("ACU_DAEMON_URL", "http://127.0.0.1:18790")
 
 app = Server("agentic-computer-use")
 

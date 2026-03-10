@@ -20,6 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio"]
+docker = ["python-dotenv>=1.0.0"]
 
 [project.scripts]
 agentic-computer-use = "agentic_computer_use.server:main"
