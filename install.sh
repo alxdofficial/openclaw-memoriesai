@@ -30,6 +30,19 @@ ok()    { echo -e "${GREEN}[detm]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[detm]${NC} $*"; }
 err()   { echo -e "${RED}[detm]${NC} $*"; }
 
+# ─── Sudo helper (works even when stdin is a pipe) ───────────────
+# When piped via curl|bash, sudo can't read the password from stdin.
+# Pre-authenticate by reading from /dev/tty, then use cached creds.
+if ! sudo -n true 2>/dev/null; then
+    info "sudo access required — prompting for password..."
+    if [ -e /dev/tty ]; then
+        sudo -v < /dev/tty
+    else
+        err "Cannot prompt for sudo password (no TTY). Run with: sudo bash or grant NOPASSWD."
+        exit 1
+    fi
+fi
+
 # ─── Platform check ─────────────────────────────────────────────
 
 if [ "$(uname)" != "Linux" ]; then
