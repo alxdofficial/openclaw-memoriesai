@@ -483,9 +483,10 @@ Note: type_text automatically selects and replaces existing text in the focused 
                             {"role": "user", "content": (
                                 f"The agent was given this task:\n\n"
                                 f"\"{self._instruction}\"\n\n"
-                                f"Generate a checklist of 3-5 specific, visually verifiable criteria "
+                                f"Generate a checklist of 2-4 specific, visually verifiable criteria "
                                 f"that MUST be true on the screen for this task to be complete. "
-                                f"Be concrete — reference specific UI elements, text, or states.\n\n"
+                                f"Only include criteria directly required by the instruction — do NOT "
+                                f"add extra verification steps the instruction didn't ask for.\n\n"
                                 f"Format: one criterion per line, numbered."
                             )},
                         ],
