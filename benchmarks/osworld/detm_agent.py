@@ -503,7 +503,35 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 log.warning(f"Verifier checklist error: {e}")
                 return {"pass": True, "reason": f"verifier error: {e}"}
 
-            # --- Step 2: Check criteria against screenshot ---
+            # --- Step 2: Check criteria against screenshot via tool call ---
+            _verdict_tool = {
+                "type": "function",
+                "function": {
+                    "name": "verdict",
+                    "description": "Submit your verification verdict after checking the criteria.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "criteria_results": {
+                                "type": "array",
+                                "description": "Result for each checklist criterion, in order.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "criterion": {"type": "string", "description": "The criterion being checked"},
+                                        "pass": {"type": "boolean", "description": "true if criterion is met, false if not"},
+                                        "evidence": {"type": "string", "description": "Brief visual evidence from the screenshot"},
+                                    },
+                                    "required": ["criterion", "pass", "evidence"],
+                                },
+                            },
+                            "overall_pass": {"type": "boolean", "description": "true only if ALL criteria pass"},
+                            "failure_reason": {"type": "string", "description": "If overall_pass is false, explain what failed. Empty string if pass."},
+                        },
+                        "required": ["criteria_results", "overall_pass", "failure_reason"],
+                    },
+                },
+            }
             try:
                 resp2 = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
@@ -516,48 +544,35 @@ Note: type_text automatically selects and replaces existing text in the focused 
                                 {"type": "text", "text": (
                                     f"Task: \"{self._instruction}\"\n\n"
                                     f"Checklist to verify:\n{checklist}\n\n"
-                                    f"Examine the screenshot and check ONLY the numbered criteria above.\n\n"
-                                    f"For each criterion, write exactly one line:\n"
-                                    f"N. PASS — <brief evidence>\n"
-                                    f"or\n"
-                                    f"N. FAIL — <what's wrong>\n\n"
-                                    f"After all criteria, write the final line:\n"
-                                    f"VERDICT: PASS (if every criterion above is PASS)\n"
-                                    f"VERDICT: FAIL — <quote the first failing criterion> (if any is FAIL)\n\n"
-                                    f"Do NOT add any criteria beyond the numbered list. Do NOT check anything else."
+                                    f"Examine the screenshot and check ONLY the numbered criteria above. "
+                                    f"Call the verdict tool with your results."
                                 )},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
                             ]},
                         ],
-                        "max_tokens": 500,
+                        "tools": [_verdict_tool],
+                        "tool_choice": {"type": "function", "function": {"name": "verdict"}},
+                        "reasoning": {"effort": "high"},
+                        "max_tokens": 2000,
                     },
                 )
                 if resp2.status_code != 200:
                     log.warning(f"Verifier check call failed: HTTP {resp2.status_code}")
                     return {"pass": True, "reason": "verifier check call failed, allowing"}
 
-                result = (resp2.json()["choices"][0]["message"].get("content") or "").strip()
-                log.info(f"VERIFY RESULT: {result[:400]}")
+                data2 = resp2.json()
+                msg2 = data2["choices"][0]["message"]
+                tool_calls = msg2.get("tool_calls") or []
+                if not tool_calls:
+                    log.warning(f"Verifier returned no tool call")
+                    return {"pass": True, "reason": "verifier returned no tool call, allowing"}
 
-                # Parse verdict from last line
-                for line in reversed(result.split("\n")):
-                    line = line.strip()
-                    if line.upper().startswith("VERDICT:"):
-                        verdict_text = line[len("VERDICT:"):].strip()
-                        if verdict_text.upper().startswith("PASS"):
-                            return {"pass": True, "reason": verdict_text}
-                        else:
-                            # Extract reason after "FAIL"
-                            reason = verdict_text
-                            if "—" in reason:
-                                reason = reason.split("—", 1)[1].strip()
-                            elif "-" in reason:
-                                reason = reason.split("-", 1)[1].strip()
-                            return {"pass": False, "reason": reason or "verification failed"}
+                verdict_args = json.loads(tool_calls[0]["function"]["arguments"])
+                log.info(f"VERIFY RESULT: {json.dumps(verdict_args, indent=2)[:400]}")
 
-                # No clear verdict found — be conservative, allow it
-                log.warning(f"Verifier returned no clear verdict")
-                return {"pass": True, "reason": "no clear verdict, allowing"}
+                overall = verdict_args.get("overall_pass", True)
+                reason = verdict_args.get("failure_reason", "")
+                return {"pass": overall, "reason": reason}
 
             except Exception as e:
                 log.warning(f"Verifier check error: {e}")
