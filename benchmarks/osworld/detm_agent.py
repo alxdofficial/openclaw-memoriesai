@@ -516,9 +516,9 @@ Note: type_text automatically selects and replaces existing text in the focused 
                                 {"type": "text", "text": (
                                     f"Task: \"{self._instruction}\"\n\n"
                                     f"Checklist to verify:\n{checklist}\n\n"
-                                    f"Examine the screenshot below and check each criterion. "
+                                    f"Examine the screenshot below and check ONLY these criteria — nothing else. "
                                     f"For each, state PASS or FAIL with a brief reason.\n\n"
-                                    f"Then give a final verdict on the LAST line:\n"
+                                    f"Then give a final verdict on the LAST line based ONLY on the criteria above:\n"
                                     f"VERDICT: PASS — if ALL criteria are met\n"
                                     f"VERDICT: FAIL — <reason> — if ANY criterion is not met"
                                 )},
