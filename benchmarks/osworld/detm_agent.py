@@ -19,7 +19,6 @@ Usage from OSWorld's run script:
 """
 import asyncio
 import base64
-import copy
 import io
 import json
 import logging
@@ -237,26 +236,30 @@ Note: type_text automatically selects and replaces existing text in the focused 
 
             # Terminal actions
             if fn_name == "done":
-                if fn_args.get("success") and not getattr(self, "_done_verified", False):
-                    # Verification turn: challenge the model with current screenshot
-                    self._done_verified = True
-                    self._messages.append({"role": "tool", "tool_call_id": tc_id,
-                        "content": f"Before confirming: examine the current screenshot carefully. "
-                                   f"Does it prove the task is complete? Instruction was: {self._instruction}. "
-                                   f"If the result looks wrong, continue working instead of calling done."})
-                    # Feed fresh screenshot so the model actually looks
-                    screenshot_b64, _, _ = _png_to_jpeg_b64(obs["screenshot"])
-                    self._messages.append({"role": "user", "content": [
-                        {"type": "text", "text": "[verification screenshot]"},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
-                    ]})
-                    continue  # let the model re-evaluate
-                self._done_verified = False
-                self._messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
-                # done(success=false) → FAIL signal so OSWorld credits infeasible tasks
                 if not fn_args.get("success"):
+                    self._messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
                     self._last_debug = {"tool": fn_name, "args": fn_args, "thought": narration, "result": "FAIL", "internal": internal_events}
                     return last_narration, ["FAIL"]
+
+                # Independent verification: fresh model with no shared context
+                if not getattr(self, "_done_verified", False):
+                    self._done_verified = True
+                    verdict = self._loop.run_until_complete(
+                        self._verify_done(obs["screenshot"])
+                    )
+                    if verdict["pass"]:
+                        log.info(f"Verification PASSED: {verdict.get('reason', '')[:120]}")
+                    else:
+                        log.info(f"Verification FAILED: {verdict.get('reason', '')[:200]}")
+                        # Inject rejection into task runner context so it knows what to fix
+                        self._messages.append({"role": "tool", "tool_call_id": tc_id,
+                            "content": f"Verification FAILED. The task is NOT complete. "
+                                       f"Issue: {verdict.get('reason', 'unknown')}. "
+                                       f"Continue working to fix this."})
+                        continue  # let the task runner keep going
+
+                self._done_verified = False
+                self._messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
                 self._last_debug = {"tool": fn_name, "args": fn_args, "thought": narration, "result": "DONE", "internal": internal_events}
                 return last_narration, ["DONE"]
 
@@ -368,10 +371,11 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 m["content"] = [c for c in m["content"] if c.get("type") != "image_url"]
 
     async def _gemini_call(self) -> tuple[str | None, dict, str, str]:
-        """Two-pass API call: thinking pass (text-only) then action pass (tool call).
+        """Single-pass API call with native reasoning + tool call.
 
-        Pass 1: No tools — model freely analyzes the screenshot and reasons about next step.
-        Pass 2: With tools — model's reasoning is injected as context, structured tool call requested.
+        Uses Gemini's native reasoning (``reasoning.effort=high``) so the model
+        thinks internally before producing a structured tool call.  The reasoning
+        text is returned via ``include_reasoning`` for logging/debugging.
 
         Returns (fn_name, fn_args, tool_call_id, narration).
         """
@@ -383,55 +387,11 @@ Note: type_text automatically selects and replaces existing text in the focused 
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # --- Pass 1: Thinking (text-only, no tools) ---
-            think_messages = self._messages + [
-                {"role": "user", "content": (
-                    "Before acting, think step by step:\n"
-                    "1. What do you see on screen right now?\n"
-                    "2. What is the current state relative to the task goal?\n"
-                    "3. What specific action should you take next and why?\n"
-                    "Be concise (2-4 sentences)."
-                )},
-            ]
-            resp1 = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers=headers,
-                json={
-                    "model": self._gemini_model,
-                    "messages": think_messages,
-                    "max_tokens": 300,
-                },
-            )
-            if resp1.status_code != 200:
-                raise RuntimeError(f"OpenRouter HTTP {resp1.status_code} (thinking): {resp1.text[:300]}")
-
-            think_data = resp1.json()
-            thinking = (think_data["choices"][0]["message"].get("content") or "").strip()
-            log.info(f"THINKING: {thinking[:200]}")
-
-            # --- Pass 2: Action (with tools, thinking prepended to last message) ---
-            # Deep-copy messages and prepend thinking to the last user message
-            # so the conversation structure stays clean (no extra messages)
-            action_messages = copy.deepcopy(self._messages)
-            # Find the last user message and prepend the thinking
-            for i in range(len(action_messages) - 1, -1, -1):
-                if action_messages[i].get("role") == "user":
-                    content = action_messages[i]["content"]
-                    thinking_prefix = f"[Your step-by-step analysis: {thinking}]\n\n"
-                    if isinstance(content, list):
-                        # Multimodal message — prepend to first text element
-                        for j, part in enumerate(content):
-                            if part.get("type") == "text":
-                                content[j] = {"type": "text", "text": thinking_prefix + part["text"]}
-                                break
-                    elif isinstance(content, str):
-                        action_messages[i]["content"] = thinking_prefix + content
-                    break
-
-            # Retry action pass up to 3 times if model returns text instead of tool call
+            # Retry up to 3 times if model returns text instead of tool call
             ACTION_RETRIES = 3
+            action_messages = list(self._messages)  # shallow copy for retries
             for attempt in range(ACTION_RETRIES):
-                resp2 = await client.post(
+                resp = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,
                     json={
@@ -439,17 +399,24 @@ Note: type_text automatically selects and replaces existing text in the focused 
                         "messages": action_messages,
                         "tools": self._tools,
                         "tool_choice": "auto",
-                        "max_tokens": 500,
+                        "reasoning": {"effort": "high"},
+                        "include_reasoning": True,
+                        "max_tokens": 2000,
                     },
                 )
 
-                if resp2.status_code != 200:
-                    raise RuntimeError(f"OpenRouter HTTP {resp2.status_code} (action): {resp2.text[:300]}")
+                if resp.status_code != 200:
+                    raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {resp.text[:300]}")
 
-                data = resp2.json()
+                data = resp.json()
                 choice = data["choices"][0]
                 msg = choice["message"]
                 tool_calls = msg.get("tool_calls") or []
+
+                # Extract reasoning from native reasoning field
+                reasoning = (msg.get("reasoning") or "").strip()
+                if reasoning:
+                    log.info(f"THINKING: {reasoning}")
 
                 if tool_calls:
                     break
@@ -459,11 +426,10 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 action_messages.append({"role": "assistant", "content": text_reply or ""})
                 action_messages.append({"role": "user", "content": "You must call a tool. Choose the most appropriate tool for your next action."})
 
-            action_narration = (msg.get("content") or "").strip()
-            narration = thinking or action_narration
+            narration = reasoning or (msg.get("content") or "").strip()
 
             if not tool_calls:
-                log.warning(f"Action pass returned no tool call after {ACTION_RETRIES} retries")
+                log.warning(f"No tool call after {ACTION_RETRIES} retries")
                 return None, {}, "", narration
 
             tc = tool_calls[0]
@@ -474,12 +440,123 @@ Note: type_text automatically selects and replaces existing text in the focused 
             except Exception:
                 log.warning(f"Failed to parse tool arguments: {raw_args[:200]}")
                 return "__bad_args__", {}, tc["id"], narration or f"bad arguments for {fn_name}"
-            # Pop thought if model still sends it (backward compat)
             fn_args.pop("thought", None)
             log.debug(f"RAW RESPONSE: fn={fn_name} raw_args={raw_args[:200]}")
 
-            # Thinking pass provides the narration — no need for thought field
             return fn_name, fn_args, tc["id"], narration
+
+    async def _verify_done(self, screenshot_png: bytes) -> dict:
+        """Independent verification that the task is actually complete.
+
+        Two-step process with a fresh model context (no shared history):
+        1. Generate a checklist of visual criteria from the instruction.
+        2. Check all criteria against the current screenshot.
+
+        Returns {"pass": bool, "reason": str}.
+        """
+        screenshot_b64, _, _ = _png_to_jpeg_b64(screenshot_png)
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/openclaw/detm",
+            "X-Title": "DETM Verifier",
+        }
+
+        _VERIFIER_SYSTEM = (
+            "You are an independent QA verifier for a desktop GUI automation agent. "
+            "Your job is to check whether a task was actually completed correctly. "
+            "You are skeptical by default — the agent often THINKS it succeeded but "
+            "actually made subtle mistakes (wrong location, wrong value, incomplete action, "
+            "dialog still open, etc). Look carefully for these common failure modes."
+        )
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # --- Step 1: Generate checklist from instruction ---
+            try:
+                resp1 = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": self._gemini_model,
+                        "messages": [
+                            {"role": "system", "content": _VERIFIER_SYSTEM},
+                            {"role": "user", "content": (
+                                f"The agent was given this task:\n\n"
+                                f"\"{self._instruction}\"\n\n"
+                                f"Generate a checklist of 3-5 specific, visually verifiable criteria "
+                                f"that MUST be true on the screen for this task to be complete. "
+                                f"Be concrete — reference specific UI elements, text, or states.\n\n"
+                                f"Format: one criterion per line, numbered."
+                            )},
+                        ],
+                        "max_tokens": 300,
+                    },
+                )
+                if resp1.status_code != 200:
+                    log.warning(f"Verifier checklist call failed: HTTP {resp1.status_code}")
+                    return {"pass": True, "reason": "verifier checklist call failed, allowing"}
+
+                checklist = (resp1.json()["choices"][0]["message"].get("content") or "").strip()
+                log.info(f"VERIFY CHECKLIST: {checklist[:300]}")
+            except Exception as e:
+                log.warning(f"Verifier checklist error: {e}")
+                return {"pass": True, "reason": f"verifier error: {e}"}
+
+            # --- Step 2: Check criteria against screenshot ---
+            try:
+                resp2 = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json={
+                        "model": self._gemini_model,
+                        "messages": [
+                            {"role": "system", "content": _VERIFIER_SYSTEM},
+                            {"role": "user", "content": [
+                                {"type": "text", "text": (
+                                    f"Task: \"{self._instruction}\"\n\n"
+                                    f"Checklist to verify:\n{checklist}\n\n"
+                                    f"Examine the screenshot below and check each criterion. "
+                                    f"For each, state PASS or FAIL with a brief reason.\n\n"
+                                    f"Then give a final verdict on the LAST line:\n"
+                                    f"VERDICT: PASS — if ALL criteria are met\n"
+                                    f"VERDICT: FAIL — <reason> — if ANY criterion is not met"
+                                )},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
+                            ]},
+                        ],
+                        "max_tokens": 500,
+                    },
+                )
+                if resp2.status_code != 200:
+                    log.warning(f"Verifier check call failed: HTTP {resp2.status_code}")
+                    return {"pass": True, "reason": "verifier check call failed, allowing"}
+
+                result = (resp2.json()["choices"][0]["message"].get("content") or "").strip()
+                log.info(f"VERIFY RESULT: {result[:400]}")
+
+                # Parse verdict from last line
+                for line in reversed(result.split("\n")):
+                    line = line.strip()
+                    if line.upper().startswith("VERDICT:"):
+                        verdict_text = line[len("VERDICT:"):].strip()
+                        if verdict_text.upper().startswith("PASS"):
+                            return {"pass": True, "reason": verdict_text}
+                        else:
+                            # Extract reason after "FAIL"
+                            reason = verdict_text
+                            if "—" in reason:
+                                reason = reason.split("—", 1)[1].strip()
+                            elif "-" in reason:
+                                reason = reason.split("-", 1)[1].strip()
+                            return {"pass": False, "reason": reason or "verification failed"}
+
+                # No clear verdict found — be conservative, allow it
+                log.warning(f"Verifier returned no clear verdict")
+                return {"pass": True, "reason": "no clear verdict, allowing"}
+
+            except Exception as e:
+                log.warning(f"Verifier check error: {e}")
+                return {"pass": True, "reason": f"verifier error: {e}"}
 
     def _handle_action(self, fn_name: str, fn_args: dict, obs: dict) -> tuple[str, list[str]]:
         """Convert a Gemini tool call to pyautogui action(s). Returns (result_text, [pyautogui_strings]).

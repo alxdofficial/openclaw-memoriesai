@@ -412,8 +412,12 @@ async def _refine_cursor(
 
     # Full-frame grounding (skipped if zoom path already produced a grounding)
     if not (zoom and grounding is not None):
-        jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
-        grounding = await backend.ground(ground_desc, jpeg, image_size=(screen_w, screen_h))
+        if config.MVP_ENABLED:
+            from ..gui_agent.agent import _multiview_ground
+            grounding = await _multiview_ground(backend, ground_desc, frame, loop)
+        else:
+            jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
+            grounding = await backend.ground(ground_desc, jpeg, image_size=(screen_w, screen_h))
         if grounding is None:
             if session:
                 session.record_grounding(target, grounding_model, 0, 0, round_n=0, error=f"Could not find: {target}")
@@ -560,7 +564,9 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "messages": messages,
                                 "tools": _TOOLS,
                                 "tool_choice": "auto",
-                                "max_tokens": 1000,
+                                "reasoning": {"effort": "high"},
+                                "include_reasoning": True,
+                                "max_tokens": 2000,
                             },
                         )
 
@@ -580,6 +586,11 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         msg = choice["message"]
                         tool_calls = msg.get("tool_calls") or []
 
+                        # Extract native reasoning for logging
+                        reasoning_text = (msg.get("reasoning") or "").strip()
+                        if reasoning_text:
+                            _dbg.log("LIVE", f"[{sid}] reasoning: {reasoning_text[:200]}")
+
                         if not tool_calls:
                             _dbg.log("LIVE", f"[{sid}] no tool call ({api_ms:.0f}ms)")
                             messages.append({"role": "assistant", "content": _extract_model_text(msg) or ""})
@@ -589,10 +600,10 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         tc = tool_calls[0]
                         format_retries = 0
-                        narration = _extract_model_text(msg)
+                        narration = reasoning_text or _extract_model_text(msg)
                         messages.append({
                             "role": "assistant",
-                            "content": narration or "",
+                            "content": _extract_model_text(msg) or "",
                             "tool_calls": [tc],
                         })
 

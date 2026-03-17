@@ -43,6 +43,12 @@ OPENROUTER_VISION_MODEL = os.environ.get("ACU_OPENROUTER_VISION_MODEL", "google/
 # UI-TARS grounding model via OpenRouter (used by gui_agent for precise cursor placement)
 UITARS_OPENROUTER_MODEL = os.environ.get("ACU_UITARS_OPENROUTER_MODEL", "bytedance/ui-tars-1.5-7b")
 
+# Qwen3-VL grounding model via OpenRouter
+QWEN3VL_OPENROUTER_MODEL = os.environ.get("ACU_QWEN3VL_OPENROUTER_MODEL", "qwen/qwen3-vl-32b-instruct")
+
+# Enable multi-view grounding (MVP). Increases grounding accuracy at cost of ~5x per move_to.
+MVP_ENABLED = os.environ.get("ACU_MVP_ENABLED", "0") in ("1", "true", "yes")
+
 # UI-TARS local via Ollama (used when no OpenRouter key)
 UITARS_OLLAMA_MODEL = os.environ.get("ACU_UITARS_OLLAMA_MODEL", "0000/ui-tars-1.5-7b")
 UITARS_KEEP_ALIVE = os.environ.get("ACU_UITARS_KEEP_ALIVE", "5m")

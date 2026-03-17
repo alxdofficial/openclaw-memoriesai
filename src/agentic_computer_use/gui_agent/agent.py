@@ -10,12 +10,11 @@ from ..screenshots import save_screenshot
 from .base import GUIAgentBackend
 from .types import GroundingResult
 
-# Iterative narrowing radii (screen px).  Each entry adds one refinement pass:
-#   full frame → 300px crop → 150px crop
-# Inspired by RegionFocus (ICCV 2025, arXiv:2505.00684).  Three passes give +28%
-# accuracy over single-shot on UI-TARS; the 150px third pass is critical for
-# 2-4px timeline handles in DaVinci Resolve.
-_NARROW_RADII: list[int] = [300, 150]
+# Iterative narrowing ratios (fraction of screen width).  Each entry adds one
+# refinement pass: full frame → 0.15x crop → 0.08x crop.
+# Inspired by RegionFocus (ICCV 2025, arXiv:2505.00684).  Proportional radii
+# adapt to any resolution: 1920px → 288/154px, 2560px → 384/205px, 1280px → 192/102px.
+_NARROW_RATIOS: list[float] = [0.15, 0.08]
 
 log = logging.getLogger(__name__)
 
@@ -40,8 +39,11 @@ def _get_backend() -> GUIAgentBackend:
     elif name == "omniparser":
         from .backends.omniparser import OmniParserBackend
         _backend = OmniParserBackend()
+    elif name == "qwen3vl":
+        from .backends.qwen3vl import Qwen3VLBackend
+        _backend = Qwen3VLBackend()
     else:
-        raise ValueError(f"Unknown GUI agent backend: {name}. Use direct|uitars|claude_cu|omniparser")
+        raise ValueError(f"Unknown GUI agent backend: {name}. Use direct|uitars|claude_cu|omniparser|qwen3vl")
 
     return _backend
 
@@ -71,7 +73,8 @@ async def _iterative_narrow(
     screen_h, screen_w = frame.shape[:2]
     current = initial
 
-    for round_idx, radius in enumerate(_NARROW_RADII):
+    for round_idx, ratio in enumerate(_NARROW_RATIOS):
+        radius = int(screen_w * ratio)
         x0, y0 = current.x, current.y
 
         # Crop bounds in full-screen space, clamped to screen
@@ -123,6 +126,107 @@ async def _iterative_narrow(
     return current
 
 
+async def _multiview_ground(
+    backend: GUIAgentBackend,
+    instruction: str,
+    frame,
+    loop,
+) -> GroundingResult | None:
+    """Multi-view ensembling (simplified MVP) for higher grounding accuracy.
+
+    1. Run full-frame grounding to get initial prediction P0.
+    2. Generate 4 crops at different scales centered on P0.
+    3. Run all 4 crops through backend.ground() in parallel.
+    4. Map all predictions back to full-screen space.
+    5. Cluster all 5 predictions with 14px L-infinity threshold.
+    6. Return centroid of the largest cluster.
+    """
+    screen_h, screen_w = frame.shape[:2]
+
+    # Step 1: Initial full-frame grounding
+    jpeg = await loop.run_in_executor(None, frame_to_jpeg, frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
+    p0 = await backend.ground(instruction, jpeg, image_size=(screen_w, screen_h))
+    if p0 is None:
+        return None
+
+    # Step 2: Define crop specs — (scale, offset_x, offset_y)
+    # scale = fraction of screen width for the crop radius
+    # offset = shift center toward screen center (catches edge targets)
+    cx, cy = p0.x, p0.y
+    crop_specs = [
+        (0.25, 0, 0),       # Crop A: large context
+        (0.15, 0, 0),       # Crop B: medium
+        (0.075, 0, 0),      # Crop C: tight
+    ]
+    # Crop D: offset toward screen center by 0.1x screen width
+    offset_x = int(0.1 * screen_w) * (1 if cx < screen_w // 2 else -1)
+    offset_y = int(0.1 * screen_h) * (1 if cy < screen_h // 2 else -1)
+    crop_specs.append((0.15, offset_x, offset_y))
+
+    # Step 3: Prepare and run all crop groundings in parallel
+    async def _ground_crop(scale: float, off_x: int, off_y: int) -> GroundingResult | None:
+        radius = int(screen_w * scale)
+        crop_cx = max(radius, min(screen_w - radius, cx + off_x))
+        crop_cy = max(radius, min(screen_h - radius, cy + off_y))
+        x1 = max(0, crop_cx - radius)
+        y1 = max(0, crop_cy - radius)
+        x2 = min(screen_w, crop_cx + radius)
+        y2 = min(screen_h, crop_cy + radius)
+        crop_w, crop_h = x2 - x1, y2 - y1
+        if crop_w < 20 or crop_h < 20:
+            return None
+        crop_frame = frame[y1:y2, x1:x2]
+        crop_jpeg = await loop.run_in_executor(None, frame_to_jpeg, crop_frame, config.GROUNDING_MAX_DIM, config.GROUNDING_JPEG_QUALITY)
+        result = await backend.ground(instruction, crop_jpeg, image_size=(crop_w, crop_h))
+        if result is None:
+            return None
+        # Map back to full-screen space
+        return GroundingResult(x=x1 + result.x, y=y1 + result.y, confidence=result.confidence)
+
+    crop_results = await asyncio.gather(*[_ground_crop(s, ox, oy) for s, ox, oy in crop_specs])
+
+    # Step 4: Collect all predictions (P0 + crop results)
+    predictions = [(p0.x, p0.y)]
+    for r in crop_results:
+        if r is not None:
+            predictions.append((r.x, r.y))
+
+    if len(predictions) == 1:
+        return p0  # No crop predictions succeeded, return P0
+
+    # Step 5: Cluster with 14px L-infinity threshold
+    CLUSTER_THRESHOLD = 14
+    clusters: list[list[tuple[int, int]]] = []
+    for px, py in predictions:
+        merged = False
+        for cluster in clusters:
+            # Check if point is within threshold of any point in the cluster
+            for qx, qy in cluster:
+                if abs(px - qx) <= CLUSTER_THRESHOLD and abs(py - qy) <= CLUSTER_THRESHOLD:
+                    cluster.append((px, py))
+                    merged = True
+                    break
+            if merged:
+                break
+        if not merged:
+            clusters.append([(px, py)])
+
+    # Step 6: Return centroid of largest cluster
+    best_cluster = max(clusters, key=len)
+    avg_x = int(sum(p[0] for p in best_cluster) / len(best_cluster))
+    avg_y = int(sum(p[1] for p in best_cluster) / len(best_cluster))
+
+    log.info("MVP: %d predictions, %d clusters, best cluster size=%d, centroid=(%d,%d)",
+             len(predictions), len(clusters), len(best_cluster), avg_x, avg_y)
+
+    return GroundingResult(
+        x=avg_x, y=avg_y,
+        confidence=p0.confidence,
+        description=p0.description,
+        element_text=p0.element_text,
+    )
+
+
 async def execute_gui_action(
     instruction: str,
     task_id: str = None,
@@ -164,7 +268,10 @@ async def execute_gui_action(
     screen_h, screen_w = frame.shape[:2]
 
     # Initial grounding — pass actual screen dimensions so normalized coords scale correctly
-    grounding = await backend.ground(instruction, jpeg, image_size=(screen_w, screen_h))
+    if config.MVP_ENABLED:
+        grounding = await _multiview_ground(backend, instruction, frame, loop)
+    else:
+        grounding = await backend.ground(instruction, jpeg, image_size=(screen_w, screen_h))
 
     if grounding is None:
         return {
