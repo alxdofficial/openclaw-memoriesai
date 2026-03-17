@@ -516,11 +516,15 @@ Note: type_text automatically selects and replaces existing text in the focused 
                                 {"type": "text", "text": (
                                     f"Task: \"{self._instruction}\"\n\n"
                                     f"Checklist to verify:\n{checklist}\n\n"
-                                    f"Examine the screenshot below and check ONLY these criteria — nothing else. "
-                                    f"For each, state PASS or FAIL with a brief reason.\n\n"
-                                    f"Then give a final verdict on the LAST line based ONLY on the criteria above:\n"
-                                    f"VERDICT: PASS — if ALL criteria are met\n"
-                                    f"VERDICT: FAIL — <reason> — if ANY criterion is not met"
+                                    f"Examine the screenshot and check ONLY the numbered criteria above.\n\n"
+                                    f"For each criterion, write exactly one line:\n"
+                                    f"N. PASS — <brief evidence>\n"
+                                    f"or\n"
+                                    f"N. FAIL — <what's wrong>\n\n"
+                                    f"After all criteria, write the final line:\n"
+                                    f"VERDICT: PASS (if every criterion above is PASS)\n"
+                                    f"VERDICT: FAIL — <quote the first failing criterion> (if any is FAIL)\n\n"
+                                    f"Do NOT add any criteria beyond the numbered list. Do NOT check anything else."
                                 )},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
                             ]},
