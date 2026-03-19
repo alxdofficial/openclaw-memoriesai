@@ -100,8 +100,8 @@ You are operating autonomously — no human is guiding you. On your first action
 ### Step costs
 
 move_to is **free** — use it to position the cursor, then verify the overlay before acting.
-wait is **free** — use it when a page is loading, a spinner is visible, or content is still rendering. You'll receive a fresh screenshot after the delay.
-click, type_text, key_press, and scroll each **cost one step**. You have a limited number of steps, so only commit an action when you're confident.
+click, type_text, key_press, scroll, and wait each **cost one step**. You have a limited number of steps, so only commit an action when you're confident.
+Use wait (1-5 seconds) when a page is loading or a spinner is visible — you'll receive a fresh screenshot after the delay. Don't wait unnecessarily.
 
 ### Precision with zoom
 

@@ -149,13 +149,22 @@ def run_single(agent, env, example, max_steps, instruction, sleep_after, example
 
             # Handle sentinel values — pass through to env.step() so
             # action_history is populated (needed for infeasible evaluation)
-            if action in ("DONE", "FAIL", "WAIT"):
+            if action in ("DONE", "FAIL"):
                 with open(os.path.join(example_result_dir, "traj.jsonl"), "a") as f:
                     f.write(json.dumps(traj_entry))
                     f.write("\n")
                 obs, reward, done, info = env.step(action, sleep_after)
                 logger.info("Agent signaled %s.", action)
                 break
+
+            # WAIT — pause and get fresh screenshot, but continue the task
+            if action == "WAIT":
+                with open(os.path.join(example_result_dir, "traj.jsonl"), "a") as f:
+                    f.write(json.dumps(traj_entry))
+                    f.write("\n")
+                obs, reward, done, info = env.step(action, sleep_after)
+                logger.info("Agent waited (step not counted).")
+                continue
 
             obs, reward, done, info = env.step(action, sleep_after)
             logger.info("Reward: %.2f, Done: %s", reward, done)
