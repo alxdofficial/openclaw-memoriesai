@@ -19,7 +19,6 @@ Usage from OSWorld's run script:
 """
 import asyncio
 import base64
-import copy
 import io
 import json
 import logging
@@ -422,20 +421,10 @@ Note: type_text automatically selects and replaces existing text in the focused 
             thinking = (think_data["choices"][0]["message"].get("content") or "").strip()
             log.info(f"THINKING: {thinking[:200]}")
 
-            # --- Pass 2: Action (with tools, thinking prepended to last message) ---
-            action_messages = copy.deepcopy(self._messages)
-            for i in range(len(action_messages) - 1, -1, -1):
-                if action_messages[i].get("role") == "user":
-                    content = action_messages[i]["content"]
-                    thinking_prefix = f"[Your step-by-step analysis: {thinking}]\n\n"
-                    if isinstance(content, list):
-                        for j, part in enumerate(content):
-                            if part.get("type") == "text":
-                                content[j] = {"type": "text", "text": thinking_prefix + part["text"]}
-                                break
-                    elif isinstance(content, str):
-                        action_messages[i]["content"] = thinking_prefix + content
-                    break
+            # --- Pass 2: Action (with tools, thinking as assistant message) ---
+            action_messages = list(self._messages)  # shallow copy
+            if thinking:
+                action_messages.append({"role": "assistant", "content": thinking})
 
             # Retry action pass up to 3 times if model returns text instead of tool call
             ACTION_RETRIES = 3
@@ -448,7 +437,7 @@ Note: type_text automatically selects and replaces existing text in the focused 
                         "messages": action_messages,
                         "tools": self._tools,
                         "tool_choice": "auto",
-                        "max_tokens": 500,
+                        "max_tokens": 1000,
                     },
                 )
 
