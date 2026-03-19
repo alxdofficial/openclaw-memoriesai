@@ -523,6 +523,10 @@ Note: type_text automatically selects and replaces existing text in the focused 
                                 f"for this task to be complete. For each criterion, tag it:\n"
                                 f"  [VISUAL] — can be confirmed by looking at the screen\n"
                                 f"  [HIDDEN] — involves saved files, changed settings, or background state\n\n"
+                                f"Be SPECIFIC: reference the exact values, names, or states from the "
+                                f"instruction. Bad: 'a webpage with forms'. Good: 'a list of Civil "
+                                f"Division forms is displayed'. Bad: 'correct settings'. Good: 'the "
+                                f"search engine is set to Bing'.\n\n"
                                 f"Only include criteria directly required by the instruction — do NOT "
                                 f"add extra verification steps the instruction didn't ask for.\n\n"
                                 f"Format: one criterion per line, numbered, with tag."
@@ -606,8 +610,37 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 msg2 = data2["choices"][0]["message"]
                 tool_calls = msg2.get("tool_calls") or []
                 if not tool_calls:
-                    log.warning(f"Verifier returned no tool call")
-                    return {"pass": True, "reason": "verifier returned no tool call, allowing"}
+                    # Retry once — nudge the model to use the tool
+                    log.warning(f"Verifier returned no tool call, retrying")
+                    retry_resp = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": self._gemini_model,
+                            "messages": [
+                                {"role": "system", "content": _VERIFIER_SYSTEM},
+                                {"role": "user", "content": [
+                                    {"type": "text", "text": (
+                                        f"Task: \"{self._instruction}\"\n\n"
+                                        f"Checklist to verify:\n{checklist}\n\n"
+                                        f"You must call the verdict tool with your results."
+                                    )},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
+                                ]},
+                            ],
+                            "tools": [_verdict_tool],
+                            "tool_choice": {"type": "function", "function": {"name": "verdict"}},
+                            "max_tokens": 1000,
+                        },
+                    )
+                    if retry_resp.status_code == 200:
+                        retry_data = retry_resp.json()
+                        retry_tc = retry_data["choices"][0]["message"].get("tool_calls") or []
+                        if retry_tc:
+                            tool_calls = retry_tc
+                    if not tool_calls:
+                        log.warning(f"Verifier returned no tool call after retry")
+                        return {"pass": True, "reason": "verifier returned no tool call, allowing"}
 
                 verdict_args = json.loads(tool_calls[0]["function"]["arguments"])
                 log.info(f"VERIFY RESULT: {json.dumps(verdict_args, indent=2)[:400]}")
