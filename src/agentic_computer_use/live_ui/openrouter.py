@@ -564,9 +564,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "messages": messages,
                                 "tools": _TOOLS,
                                 "tool_choice": "auto",
-                                "reasoning": {"effort": "high"},
-                                "include_reasoning": True,
-                                "max_tokens": 2000,
+                                "max_tokens": 1000,
                             },
                         )
 
@@ -586,11 +584,6 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         msg = choice["message"]
                         tool_calls = msg.get("tool_calls") or []
 
-                        # Extract native reasoning for logging
-                        reasoning_text = (msg.get("reasoning") or "").strip()
-                        if reasoning_text:
-                            _dbg.log("LIVE", f"[{sid}] reasoning: {reasoning_text[:200]}")
-
                         if not tool_calls:
                             _dbg.log("LIVE", f"[{sid}] no tool call ({api_ms:.0f}ms)")
                             messages.append({"role": "assistant", "content": _extract_model_text(msg) or ""})
@@ -600,7 +593,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         tc = tool_calls[0]
                         format_retries = 0
-                        narration = reasoning_text or _extract_model_text(msg)
+                        narration = _extract_model_text(msg)
                         messages.append({
                             "role": "assistant",
                             "content": _extract_model_text(msg) or "",

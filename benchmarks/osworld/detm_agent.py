@@ -19,6 +19,7 @@ Usage from OSWorld's run script:
 """
 import asyncio
 import base64
+import copy
 import io
 import json
 import logging
@@ -371,11 +372,10 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 m["content"] = [c for c in m["content"] if c.get("type") != "image_url"]
 
     async def _gemini_call(self) -> tuple[str | None, dict, str, str]:
-        """Single-pass API call with native reasoning + tool call.
+        """Two-pass API call: thinking pass (text-only) then action pass (tool call).
 
-        Uses Gemini's native reasoning (``reasoning.effort=high``) so the model
-        thinks internally before producing a structured tool call.  The reasoning
-        text is returned via ``include_reasoning`` for logging/debugging.
+        Pass 1: No tools — model freely analyzes the screenshot and reasons about next step.
+        Pass 2: With tools — model's reasoning is injected as context, structured tool call requested.
 
         Returns (fn_name, fn_args, tool_call_id, narration).
         """
@@ -387,11 +387,51 @@ Note: type_text automatically selects and replaces existing text in the focused 
         }
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # Retry up to 3 times if model returns text instead of tool call
+            # --- Pass 1: Thinking (text-only, no tools) ---
+            think_messages = self._messages + [
+                {"role": "user", "content": (
+                    "Before acting, think step by step:\n"
+                    "1. What do you see on screen right now?\n"
+                    "2. What is the current state relative to the task goal?\n"
+                    "3. What specific action should you take next and why?\n"
+                    "Be concise (2-4 sentences)."
+                )},
+            ]
+            resp1 = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": self._gemini_model,
+                    "messages": think_messages,
+                    "max_tokens": 300,
+                },
+            )
+            if resp1.status_code != 200:
+                raise RuntimeError(f"OpenRouter HTTP {resp1.status_code} (thinking): {resp1.text[:300]}")
+
+            think_data = resp1.json()
+            thinking = (think_data["choices"][0]["message"].get("content") or "").strip()
+            log.info(f"THINKING: {thinking[:200]}")
+
+            # --- Pass 2: Action (with tools, thinking prepended to last message) ---
+            action_messages = copy.deepcopy(self._messages)
+            for i in range(len(action_messages) - 1, -1, -1):
+                if action_messages[i].get("role") == "user":
+                    content = action_messages[i]["content"]
+                    thinking_prefix = f"[Your step-by-step analysis: {thinking}]\n\n"
+                    if isinstance(content, list):
+                        for j, part in enumerate(content):
+                            if part.get("type") == "text":
+                                content[j] = {"type": "text", "text": thinking_prefix + part["text"]}
+                                break
+                    elif isinstance(content, str):
+                        action_messages[i]["content"] = thinking_prefix + content
+                    break
+
+            # Retry action pass up to 3 times if model returns text instead of tool call
             ACTION_RETRIES = 3
-            action_messages = list(self._messages)  # shallow copy for retries
             for attempt in range(ACTION_RETRIES):
-                resp = await client.post(
+                resp2 = await client.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,
                     json={
@@ -399,24 +439,17 @@ Note: type_text automatically selects and replaces existing text in the focused 
                         "messages": action_messages,
                         "tools": self._tools,
                         "tool_choice": "auto",
-                        "reasoning": {"effort": "high"},
-                        "include_reasoning": True,
-                        "max_tokens": 2000,
+                        "max_tokens": 500,
                     },
                 )
 
-                if resp.status_code != 200:
-                    raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {resp.text[:300]}")
+                if resp2.status_code != 200:
+                    raise RuntimeError(f"OpenRouter HTTP {resp2.status_code} (action): {resp2.text[:300]}")
 
-                data = resp.json()
+                data = resp2.json()
                 choice = data["choices"][0]
                 msg = choice["message"]
                 tool_calls = msg.get("tool_calls") or []
-
-                # Extract reasoning from native reasoning field
-                reasoning = (msg.get("reasoning") or "").strip()
-                if reasoning:
-                    log.info(f"THINKING: {reasoning}")
 
                 if tool_calls:
                     break
@@ -426,10 +459,11 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 action_messages.append({"role": "assistant", "content": text_reply or ""})
                 action_messages.append({"role": "user", "content": "You must call a tool. Choose the most appropriate tool for your next action."})
 
-            narration = reasoning or (msg.get("content") or "").strip()
+            action_narration = (msg.get("content") or "").strip()
+            narration = thinking or action_narration
 
             if not tool_calls:
-                log.warning(f"No tool call after {ACTION_RETRIES} retries")
+                log.warning(f"Action pass returned no tool call after {ACTION_RETRIES} retries")
                 return None, {}, "", narration
 
             tc = tool_calls[0]
