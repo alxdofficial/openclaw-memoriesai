@@ -466,6 +466,139 @@ async def _refine_cursor(
     return {"ok": True, "x": x, "y": y, "edge_warning": edge_warning}
 
 
+# ── Independent done-verification ────────────────────────────────
+
+_VERIFIER_SYSTEM = (
+    "You are an independent QA verifier for a desktop GUI automation agent. "
+    "Your job is to check whether a task was completed correctly based on "
+    "what is visible on screen. You must be EVIDENCE-BASED: only fail a "
+    "criterion when you see POSITIVE evidence of failure (wrong value, "
+    "error message, wrong page, dialog still open, etc). "
+    "If the expected outcome is not visible on screen (e.g. a file was saved, "
+    "a setting was changed in a background process, a shortcut was created), "
+    "and there is no evidence of failure, mark the criterion as PASSED. "
+    "Absence of visual confirmation is NOT evidence of failure."
+)
+
+_VERDICT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "verdict",
+        "description": "Submit your verification verdict after checking the criteria.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "criteria_results": {
+                    "type": "array",
+                    "description": "Result for each checklist criterion, in order.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "criterion": {"type": "string"},
+                            "pass": {"type": "boolean"},
+                            "evidence": {"type": "string"},
+                        },
+                        "required": ["criterion", "pass", "evidence"],
+                    },
+                },
+                "overall_pass": {"type": "boolean", "description": "true only if ALL criteria pass"},
+                "failure_reason": {"type": "string", "description": "If overall_pass is false, explain what failed. Empty string if pass."},
+            },
+            "required": ["criteria_results", "overall_pass", "failure_reason"],
+        },
+    },
+}
+
+
+async def _verify_done(
+    instruction: str, screenshot_b64: str, model: str, api_key: str,
+    client: httpx.AsyncClient,
+) -> dict:
+    """Independent verification that a task is complete. Returns {"pass": bool, "reason": str}."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/openclaw/detm",
+        "X-Title": "DETM Verifier",
+    }
+    try:
+        # Step 1: Generate checklist
+        resp1 = await client.post(
+            f"{_OPENROUTER_BASE}/chat/completions",
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": _VERIFIER_SYSTEM},
+                    {"role": "user", "content": (
+                        f"The agent was given this task:\n\n"
+                        f"\"{instruction}\"\n\n"
+                        f"Generate a checklist of 2-4 specific criteria that should be true "
+                        f"for this task to be complete. For each criterion, tag it:\n"
+                        f"  [VISUAL] — can be confirmed by looking at the screen\n"
+                        f"  [HIDDEN] — involves saved files, changed settings, or background state\n\n"
+                        f"Be SPECIFIC: reference the exact values, names, or states from the "
+                        f"instruction. Bad: 'a webpage with forms'. Good: 'a list of Civil "
+                        f"Division forms is displayed'. Bad: 'correct settings'. Good: 'the "
+                        f"search engine is set to Bing'.\n\n"
+                        f"Only include criteria directly required by the instruction — do NOT "
+                        f"add extra verification steps the instruction didn't ask for.\n\n"
+                        f"Format: one criterion per line, numbered, with tag."
+                    )},
+                ],
+                "max_tokens": 300,
+            },
+        )
+        if resp1.status_code != 200:
+            return {"pass": True, "reason": "verifier checklist call failed"}
+        checklist = (resp1.json()["choices"][0]["message"].get("content") or "").strip()
+        log.info(f"VERIFY CHECKLIST: {checklist[:300]}")
+
+        # Step 2: Check criteria via structured tool call
+        resp2 = await client.post(
+            f"{_OPENROUTER_BASE}/chat/completions",
+            headers=headers,
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": _VERIFIER_SYSTEM},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": (
+                            f"Task: \"{instruction}\"\n\n"
+                            f"Checklist to verify:\n{checklist}\n\n"
+                            f"Examine the screenshot and check ONLY the numbered criteria above.\n"
+                            f"- For [VISUAL] criteria: check if the screen shows the expected state.\n"
+                            f"- For [HIDDEN] criteria: PASS unless you see positive evidence of "
+                            f"failure (error message, wrong state, command that clearly failed).\n"
+                            f"- Absence of visual confirmation is NOT a failure.\n"
+                            f"Call the verdict tool with your results."
+                        )},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
+                    ]},
+                ],
+                "tools": [_VERDICT_TOOL],
+                "tool_choice": {"type": "function", "function": {"name": "verdict"}},
+                "reasoning": {"effort": "high"},
+                "max_tokens": 2000,
+            },
+        )
+        if resp2.status_code != 200:
+            return {"pass": True, "reason": "verifier check call failed"}
+
+        msg2 = resp2.json()["choices"][0]["message"]
+        tool_calls = msg2.get("tool_calls") or []
+        if not tool_calls:
+            return {"pass": True, "reason": "verifier returned no tool call"}
+
+        verdict_args = json.loads(tool_calls[0]["function"]["arguments"])
+        log.info(f"VERIFY RESULT: {json.dumps(verdict_args, indent=2)[:400]}")
+        return {"pass": verdict_args.get("overall_pass", True), "reason": verdict_args.get("failure_reason", "")}
+
+    except Exception as e:
+        log.warning(f"Verifier error: {e}")
+        return {"pass": True, "reason": f"verifier error: {e}"}
+
+
 # ── Main provider ───────────────────────────────────────────────
 
 class OpenRouterVLMProvider(LiveUIProvider):
@@ -492,6 +625,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
         if not api_key:
             return {"error": "OPENROUTER_API_KEY not set", "success": False, "actions_taken": 0}
 
+        self._done_verified = False
         _benchmark = get_screenshot is not None
         _do_execute = execute_override or (lambda name, args: execute_action(name, args, display))
 
@@ -565,6 +699,42 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             if isinstance(m.get("content"), list):
                                 m["content"] = [c for c in m["content"] if c.get("type") != "image_url"]
 
+                        # ── Pass 1: Thinking (text-only, no tools) ──
+                        think_messages = messages + [
+                            {"role": "user", "content": (
+                                "Before acting, think step by step:\n"
+                                "1. What do you see on screen right now?\n"
+                                "2. What is the current state relative to the task goal?\n"
+                                "3. What specific action should you take next and why?\n"
+                                "Be concise (2-4 sentences)."
+                            )},
+                        ]
+                        think_resp = await client.post(
+                            f"{_OPENROUTER_BASE}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                                "HTTP-Referer": "https://github.com/openclaw/detm",
+                                "X-Title": "DETM gui_agent",
+                            },
+                            json={
+                                "model": model,
+                                "messages": think_messages,
+                                "max_tokens": 300,
+                            },
+                        )
+                        thinking = ""
+                        if think_resp.status_code == 200:
+                            think_data = think_resp.json()
+                            thinking = (think_data["choices"][0]["message"].get("content") or "").strip()
+                            if thinking:
+                                _dbg.log("LIVE", f"[{sid}] thinking: {thinking[:200]}")
+
+                        # ── Pass 2: Action (with tools, thinking as assistant message) ──
+                        action_messages = list(messages)
+                        if thinking:
+                            action_messages.append({"role": "assistant", "content": thinking})
+
                         resp = await client.post(
                             f"{_OPENROUTER_BASE}/chat/completions",
                             headers={
@@ -575,7 +745,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             },
                             json={
                                 "model": model,
-                                "messages": messages,
+                                "messages": action_messages,
                                 "tools": _TOOLS,
                                 "tool_choice": "auto",
                                 "max_tokens": 1000,
@@ -607,7 +777,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
 
                         tc = tool_calls[0]
                         format_retries = 0
-                        narration = _extract_model_text(msg)
+                        narration = thinking or _extract_model_text(msg)
                         messages.append({
                             "role": "assistant",
                             "content": _extract_model_text(msg) or "",
@@ -641,6 +811,33 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         if fn_name == "done":
                             success = bool(fn_args.get("success", True))
                             summary = str(fn_args.get("summary", ""))
+
+                            # Independent verification on success claims
+                            if success and not getattr(self, "_done_verified", False):
+                                self._done_verified = True
+                                # Capture fresh screenshot for verification
+                                if _benchmark:
+                                    verify_b64, _ = get_screenshot()
+                                else:
+                                    verify_b64, _ = await asyncio.get_running_loop().run_in_executor(
+                                        None, _capture_jpeg_b64, display, session
+                                    )
+                                if verify_b64:
+                                    verdict = await _verify_done(
+                                        instruction, verify_b64, model, api_key, client
+                                    )
+                                    if verdict["pass"]:
+                                        _dbg.log("LIVE", f"[{sid}] verification PASSED: {verdict.get('reason', '')[:120]}")
+                                    else:
+                                        _dbg.log("LIVE", f"[{sid}] verification FAILED: {verdict.get('reason', '')[:200]}")
+                                        self._done_verified = False
+                                        messages.append({"role": "tool", "tool_call_id": tc_id,
+                                            "content": f"Verification FAILED. The task is NOT complete. "
+                                                       f"Issue: {verdict.get('reason', 'unknown')}. "
+                                                       f"Continue working to fix this."})
+                                        continue
+
+                            self._done_verified = False
                             if session:
                                 session.record_done(success, summary)
                             messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
