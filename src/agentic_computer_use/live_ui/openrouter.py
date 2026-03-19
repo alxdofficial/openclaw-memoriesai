@@ -35,6 +35,7 @@ _SETTLE = {
     "drag":         0.15,
     "mouse_down":   0.0,
     "mouse_up":     0.08,
+    "wait":         0.0,
 }
 
 _SYSTEM_PROMPT = """\
@@ -217,6 +218,19 @@ _TOOLS = [
                 "type": "object",
                 "properties": {
                     "button": {"type": "string", "enum": ["left", "right", "middle"], "description": "Default: left"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "wait",
+            "description": "Wait for the screen to update (page load, animation, async operation). Returns a fresh screenshot after the delay.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "seconds": {"type": "number", "description": "Seconds to wait (default 2, max 10)"},
                 },
             },
         },
@@ -701,6 +715,32 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 session.record_tool_response(fn_name, tc_id, action_result)
                             # Don't count as action_turn, don't take post-action screenshot — continue loop
                             continue
+
+                        # ── wait: pause and re-capture (free, not counted) ──
+                        if fn_name == "wait":
+                            wait_secs = min(max(float(fn_args.get("seconds", 2)), 0.5), 10)
+                            if not _benchmark:
+                                await asyncio.sleep(wait_secs)
+                            action_result = f"waited {wait_secs}s"
+                            messages.append({"role": "tool", "tool_call_id": tc_id, "content": action_result})
+
+                            if _benchmark:
+                                screenshot_b64, shot_cursor = get_screenshot()
+                            else:
+                                screenshot_b64, shot_cursor = await asyncio.get_running_loop().run_in_executor(
+                                    None, _capture_jpeg_b64, display, session
+                                )
+                            if _benchmark and screenshot_b64:
+                                _current_frame = _decode_frame_from_b64(screenshot_b64)
+                            if shot_cursor:
+                                cursor_x, cursor_y = shot_cursor
+                            messages.append({"role": "user", "content": [
+                                {"type": "text", "text": "[current screenshot]"},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
+                            ]})
+                            if session:
+                                session.record_tool_response(fn_name, tc_id, action_result)
+                            continue  # Don't count as action turn
 
                         # ── GUI actions (counted as steps) ──────────────────
                         action_turns += 1

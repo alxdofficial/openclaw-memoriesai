@@ -100,6 +100,7 @@ You are operating autonomously — no human is guiding you. On your first action
 ### Step costs
 
 move_to is **free** — use it to position the cursor, then verify the overlay before acting.
+wait is **free** — use it when a page is loading, a spinner is visible, or content is still rendering. You'll receive a fresh screenshot after the delay.
 click, type_text, key_press, and scroll each **cost one step**. You have a limited number of steps, so only commit an action when you're confident.
 
 ### Precision with zoom
@@ -257,6 +258,7 @@ Note: type_text automatically selects and replaces existing text in the focused 
                             "content": f"Verification FAILED. The task is NOT complete. "
                                        f"Issue: {verdict.get('reason', 'unknown')}. "
                                        f"Continue working to fix this."})
+                        self._done_verified = False  # reset so next done() also gets verified
                         continue  # let the task runner keep going
 
                 self._done_verified = False
@@ -268,6 +270,13 @@ Note: type_text automatically selects and replaces existing text in the focused 
                 self._messages.append({"role": "tool", "tool_call_id": tc_id, "content": "ok"})
                 self._last_debug = {"tool": fn_name, "args": fn_args, "thought": narration, "result": "FAIL", "internal": internal_events}
                 return last_narration, ["FAIL"]
+
+            # wait — return to OSWorld which handles the actual delay + fresh screenshot
+            if fn_name == "wait":
+                wait_secs = min(max(float(fn_args.get("seconds", 2)), 0.5), 10)
+                self._messages.append({"role": "tool", "tool_call_id": tc_id, "content": f"waited {wait_secs}s"})
+                self._last_debug = {"tool": fn_name, "args": fn_args, "thought": narration, "result": "WAIT", "internal": internal_events}
+                return last_narration, ["WAIT"]
 
             # move_to is resolved internally — cursor overlay fed back to supervisor
             if fn_name == "move_to":
@@ -498,10 +507,14 @@ Note: type_text automatically selects and replaces existing text in the focused 
 
         _VERIFIER_SYSTEM = (
             "You are an independent QA verifier for a desktop GUI automation agent. "
-            "Your job is to check whether a task was actually completed correctly. "
-            "You are skeptical by default — the agent often THINKS it succeeded but "
-            "actually made subtle mistakes (wrong location, wrong value, incomplete action, "
-            "dialog still open, etc). Look carefully for these common failure modes."
+            "Your job is to check whether a task was completed correctly based on "
+            "what is visible on screen. You must be EVIDENCE-BASED: only fail a "
+            "criterion when you see POSITIVE evidence of failure (wrong value, "
+            "error message, wrong page, dialog still open, etc). "
+            "If the expected outcome is not visible on screen (e.g. a file was saved, "
+            "a setting was changed in a background process, a shortcut was created), "
+            "and there is no evidence of failure, mark the criterion as PASSED. "
+            "Absence of visual confirmation is NOT evidence of failure."
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -517,11 +530,13 @@ Note: type_text automatically selects and replaces existing text in the focused 
                             {"role": "user", "content": (
                                 f"The agent was given this task:\n\n"
                                 f"\"{self._instruction}\"\n\n"
-                                f"Generate a checklist of 2-4 specific, visually verifiable criteria "
-                                f"that MUST be true on the screen for this task to be complete. "
+                                f"Generate a checklist of 2-4 specific criteria that should be true "
+                                f"for this task to be complete. For each criterion, tag it:\n"
+                                f"  [VISUAL] — can be confirmed by looking at the screen\n"
+                                f"  [HIDDEN] — involves saved files, changed settings, or background state\n\n"
                                 f"Only include criteria directly required by the instruction — do NOT "
                                 f"add extra verification steps the instruction didn't ask for.\n\n"
-                                f"Format: one criterion per line, numbered."
+                                f"Format: one criterion per line, numbered, with tag."
                             )},
                         ],
                         "max_tokens": 300,
@@ -578,7 +593,11 @@ Note: type_text automatically selects and replaces existing text in the focused 
                                 {"type": "text", "text": (
                                     f"Task: \"{self._instruction}\"\n\n"
                                     f"Checklist to verify:\n{checklist}\n\n"
-                                    f"Examine the screenshot and check ONLY the numbered criteria above. "
+                                    f"Examine the screenshot and check ONLY the numbered criteria above.\n"
+                                    f"- For [VISUAL] criteria: check if the screen shows the expected state.\n"
+                                    f"- For [HIDDEN] criteria: PASS unless you see positive evidence of "
+                                    f"failure (error message, wrong state, command that clearly failed).\n"
+                                    f"- Absence of visual confirmation is NOT a failure.\n"
                                     f"Call the verdict tool with your results."
                                 )},
                                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"}},
