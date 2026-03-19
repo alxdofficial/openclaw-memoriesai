@@ -184,23 +184,36 @@ Take a screenshot and reason about it yourself. Use this whenever you need to un
 -> decide your next action
 ```
 
-### Tier 2 — `gui_agent` (any GUI interaction, single or multi-step)
-AI-powered GUI agent that uses Gemini Flash for reasoning and UI-TARS for precise cursor placement. Handles everything from a single click to complex multi-step workflows autonomously. The agent sees screenshots after each action, uses a specialized grounding model to place the cursor precisely on targets, and verifies placement before clicking.
+### Tier 2 — `gui_agent` (autonomous GUI subtask execution)
+AI-powered GUI agent that uses Gemini Flash for reasoning and UI-TARS for precise cursor placement. Handles complex multi-step workflows autonomously — it thinks before each action, grounds the cursor precisely, verifies completion, and recovers from errors on its own.
 
-**Use this when:**
-- Any GUI interaction: clicks, typing, navigation, form filling, scrolling
-- Single-step OR multi-step workflows
-- The workflow has many steps and `desktop_look` round-trips would be too slow
-- You know the goal but not each individual step — describe the outcome
+**Delegate whole subtasks, not individual clicks.** The gui_agent is designed to handle 10-30 step workflows autonomously. Don't micromanage it with one-action instructions — describe the goal and let it figure out the steps. You should check in between subtasks to read results and decide what's next.
+
+**Good — delegate a subtask:**
+```
+gui_agent(instruction="Open Chrome, go to Google Flights, search for flights from NYC to London on March 28, and filter for nonstop only", task_id=<id>, timeout=120)
+```
+
+**Bad — micromanage individual clicks:**
+```
+gui_agent(instruction="Click the search bar", task_id=<id>)
+desktop_look(task_id=<id>)
+gui_agent(instruction="Type NYC to London", task_id=<id>)
+desktop_look(task_id=<id>)
+gui_agent(instruction="Click the date field", task_id=<id>)
+# ... this is 5x slower and less reliable
+```
+
+**How to chunk work:** Break the user's overall task into 2-5 subtasks. Each subtask should be a coherent workflow that gui_agent can complete autonomously (~10-30 actions). Check in between subtasks with `desktop_look` when YOU need to read results, make decisions, or report to the user.
 
 **Do not use this when:**
 - The next step depends on complex reasoning that only you can do (e.g. reading a report and deciding whether a number is acceptable) — use `desktop_look` instead
 - You need explicit pixel-level control — use `desktop_action` with coordinates from `desktop_look`
 
 ```
--> gui_agent(task_id=<id>, instruction="Navigate to Settings > Export and click Export as PDF", timeout=60)
--> # agent handles the full chain; returns {success, summary, actions_taken}
--> # Trust the result — gui_agent already verified the outcome visually
+-> gui_agent(task_id=<id>, instruction="Navigate to Settings, find the Export section, set format to PDF with A4 paper size, and click Export", timeout=90)
+-> # agent handles the full chain autonomously: thinks, navigates, types, verifies
+-> # Trust the result — gui_agent verified the outcome with an independent checker
 -> # Only take desktop_look if YOU need to read specific content from the screen
 ```
 
@@ -209,10 +222,11 @@ AI-powered GUI agent that uses Gemini Flash for reasoning and UI-TARS for precis
 | Situation | Tool |
 |---|---|
 | "I need to see where I am before deciding anything" | `desktop_look` |
-| "Click this button / type in this field / navigate this menu" | `gui_agent` |
-| "I have a predictable multi-step flow (login, form, search)" | `gui_agent` |
-| "I need to read specific content from the screen after gui_agent" | `desktop_look` |
+| "Complete this subtask (search, fill form, navigate to page)" | `gui_agent` with full subtask instruction |
+| "I need to read results from the screen to decide what's next" | `desktop_look` |
 | "One explicit pixel-precise click from known coordinates" | `desktop_action` |
+
+**Rule of thumb:** If you're about to call `gui_agent` 3+ times in a row with `desktop_look` between each, combine them into one `gui_agent` call with a single instruction describing the full sequence.
 
 ## Browser interaction — visual only
 
@@ -507,13 +521,27 @@ Autonomous GUI agent for any desktop interaction. Uses Gemini Flash for reasonin
 
 `{success, summary, escalated, escalation_reason, actions_taken, session_id, elapsed_s}`
 
-### Basic usage
+### Subtask delegation (recommended)
+
+Give gui_agent a whole subtask with a clear goal. It will plan and execute autonomously.
 
 ```python
+# Subtask 1: Search for flights
 result = gui_agent(
     task_id=task_id,
-    instruction="Click the Settings gear, go to Export, and click Export as PDF",
-    timeout=60,
+    instruction="Open Google Flights, search for nonstop flights from NYC JFK to London Heathrow on March 28 for 1 adult, and wait for results to load",
+    timeout=120,
+)
+
+# Check in: read results and decide
+desktop_look(task_id=task_id)
+task_update(task_id=task_id, message="Flight results loaded. Cheapest is $450 on BA. Will select it.")
+
+# Subtask 2: Select and proceed
+result = gui_agent(
+    task_id=task_id,
+    instruction="Select the cheapest nonstop flight and proceed to the booking page",
+    timeout=90,
 )
 ```
 
@@ -522,20 +550,20 @@ result = gui_agent(
 ```python
 result = gui_agent(
     task_id=task_id,
-    instruction="Log in with email user@example.com and the password from context. Confirm the inbox loads.",
+    instruction="Log in with email user@example.com and the password from context. Wait for the inbox to load and confirm you can see emails.",
     context="password: MySecurePass123",
-    timeout=60,
+    timeout=90,
 )
 ```
 
-### Longer workflow
+### Complex workflow as a single subtask
 
 ```python
 result = gui_agent(
     task_id=task_id,
     instruction=(
-        "Open the contact form at the bottom of the page. "
-        "Fill in: Name='Surge Energy', Email='hello@surgeenergy.co.uk', "
+        "Navigate to the Contact page, fill in the form with: "
+        "Name='Surge Energy', Email='hello@surgeenergy.co.uk', "
         "Message='Partnership inquiry -- we are a UK energy drink brand'. "
         "Click Submit and confirm the success message appears."
     ),
