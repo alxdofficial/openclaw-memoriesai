@@ -271,7 +271,7 @@ journalctl -u detm-daemon -f    # tail logs
 | `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | Supervisor model |
 | `ACU_UITARS_OPENROUTER_MODEL` | `bytedance/ui-tars-1.5-7b` | Grounding model |
 | `ACU_MVP_ENABLED` | `0` | Multi-View Point ensembling (`1` to enable) |
-| `ACU_GUI_AGENT_BACKEND` | `uitars` | Grounding backend (uitars, qwen3vl, direct) |
+| `ACU_GUI_AGENT_BACKEND` | `direct` | Grounding backend (uitars, qwen3vl, direct). Set to `uitars` for UI-TARS grounding. |
 | `ACU_VISION_BACKEND` | `ollama` | Vision backend for smart_wait |
 | `ACU_DEBUG` | `0` | Verbose debug logging |
 | `ACU_STUCK_DETECTION` | `0` | Stuck task detection (`1` to enable) |
