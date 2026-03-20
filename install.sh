@@ -25,10 +25,14 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-info()  { echo -e "${CYAN}[detm]${NC} $*"; }
-ok()    { echo -e "${GREEN}[detm]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[detm]${NC} $*"; }
-err()   { echo -e "${RED}[detm]${NC} $*"; }
+BOLD='\033[1m'
+_STEP=0
+_TOTAL_STEPS=9
+step()  { _STEP=$((_STEP + 1)); echo -e "\n${BOLD}${CYAN}[${_STEP}/${_TOTAL_STEPS}] $*${NC}"; }
+info()  { echo -e "${CYAN}  ├─${NC} $*"; }
+ok()    { echo -e "${GREEN}  ✓${NC} $*"; }
+warn()  { echo -e "${YELLOW}  ⚠${NC} $*"; }
+err()   { echo -e "${RED}  ✗${NC} $*"; }
 
 # ─── Sudo helper (works even when stdin is a pipe) ───────────────
 # When piped via curl|bash, sudo can't read the password from stdin.
@@ -50,7 +54,7 @@ if [ "$(uname)" != "Linux" ]; then
     exit 1
 fi
 
-# ─── API key ─────────────────────────────────────────────────────
+step "API key"
 
 if [ -z "${OPENROUTER_API_KEY:-}" ]; then
     warn "OPENROUTER_API_KEY is not set."
@@ -76,7 +80,7 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
     fi
 fi
 
-# ─── Python ──────────────────────────────────────────────────────
+step "Python"
 
 PYTHON=""
 for p in python3.14 python3.13 python3.12 python3.11 python3; do
@@ -96,7 +100,7 @@ if [ -z "$PYTHON" ]; then
 fi
 ok "Python: $($PYTHON --version)"
 
-# ─── System dependencies ────────────────────────────────────────
+step "System dependencies"
 
 MISSING_PKGS=()
 command -v xdotool    &>/dev/null || MISSING_PKGS+=("xdotool")
@@ -127,7 +131,7 @@ if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
 fi
 ok "System dependencies ready"
 
-# ─── Browser ────────────────────────────────────────────────────
+step "Browser"
 
 HAS_BROWSER=false
 for browser in google-chrome google-chrome-stable chromium-browser chromium firefox firefox-esr; do
@@ -149,7 +153,7 @@ if [ "$HAS_BROWSER" = false ]; then
     fi
 fi
 
-# ─── Display ────────────────────────────────────────────────────
+step "Display"
 
 _has_real_display() {
     for d in "${DISPLAY:-}" :0 :1 :2; do
@@ -305,7 +309,7 @@ XFCEEOF
     ok "XFCE keyboard shortcuts configured"
 fi
 
-# ─── Python package ──────────────────────────────────────────────
+step "Python package"
 
 info "Setting up Python environment..."
 if [ ! -d "$VENV_DIR" ]; then
@@ -315,7 +319,7 @@ fi
 "$VENV_DIR/bin/pip" install --quiet -e "$REPO_DIR"
 ok "Python package installed"
 
-# ─── DETM daemon service ────────────────────────────────────────
+step "DETM daemon service"
 
 info "Installing DETM daemon service..."
 
@@ -359,7 +363,7 @@ else
     warn "Daemon may still be starting — check: journalctl -u detm-daemon -f"
 fi
 
-# ─── OpenClaw integration ───────────────────────────────────────
+step "OpenClaw integration"
 
 info "Configuring OpenClaw..."
 
@@ -436,7 +440,7 @@ if [ -d "$PLUGIN_DIR" ] && [ -n "$OPENCLAW_BIN" ]; then
     fi
 fi
 
-# ─── Health check ────────────────────────────────────────────────
+step "Health check"
 
 info "Running health check..."
 HEALTH=$(curl -s "http://127.0.0.1:$DAEMON_PORT/health" 2>/dev/null || echo '{}')
@@ -470,6 +474,12 @@ fi
 echo ""
 echo "  Test:  curl http://127.0.0.1:$DAEMON_PORT/health"
 echo ""
+if [ "$VIRTUAL_DISPLAY" = true ]; then
+echo "  Remote access (from laptop/mobile):"
+echo "    ssh -L $DAEMON_PORT:localhost:$DAEMON_PORT -L $NOVNC_PORT:localhost:$NOVNC_PORT user@this-server"
+echo "    Then open http://localhost:$DAEMON_PORT/dashboard"
+echo ""
+fi
 if [ -n "$OPENCLAW_BIN" ]; then
 echo "  OpenClaw will auto-discover DETM tools via mcporter."
 echo "  Reload OpenClaw: kill -HUP \$(pgrep -f openclaw-gateway)"
