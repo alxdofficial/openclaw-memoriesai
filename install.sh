@@ -474,6 +474,9 @@ fi
 echo ""
 echo "  Test:  curl http://127.0.0.1:$DAEMON_PORT/health"
 echo ""
+echo "  Update DETM:"
+echo "    cd $REPO_DIR && git pull && ./install.sh"
+echo ""
 if [ "$VIRTUAL_DISPLAY" = true ]; then
 echo "  Remote access (from laptop/mobile):"
 echo "    ssh -L $DAEMON_PORT:localhost:$DAEMON_PORT -L $NOVNC_PORT:localhost:$NOVNC_PORT user@this-server"
