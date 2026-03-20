@@ -418,8 +418,8 @@ if [ -d "$REPO_DIR/skill" ]; then
     ok "Skill symlinked"
 fi
 
-# Sub-agents
-if [ -f "$REPO_DIR/scripts/deploy-agents.sh" ]; then
+# Sub-agents (opt-in: set DETM_DEPLOY_AGENTS=1 to deploy)
+if [ "${DETM_DEPLOY_AGENTS:-0}" = "1" ] && [ -f "$REPO_DIR/scripts/deploy-agents.sh" ]; then
     VENV_PYTHON="$VENV_DIR/bin/python3"
     OC_WORKSPACE="$OC_WORKSPACE" VENV_PYTHON="$VENV_PYTHON" source "$REPO_DIR/scripts/deploy-agents.sh"
     if [ -d "${AGENTS_SRC:-}" ]; then
@@ -428,6 +428,8 @@ if [ -f "$REPO_DIR/scripts/deploy-agents.sh" ]; then
         register_agents_config
         ok "Sub-agents deployed"
     fi
+else
+    info "Sub-agents: skipped (set DETM_DEPLOY_AGENTS=1 to deploy)"
 fi
 
 # Plugin
