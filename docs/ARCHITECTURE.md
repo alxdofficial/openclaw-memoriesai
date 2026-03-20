@@ -11,7 +11,7 @@ OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop (:99)
 Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
 2. **Smart Wait** — vision-based condition polling with adaptive intervals
-3. **GUI Agent** — Gemini Flash supervisor + UI-TARS grounding (unified, replaces gui_do/gui_find/live_ui)
+3. **GUI Agent** — Gemini Flash supervisor + UI-TARS grounding (unified tool: `gui_agent`)
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
 5. **Display** — single shared display `:99` (XFCE desktop, visible via VNC)
 
@@ -186,7 +186,7 @@ The `uitars` backend auto-selects mode: if `OPENROUTER_API_KEY` is set, it uses 
 
 All backends use a **persistent `httpx.AsyncClient`** (module-level singleton) — no TLS reconnect per grounding call. The `uitars` backend maintains two clients (one for OpenRouter, one for Ollama). `omniparser`'s Claude Haiku picker also uses a persistent client.
 
-`gui_do` accepts **natural language only** — never raw coordinates. The instruction goes through iterative narrowing (3 passes: full frame → 300px crop → 150px crop) for precision on small targets. Use `desktop_action` for pixel-exact control.
+`gui_agent` accepts **natural language only** — never raw coordinates. The instruction goes through iterative narrowing (3 passes: full frame → 300px crop → 150px crop) for precision on small targets. Use `desktop_action` for pixel-exact control.
 
 **OmniParser pipeline** (`omniparser` backend):
 ```
@@ -229,10 +229,10 @@ Background loop in the daemon (`stuck_detection_loop()`, 60s interval) monitors 
 Built-in web UI served by the daemon at `/dashboard`. No separate process.
 
 Components (`dashboard/components/`):
-- **task-list.js** — sidebar with status badges, progress bars, **Live button** (pulsing when `live_ui` is active), download button for completed recordings
+- **task-list.js** — sidebar with status badges, progress bars, **Live button** (pulsing when `gui_agent` is active), download button for completed recordings
 - **task-tree.js** — expandable plan items → actions → logs with screenshots, coordinates, lightbox; shows which vision model/backend was used per action
 - **screen-viewer.js** — polled JPEG live view (2 fps) + **replay mode** (scrub through recorded frames frame-by-frame)
-- **live-session-viewer.js** — modal viewer for `live_ui` sessions: replay mode (frame scrubber + audio player with bidirectional sync) and **live monitoring mode** (SSE event feed + real-time frame + PCM audio via Web Audio API)
+- **live-session-viewer.js** — modal viewer for `gui_agent` sessions: replay mode (frame scrubber + audio player with bidirectional sync) and **live monitoring mode** (SSE event feed + real-time frame + PCM audio via Web Audio API)
 
 Task controls in the tree header: **Pause**, **Resume**, **Cancel** buttons that POST status changes to the daemon.
 
@@ -264,13 +264,13 @@ All environment variables use the `ACU_*` prefix:
 | `ACU_VLLM_URL` | `http://localhost:8000` | vLLM API endpoint |
 | `ACU_VLLM_MODEL` | `ui-tars-1.5-7b` | vLLM model name |
 | `ACU_CLAUDE_VISION_MODEL` | `claude-sonnet-4-20250514` | Claude vision model |
-| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — for vision, GUI-TARS grounding, and live_ui |
+| `OPENROUTER_API_KEY` | (none) | OpenRouter API key — for vision, GUI-TARS grounding, and gui_agent |
 | `ACU_OPENROUTER_VISION_MODEL` | `google/gemini-2.0-flash-lite-001` | OpenRouter model for SmartWait vision |
 | `OLLAMA_KEEP_ALIVE` | `10m` | How long Ollama keeps vision model in VRAM between calls |
 | `ACU_GUI_AGENT_BACKEND` | `direct` | GUI grounding: direct, uitars, claude_cu, omniparser |
 | `ACU_UITARS_OLLAMA_MODEL` | `0000/ui-tars-1.5-7b` | Ollama model for local UI-TARS grounding |
 | `ACU_UITARS_KEEP_ALIVE` | `5m` | Ollama keep_alive for UI-TARS (frees VRAM after idle) |
-| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | OpenRouter live_ui model |
+| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | OpenRouter gui_agent model |
 | `ACU_DEBUG` | `0` | Enable verbose debug logging |
 | `ACU_WORKSPACE` | (none) | Workspace directory for memory files |
 | `DISPLAY` | `:99` | Shared X11 display (all tasks) |
@@ -283,7 +283,7 @@ All environment variables use the `ACU_*` prefix:
 
 ### 1. Docker (recommended, any OS)
 
-Everything runs inside a single container: Xvfb virtual display, fluxbox window manager, x11vnc, websockify/noVNC, and the DETM daemon. The host only needs Docker and the MCP server proxy.
+Everything runs inside a single container: Xvfb virtual display, XFCE4 window manager, x11vnc, websockify/noVNC, and the DETM daemon. The host only needs Docker and the MCP server proxy.
 
 ```
 ┌─────────────────────── Host ───────────────────────┐
@@ -300,7 +300,7 @@ Everything runs inside a single container: Xvfb virtual display, fluxbox window 
 │  │    ├─ GUI Agent (Gemini + UI-TARS)             │ │
 │  │    └─ Web Dashboard (/dashboard)               │ │
 │  │                                                │ │
-│  │  Xvfb :99 ──→ fluxbox                         │ │
+│  │  Xvfb :99 ──→ XFCE4                           │ │
 │  │    └─ x11vnc ──→ websockify (:6080)            │ │
 │  │                                                │ │
 │  │  Volume: /data (DB, screenshots, recordings)   │ │
@@ -314,7 +314,7 @@ Everything runs inside a single container: Xvfb virtual display, fluxbox window 
 
 **Files:**
 - `docker/Dockerfile` — Ubuntu 24.04 base with all system deps
-- `docker/entrypoint.sh` — starts Xvfb, fluxbox, VNC, noVNC, daemon
+- `docker/entrypoint.sh` — starts Xvfb, XFCE4, VNC, noVNC, daemon
 - `docker/detm-docker.sh` — start/stop/status/logs/build/shell helper
 - `.dockerignore` — excludes .venv, benchmarks, docs, etc.
 

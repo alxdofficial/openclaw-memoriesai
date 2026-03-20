@@ -115,28 +115,20 @@ Cancel an active wait job.
 
 ## GUI Agent (NL Grounding)
 
-### `gui_do`
+### `gui_agent`
 
-Execute a GUI action from a natural language instruction.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `instruction` | string | yes | Natural language only — e.g. "click the Export button" |
-| `task_id` | string | no | Link action to a task |
-| `window_name` | string | no | Target window (auto-focused) |
-
-The instruction is grounded to screen coordinates by the configured backend (`ACU_GUI_AGENT_BACKEND`, default: `direct` — agent must provide coordinates in the instruction). Pass `task_id` to target the task's display.
-
-**Never pass raw coordinates to `gui_do`.** Use `desktop_action` with explicit `x`/`y` for pixel-exact control.
-
-### `gui_find`
-
-Locate a UI element without acting. Returns coordinates.
+Delegate a multi-step UI workflow to a live vision model. The model sees the screen in real-time and performs GUI actions autonomously until the task is done or it escalates.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `description` | string | yes | What to find |
-| `window_name` | string | no | Target window |
+| `instruction` | string | yes | What to accomplish (NL, multi-step OK) |
+| `task_id` | string | no | Link session to a task |
+| `timeout` | int | no | Max seconds (default: 60, max: 300) |
+| `context` | string | no | Additional context for the model |
+
+Returns `success`, `summary`, `actions_taken`, `session_id`. The session is recorded to disk (frames + events + audio) and viewable in the dashboard via the "Live" button or replay viewer.
+
+**Active provider**: OpenRouter request-response VLM (default model: `google/gemini-3-flash-preview`). Screenshots include ruler overlays for precise coordinate estimation.
 
 ---
 
@@ -198,22 +190,9 @@ Workspace memory files (MEMORY.md and memory/*.md).
 
 ---
 
-## Live UI
+## GUI Agent
 
-### `live_ui`
-
-Delegate a multi-step UI workflow to a live vision model. The model sees the screen in real-time and performs GUI actions autonomously until the task is done or it escalates.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `instruction` | string | yes | What to accomplish (NL, multi-step OK) |
-| `task_id` | string | no | Link session to a task |
-| `timeout` | int | no | Max seconds (default: 60, max: 300) |
-| `context` | string | no | Additional context for the model |
-
-Returns `success`, `summary`, `actions_taken`, `session_id`. The session is recorded to disk (frames + events + audio) and viewable in the dashboard via the "Live" button or replay viewer.
-
-**Active provider**: OpenRouter request-response VLM (default model: `google/gemini-3-flash-preview`). Screenshots include ruler overlays for precise coordinate estimation.
+See `gui_agent` under **GUI Agent (NL Grounding)** above.
 
 ---
 

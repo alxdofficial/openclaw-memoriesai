@@ -393,7 +393,7 @@ task_update(task_id=<id>, message="[user] Change the output format to ProRes ins
 - `wait_cancel` — cancel a wait job
 
 ### GUI Agent
-- `gui_agent` — AI-powered GUI agent for any desktop interaction. Uses Gemini Flash for reasoning/monitoring and UI-TARS for precise cursor placement. Handles single clicks to complex multi-step workflows autonomously. Replaces gui_do, gui_find, and live_ui.
+- `gui_agent` — AI-powered GUI agent for any desktop interaction. Uses Gemini Flash for reasoning/monitoring and UI-TARS for precise cursor placement. Handles single clicks to complex multi-step workflows autonomously. Unified replacement for legacy gui_do, gui_find, and live_ui tools.
 
 ### Desktop Control
 - `desktop_action` — explicit pixel coordinates: click(x,y), drag(x1,y1,x2,y2), type, press_key, window management. Use this when you have exact coords from `desktop_look`.

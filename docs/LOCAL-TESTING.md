@@ -47,8 +47,8 @@ testing and inspection.
 
 `acu_scenario_live_ui.py`
 - Opens a deterministic form page on the shared display.
-- By default it calls `live_ui` with a precise instruction so you can inspect session replay, task actions, and logs.
-- The test portal gives you a stable task snapshot and artifact list; the DETM dashboard still remains useful for replaying the recorded live_ui session itself.
+- By default it calls `gui_agent` with a precise instruction so you can inspect session replay, task actions, and logs.
+- The test portal gives you a stable task snapshot and artifact list; the DETM dashboard still remains useful for replaying the recorded `gui_agent` session itself.
 
 `acu_dump_task.py`
 - Dumps task summary and messages as JSON.

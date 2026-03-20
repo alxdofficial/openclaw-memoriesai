@@ -27,9 +27,114 @@ All agents we compare against. **TBR** = to be run by us. **--** = unknown/not p
 | OpenAI CUA | $$$$ | 19.7% | 32.6% | 42.9% | 23.4% | @100 uses o3 |
 | UI-TARS-72B-DPO | $$ | 22.7% | 24.6% | -- | -- | |
 | UI-TARS-7B + RegionFocus | $ | -- | -- | -- | 41.2% | arXiv:2505.00684 |
-| **DETM (ours)** | **$** | **28.3%** | **TBR** | **TBR** | **41.3%** | **Gemini 3.1 Flash Lite + UI-TARS-7B** |
+| **DETM Run 1** | **$** | **28.3%** | -- | -- | **41.3%** | Gemini 3.1 Flash Lite + UI-TARS-7B |
+| **DETM Run 2** | **$** | -- | -- | **56.4%** (Chrome) | -- | **Gemini 3 Flash Preview + UI-TARS-7B** |
+| n1 (Yutori) | $$ | -- | -- | 6.5% (Chrome) | -- | Qwen3-VL based, pixels-to-actions |
 
 Cost tiers: $ = <$0.01/task, $$ = $0.01-0.10, $$$ = $0.10-0.50, $$$$ = $0.50-2.00, $$$$$ = $2.00+
+
+---
+
+## OSWorld Run 2 Results — 2026-03-12
+
+**Config:** Gemini 3 Flash Preview (supervisor) + UI-TARS-1.5-7B (grounding), 100 max steps, Chrome domain only (46 tasks), screenshot-only observation.
+
+**Score: 56.4% (25.96/46)** — 25 pass, 1 partial (0.96), 20 fail. Up from Run 1's 28.3% (+28pp).
+
+### What changed from Run 1
+- Supervisor upgraded: `gemini-3.1-flash-lite-preview` → `gemini-3-flash-preview` (much stronger reasoning)
+- Max steps: 15 → 100
+- Bugs fixed: infeasible detection, GROUNDING_MAX_DIM=1920 (was 960), divergence checks in iterative narrowing
+
+### Failure analysis (20 failures)
+
+| Category | Count | Description |
+|----------|-------|-------------|
+| REASONING | 5 | Wrong approach, wrong page, or failed to detect infeasible task |
+| GROUNDING | 4 | Clicked wrong element, missed saving/confirming |
+| LOOP | 3 | Repeated same failing action endlessly |
+| TIMEOUT | 2 | Correct direction but ran out of 100 steps |
+| Unanalyzed | 5 | From late batch |
+
+**Key failure patterns:**
+
+1. **No infeasible task detection (2 tasks):** Tasks with `func: "infeasible"` evaluators. Agent never escalates — keeps trying alternatives. Needs a "this can't be done" pathway.
+
+2. **Custom web widgets break input (3 tasks):** Autocomplete dropdowns and date pickers don't respond to `tripleClick + pyautogui.write`. Causes terminal loops (50+ repeated attempts).
+
+3. **Sidebar filter checkboxes hard to click (3 tasks):** Small checkboxes/radio buttons on Google Shopping, NBA Store, Cars.com — UI-TARS grounding misses.
+
+4. **Premature "done" calls (3 tasks):** Agent declares success before verifying: wrong settings page, wrong FAQ page, sort dropdown still open.
+
+5. **No loop detection (cross-cutting):** No mechanism to detect repeated identical states and force strategy change.
+
+### Baseline comparison (Chrome subset, @100 steps)
+| Agent | Score | Notes |
+|-------|-------|-------|
+| n1 (Yutori) | 6.5% (3/46) | key_comb bug fixed, still low due to viewport offset + no loop detection |
+| DETM Run 1 | ~28% | Flash Lite, 15 steps |
+| **DETM Run 2** | **56.4%** | Gemini 3 Flash, 100 steps |
+| Agent S3 single-run | 62.6% | All domains, not just Chrome |
+| Agent S3 + bBoN | 72.6% | Multiple rollouts |
+
+Results at: `/home/alex/OSWorld/results/pyautogui/screenshot/detm-gemini-3-flash-preview-uitars/chrome/`
+
+---
+
+## Grounding Research — 2026-03-12
+
+### All top agents use screenshot-only
+No DOM or a11y tree. A11y tree was common in 2024, abandoned by all leaders in 2025 (3-26s per step, ~158K tokens for DOM, unreliable across apps). New supplement: code execution (bash/python), not structured UI data.
+
+### Grounding accuracy is mostly pipeline, not model
+UI-TARS-7B jumps from 35.7% to 56.1% on ScreenSpot-Pro with MVP alone (+57% relative). Going 7B→72B only adds ~2.4pp raw. Pipeline improvements matter much more than model size.
+
+### ScreenSpot-Pro scores with test-time techniques
+
+| Model | Baseline | +RegionFocus | +MVP |
+|-------|----------|-------------|------|
+| UI-TARS-7B (current) | 35.7% | 41.2% | 56.1% |
+| UI-TARS-72B | 38.1% | 50.2% | — |
+| Qwen3-VL-8B | 55.0% | — | 65.3% |
+| **Qwen3-VL-32B** | **55.3%** | — | **74.0%** |
+| Qwen2.5-VL-72B | 43.6% | 61.6% | — |
+| Qwen3.5-122B-A10B | 65.6% | — | — |
+| UI-Venus-1.5 (SOTA) | 69.6% | — | — |
+
+### Multi-View Prompting (MVP) — CVPR 2026
+
+Training-free inference-time technique (arXiv:2512.08529). Run full-image prediction + 4 attention-guided crops (2x upscaled), cluster predictions with 14px threshold. Cannot use attention-guided crops via API (needs model internals), but simplified version possible: initial prediction → 4 crops at different scales/offsets → parallel grounding → cluster.
+
+### How top agents handle grounding
+| Agent | Model | Refinement |
+|-------|-------|-----------|
+| Agent S3 | UI-TARS 7B/72B | None (single-shot, bBoN compensates) |
+| UiPath Screen Agent | UI-TARS-1.5 | 512x512 crop + UI element validator |
+| Our DETM | UI-TARS-7B | 300px/150px iterative narrow (RegionFocus-style) |
+
+### Available grounding models on OpenRouter
+
+| Model | ScreenSpot-Pro | OpenRouter ID | Cost (in/out $/M) |
+|-------|---------------|---------------|-------------------|
+| UI-TARS 7B (current) | ~38% | `bytedance/ui-tars-1.5-7b` | $0.10/$0.20 |
+| UI-TARS 72B | ~38% raw | `bytedance-research/ui-tars-72b` | free tier |
+| **Qwen3-VL-32B** | **60.5%** | `qwen/qwen3-vl-32b-instruct` | $0.10/$0.42 |
+| Qwen3-VL-8B | 55.0% | `qwen/qwen3-vl-8b-instruct` | $0.08/$0.50 |
+| Qwen3.5-122B-A10B | 65.6% | `qwen/qwen3.5-122b-a10b` | $0.26/$2.08 |
+
+### Coordinate formats
+- **UI-TARS**: 0-1000 normalized, `<point>x y</point>`
+- **Qwen3-VL/3.5**: 0-1000 normalized, `<tool_call>{"name":"computer_use","arguments":{"coordinate":[x,y]}}</tool_call>`
+- Same coord space — only parser changes needed, not scaling logic.
+
+### Planned grounding improvements (priority order)
+
+1. **Swap to Qwen3-VL-32B** — +22pp raw accuracy, same price tier, new `backends/qwen3vl.py` (keep uitars.py untouched)
+2. **Proportional crop radii** — 0.3x/0.15x screen width instead of fixed 300/150px
+3. **Simplified MVP** — parallel multi-crop grounding + clustering (without attention guidance)
+4. **Loop detection** — track screenshots, detect identical states, force strategy change
+5. **Infeasible task detection** — let supervisor signal "impossible" after repeated failures
+6. **Verify-before-done** — force instruction re-read before calling done()
 
 ---
 
@@ -96,7 +201,7 @@ Extended step budget. More room for complex multi-step tasks.
 #### 100-Step Evaluation (OSWorld-Verified)
 
 Full step budget used by top-scoring agents. OSWorld-Verified scores averaged across 4 runs.
-
+ok
 | Agent | OSWorld % | Rollout | Cost Tier | Source |
 |---|---|---|---|---|
 | GPT-5.4 (CU agent) | 75.0 | Pass@1 | $$$$ | OpenAI |

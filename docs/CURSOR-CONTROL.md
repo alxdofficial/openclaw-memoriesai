@@ -4,7 +4,7 @@
 
 Single-shot coordinate prediction is brittle. There are two failure modes:
 
-1. **Main LLM guessing coordinates** — OpenClaw has no ground-truth pixel knowledge. Any `click(x, y)` passed directly from the LLM is a guess from memory. Eliminated: `gui_do` now requires natural language only.
+1. **Main LLM guessing coordinates** — OpenClaw has no ground-truth pixel knowledge. Any `click(x, y)` passed directly from the LLM is a guess from memory. Eliminated: `gui_agent` now requires natural language only.
 
 2. **UI-TARS single-shot error** — Even with a purpose-trained grounding model, predicting a precise click target from a 960px-wide JPEG in one shot fails on small targets (trim handles, sliders, tiny checkboxes, dense timelines). The model's first guess is usually in the right region but can be off by 5–30px.
 
@@ -59,14 +59,14 @@ Each entry adds one refinement pass. `[300, 150]` gives the 3-pass pipeline abov
 
 ---
 
-## Tool Split: gui_do vs desktop_action
+## Tool Split: gui_agent vs desktop_action
 
 | Tool | Input | Use when |
 |---|---|---|
-| `gui_do` | Natural language only | You know *what* to click, not *where* |
-| `desktop_action` | Explicit pixel coordinates | You have exact coords (from `desktop_look` or `gui_find`) |
+| `gui_agent` | Natural language only | You know *what* to click, not *where* |
+| `desktop_action` | Explicit pixel coordinates | You have exact coords (from `desktop_look` or `gui_agent`) |
 
-**`gui_do` no longer accepts `click(x, y)` syntax.** Any raw coordinates passed to it will be treated as NL and sent to the grounding model (which will fail to parse them). Use `desktop_action` for pixel-exact operations.
+**`gui_agent` no longer accepts `click(x, y)` syntax.** Any raw coordinates passed to it will be treated as NL and sent to the grounding model (which will fail to parse them). Use `desktop_action` for pixel-exact operations.
 
 This eliminates the most common source of incorrect clicks: the main LLM hallucinating coordinates that were never visible on the current screen.
 
@@ -99,7 +99,7 @@ This eliminates the most common source of incorrect clicks: the main LLM halluci
 
 ### Phase 1 — Done
 
-- [x] Remove raw coordinate input from `gui_do`
+- [x] Remove raw coordinate input from `gui_agent`
 - [x] Implement iterative narrowing (two-pass zoom) in `execute_gui_action`
 - [x] Fix `_parse_coordinates` to use actual image dimensions
 

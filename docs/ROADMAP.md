@@ -17,7 +17,7 @@
 
 ### 2a: Infrastructure
 - [x] Set up Python project structure (MCP server skeleton)
-- [x] Xvfb setup (headless Ubuntu server — :99 with fluxbox WM)
+- [x] Xvfb setup (headless Ubuntu server — :99 with XFCE4 WM)
 - [x] Screen capture module (X11 via python-xlib, 67ms/frame)
 - [x] OpenRouter backend (Gemini Flash Lite, ~$0.000045/eval — replaces local GPU model)
 
@@ -141,7 +141,7 @@ See `docs/PERFORMANCE-OPTIMIZATION.md` for full before/after measurements and co
 
 **Goal**: Eliminate coordinate hallucination from the main LLM; improve GUI grounding accuracy on small targets.
 
-- [x] Remove raw coordinate input from `gui_do` — NL only, no `click(x, y)` passthrough
+- [x] Remove raw coordinate input from `gui_agent` — NL only, no `click(x, y)` passthrough
 - [x] Fix `_parse_coordinates()` in UI-TARS backend to use actual image dimensions (was hardcoded 1920×1080)
 - [x] Iterative narrowing — 3-pass zoom: full frame → 300px crop → 150px crop (`_NARROW_RADII`)
 - [ ] ShowUI-π style visuomotor policy for drag trajectories — **blocked: weights not released**

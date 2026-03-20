@@ -37,7 +37,7 @@ Browser only          │  Perplexity Comet
 | ChatGPT Atlas | Visual / screenshots (CUA) | — | No |
 | Claude Cowork | Accessibility tree (`read_page`) | Screenshots | Yes (via extension) |
 | Manus AI | DOM / HTML parsing (Browser Use) | Screenshots | Yes (Playwright code) |
-| Our System (`gui_do`) | Visual grounding (UI-TARS, 3-pass) | Falls back through passes | No (use browser MCP for JS) |
+| Our System (`gui_agent`) | Visual grounding (UI-TARS, iterative narrowing + MVP) | Falls back through passes | No (use browser MCP for JS) |
 
 **Rule of thumb:**
 - Accessibility tree = fast, reliable on standard HTML, breaks on unlabeled/canvas elements

@@ -35,15 +35,15 @@ Use DETM to track this task. Create ~/luci-test/ if it doesn't exist.
 
 ## Step 1 — Open TikTok
 
-Use live_ui to open a browser and navigate to https://www.tiktok.com
+Use gui_agent to open a browser and navigate to https://www.tiktok.com
 
-Pass this instruction to live_ui:
+Pass this instruction to gui_agent:
 "Open Firefox, navigate to https://www.tiktok.com, and wait for the page to load.
 If a login wall or sign-in prompt appears, call escalate with the message 'TikTok is asking for login'.
 If a CAPTCHA appears, call escalate with 'TikTok is showing a CAPTCHA'.
 Otherwise call done once the TikTok homepage or For You feed is visible."
 
-If live_ui returns escalated=True:
+If gui_agent returns escalated=True:
   Call task_update with the escalation reason and ask the user to resolve it in the
   browser (display :99), then poll task_update(query="status") every 20 seconds
   until the user confirms. Then continue.
@@ -54,7 +54,7 @@ Take a desktop_look to confirm what you can see.
 
 ## Step 2 — Search for bakery-relevant content
 
-For each of the following search terms, use live_ui to navigate to the results:
+For each of the following search terms, use gui_agent to navigate to the results:
 
 Search terms:
 1. "sourdough"
@@ -65,12 +65,12 @@ Search terms:
 
 For each search term:
 
-a) Use live_ui with instruction:
+a) Use gui_agent with instruction:
    "Click the search bar at the top of TikTok, type '[TERM]', press Enter,
    and wait for search results to load. If results show a 'Videos' tab, click it.
    Call done once you can see video thumbnails for the search term."
 
-b) After live_ui returns, take a desktop_look to see the results page.
+b) After gui_agent returns, take a desktop_look to see the results page.
    Read the visible thumbnails: note creator handles, approximate view counts
    shown on thumbnails, and any hashtags or sound names visible.
 
@@ -86,12 +86,12 @@ d) Record your findings for this search term before moving to the next.
 
 ## Step 3 — Browse the For You Feed
 
-Use live_ui to navigate back to the TikTok homepage:
+Use gui_agent to navigate back to the TikTok homepage:
 "Navigate to https://www.tiktok.com and scroll down slowly through the For You
 feed — pause for 2 seconds between each scroll. Do 8 scrolls total.
 Call done when you have completed 8 scrolls."
 
-After live_ui returns, take a desktop_look to see the current state of the feed.
+After gui_agent returns, take a desktop_look to see the current state of the feed.
 
 For any video that is playing and shows a sound name or interesting format, call
 mavi_understand (10–12 seconds) with a specific prompt. Good prompts to use:
