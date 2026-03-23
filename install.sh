@@ -286,10 +286,26 @@ fi
 export DISPLAY="$DETM_DISPLAY"
 
 # ─── XFCE defaults ────────────────────────────────────────────────
-# Ensure keyboard shortcuts work (Super → app finder, Ctrl+Alt+T → terminal)
-
+# Disable screensaver — it blanks the virtual display, making VNC/screenshots black
 XFCE_KEYS_DIR="$HOME/.config/xfce4/xfconf/xfce-perchannel-xml"
 mkdir -p "$XFCE_KEYS_DIR"
+
+cat > "$XFCE_KEYS_DIR/xfce4-screensaver.xml" <<'XFCEEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-screensaver" version="1.0">
+  <property name="saver" type="empty">
+    <property name="enabled" type="bool" value="false"/>
+  </property>
+  <property name="lock" type="empty">
+    <property name="enabled" type="bool" value="false"/>
+  </property>
+</channel>
+XFCEEOF
+
+# Kill screensaver if already running (idempotent for re-installs)
+if [ "$VIRTUAL_DISPLAY" = true ]; then
+    DISPLAY="$DETM_DISPLAY" killall xfce4-screensaver 2>/dev/null || true
+fi
 
 if [ ! -f "$XFCE_KEYS_DIR/xfce4-keyboard-shortcuts.xml" ]; then
     info "Configuring XFCE keyboard shortcuts..."
