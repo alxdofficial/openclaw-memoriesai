@@ -82,19 +82,32 @@ fi
 
 step "Python"
 
-PYTHON=""
-for p in python3.14 python3.13 python3.12 python3.11 python3; do
-    if command -v "$p" &>/dev/null; then
-        ver=$("$p" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-        major=$(echo "$ver" | cut -d. -f1)
-        minor=$(echo "$ver" | cut -d. -f2)
-        if [ "$major" -ge 3 ] && [ "$minor" -ge 11 ]; then
-            PYTHON="$p"
-            break
+_find_python() {
+    for p in python3.14 python3.13 python3.12 python3.11 python3; do
+        if command -v "$p" &>/dev/null; then
+            ver=$("$p" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+            major=$(echo "$ver" | cut -d. -f1)
+            minor=$(echo "$ver" | cut -d. -f2)
+            if [ "$major" -ge 3 ] && [ "$minor" -ge 11 ]; then
+                echo "$p"
+                return 0
+            fi
         fi
-    fi
-done
-if [ -z "$PYTHON" ]; then
+    done
+    return 1
+}
+
+PYTHON=""
+if PYTHON=$(_find_python); then
+    : # found
+elif command -v apt &>/dev/null; then
+    info "Python 3.11+ not found — installing from deadsnakes PPA..."
+    sudo apt-get install -y -qq software-properties-common
+    sudo add-apt-repository -y ppa:deadsnakes/ppa
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq python3.12 python3.12-venv python3.12-dev
+    PYTHON=$(_find_python) || { err "Python 3.11+ still not available after install. Check deadsnakes PPA."; exit 1; }
+else
     err "Python 3.11+ required. Install it and retry."
     exit 1
 fi
