@@ -193,6 +193,37 @@ openclaw agents list
 2. Add `SOUL.md` (agent personality) and `AGENTS.md` (tool instructions)
 3. Run `DETM_DEPLOY_AGENTS=1 ./install.sh`
 
+## OpenClaw Setup
+
+After running `install.sh`, DETM is registered as an MCP server. To use it through OpenClaw:
+
+```bash
+# Set model (must include openrouter/ prefix)
+openclaw models set openrouter/google/gemini-2.5-flash
+
+# Write API key for the gateway
+echo "OPENROUTER_API_KEY=sk-or-v1-YOUR-KEY" > ~/.openclaw/.env
+
+# Set gateway mode
+openclaw config set gateway.mode local
+
+# Start the gateway
+OPENROUTER_API_KEY=sk-or-v1-YOUR-KEY openclaw gateway --force --auth none
+```
+
+**Alternative**: Run `openclaw configure` interactively to set provider, model, and API key in one flow.
+
+Verify DETM tools are visible:
+```bash
+openclaw mcp list
+# Should show: agentic-computer-use
+
+openclaw agent --agent main -m "What DETM tools do you have?"
+# Should list: task_register, gui_agent, desktop_look, desktop_action, etc.
+```
+
+**Note**: Use `openrouter/google/gemini-2.5-flash` (not `-preview`). OpenClaw may strip the `openrouter/` prefix from preview model IDs, causing a 400 error.
+
 ## Common Issues
 
 ### Daemon won't start / port already in use
@@ -215,6 +246,13 @@ sudo systemctl restart detm-xvfb detm-desktop detm-vnc detm-novnc
 
 # Verify display is working
 DISPLAY=:99 xdpyinfo | head -5
+```
+
+### Black screen in VNC
+The XFCE screensaver can blank the display. The installer disables it, but on older installs:
+```bash
+DISPLAY=:99 killall xfce4-screensaver
+sudo systemctl restart detm-desktop
 ```
 
 ### GUI agent times out

@@ -10,7 +10,7 @@
         </mxCell>
 
         <!-- Step 1: Xvfb -->
-        <mxCell id="xvfb" value="&lt;b&gt;Xvfb :99&lt;/b&gt;&lt;br&gt;1920×1080×24&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Virtual framebuffer&lt;br&gt;running Chrome + fluxbox&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
+        <mxCell id="xvfb" value="&lt;b&gt;Xvfb :99&lt;/b&gt;&lt;br&gt;1920×1080×24&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;Virtual framebuffer&lt;br&gt;running Firefox + XFCE4&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="40" y="90" width="180" height="80" as="geometry"/>
         </mxCell>
 
