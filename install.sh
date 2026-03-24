@@ -397,7 +397,6 @@ step "OpenClaw integration"
 info "Configuring OpenClaw..."
 
 OC_WORKSPACE="${OPENCLAW_WORKSPACE:-$HOME/.openclaw/workspace}"
-MCPORTER_CONFIG="$OC_WORKSPACE/config/mcporter.json"
 
 # Find OpenClaw binary
 OPENCLAW_BIN=""
@@ -409,33 +408,18 @@ for p in "$HOME/.npm-global/bin/openclaw" "$(which openclaw 2>/dev/null)" "/usr/
 done
 [ -n "$OPENCLAW_BIN" ] && ok "OpenClaw found: $OPENCLAW_BIN" || warn "OpenClaw CLI not found"
 
-# mcporter config
-mkdir -p "$(dirname "$MCPORTER_CONFIG")"
-"$VENV_DIR/bin/python3" -c "
-import json, os
-
-config_path = '$MCPORTER_CONFIG'
-try:
-    with open(config_path) as f:
-        config = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError):
-    config = {}
-
-config.setdefault('mcpServers', {})
-config['mcpServers']['agentic-computer-use'] = {
-    'command': '$VENV_DIR/bin/python3',
-    'args': ['-m', 'agentic_computer_use.server'],
-    'cwd': '$REPO_DIR',
-    'env': {
-        'DISPLAY': '$DETM_DISPLAY',
-        'PYTHONPATH': '$REPO_DIR/src'
-    }
-}
-
-with open(config_path, 'w') as f:
-    json.dump(config, f, indent=2)
-"
-ok "mcporter config updated"
+# MCP server config (register via openclaw mcp set so the gateway discovers it)
+if [ -n "$OPENCLAW_BIN" ]; then
+    MCP_ENV="{\"DISPLAY\":\"$DETM_DISPLAY\",\"PYTHONPATH\":\"$REPO_DIR/src\""
+    [ -n "${OPENROUTER_API_KEY:-}" ] && MCP_ENV="$MCP_ENV,\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\""
+    MCP_ENV="$MCP_ENV}"
+    "$OPENCLAW_BIN" mcp set agentic-computer-use \
+        "{\"command\":\"$VENV_DIR/bin/python3\",\"args\":[\"-m\",\"agentic_computer_use.server\"],\"cwd\":\"$REPO_DIR\",\"env\":$MCP_ENV}" \
+        2>/dev/null
+    ok "MCP server registered"
+else
+    warn "OpenClaw CLI not found — MCP server not registered. Run: openclaw mcp set agentic-computer-use '{...}' manually."
+fi
 
 # Skill symlink
 SKILL_LINK="$OC_WORKSPACE/skills/agentic-computer-use"
