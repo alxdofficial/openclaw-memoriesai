@@ -15,7 +15,7 @@ The installer handles everything:
 - System packages (xdotool, ffmpeg, XFCE4, Xvfb, scrot, x11vnc, noVNC)
 - Virtual display + VNC (headless servers) or real display detection
 - DETM daemon as a systemd service (auto-start on boot)
-- OpenClaw mcporter config (auto-discovers DETM tools)
+- OpenClaw MCP server registration (auto-discovers DETM tools)
 - Browser installation if none found
 
 You need an [OpenRouter API key](https://openrouter.ai/keys) for the GUI agent (Gemini Flash + UI-TARS grounding).
@@ -45,8 +45,8 @@ rm -rf ~/.agentic-computer-use
 # Remove repo
 rm -rf ~/openclaw-memoriesai
 
-# (Optional) Remove mcporter entry
-# Edit ~/.openclaw/workspace/config/mcporter.json and remove the "agentic-computer-use" key
+# (Optional) Remove MCP server entry
+openclaw mcp unset agentic-computer-use
 ```
 
 ## Dashboard
@@ -228,10 +228,14 @@ DISPLAY=:99 xdpyinfo | head -5
 
 ### OpenClaw doesn't see DETM tools
 ```bash
-# Check mcporter config
-cat ~/.openclaw/workspace/config/mcporter.json
+# Check MCP server is registered
+openclaw mcp list
+# Should show: agentic-computer-use
 
-# Reload OpenClaw gateway
+# If missing, re-register it
+openclaw mcp set agentic-computer-use '{"command":"'$HOME'/openclaw-memoriesai/.venv/bin/python3","args":["-m","agentic_computer_use.server"],"cwd":"'$HOME'/openclaw-memoriesai","env":{"DISPLAY":":99","PYTHONPATH":"'$HOME'/openclaw-memoriesai/src"}}'
+
+# Restart the gateway to pick up changes
 kill -HUP $(pgrep -f openclaw-gateway)
 ```
 
