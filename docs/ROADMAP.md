@@ -30,7 +30,7 @@
 ### 2c: OpenClaw Integration
 - [x] MCP server exposing `smart_wait` tool (+ 6 more tools)
 - [x] Wake mechanism (`openclaw system event --mode now`)
-- [x] Register MCP server with OpenClaw via mcporter
+- [x] Register MCP server with OpenClaw via `openclaw mcp set`
 - [x] End-to-end test: Chrome detection in 1.3-1.8s
 
 ### 2d: PTY Handling (vision-only)

@@ -70,7 +70,7 @@ The daemon starts on `http://127.0.0.1:18790`. Dashboard at `/dashboard`.
 DISPLAY=:99 PYTHONPATH=src .venv/bin/python3 -m agentic_computer_use.server
 ```
 
-This is what OpenClaw launches via mcporter. It communicates over stdio (JSON-RPC).
+This is what OpenClaw launches via `openclaw mcp set`. It communicates over stdio (JSON-RPC).
 
 ### Testing gui_agent
 

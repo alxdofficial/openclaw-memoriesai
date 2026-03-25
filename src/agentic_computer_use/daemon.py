@@ -1,6 +1,6 @@
 """Persistent daemon for the DETM — wait engine, task manager, GUI agent.
 
-Runs as a background HTTP server so the MCP server (spawned per-call by mcporter)
+Runs as a background HTTP server so the MCP server (spawned per-session by OpenClaw)
 can submit jobs and query state without losing the async event loop.
 """
 import asyncio
@@ -28,11 +28,11 @@ wait_engine = WaitEngine()
 
 
 async def _parse_body(request: web.Request) -> dict:
-    """Parse JSON body, normalizing keys that have trailing colons (mcporter :=  syntax artifact)."""
+    """Parse JSON body, normalizing keys that have trailing colons (legacy MCP artifact)."""
     if not request.can_read_body:
         return {}
     raw = await request.json()
-    # mcporter sends key:=value as {"key:": value} — strip trailing colons
+    # Legacy MCP clients may send key:=value as {"key:": value} — strip trailing colons
     return {k.rstrip(":"): v for k, v in raw.items()} if isinstance(raw, dict) else raw
 
 
@@ -764,6 +764,7 @@ async def handle_desktop_look(request: web.Request) -> web.Response:
     return web.json_response({
         "image_b64": base64.b64encode(jpeg).decode(),
         "mime_type": "image/jpeg",
+        "media_type": "image/jpeg",
         "screen_size": {"width": w, "height": h},
         "image_size": {"width": img_w, "height": img_h},
     })

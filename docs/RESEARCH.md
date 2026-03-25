@@ -124,7 +124,7 @@ For GUI grounding specifically (Phase 5: visual OS control), UI-TARS 1.5 would b
 - Browser only — no desktop GUI control
 
 ### MCP Support
-- OpenClaw supports MCP servers via the `mcporter` skill
+- OpenClaw supports MCP servers via `openclaw mcp set`
 - Can register stdio or HTTP MCP servers
 - Tools from MCP servers appear in the agent's tool list
 - This is our integration path

@@ -332,7 +332,7 @@ Direct install on the host. Required for local Ollama/vLLM GPU inference. Uses s
 ./install.sh
 ```
 
-See `install.sh` for full setup: Python venv, system deps, Ollama, systemd services, OpenClaw integration (mcporter, skill, plugin).
+See `install.sh` for full setup: Python venv, system deps, systemd services, OpenClaw integration (MCP server, skill, plugin).
 
 ## OpenClaw Integration
 
@@ -342,17 +342,9 @@ DETM integrates with OpenClaw through four layers:
 
 `server.py` is a stateless MCP server using stdio transport. OpenClaw launches it per-session. It defines 25+ tools and proxies all calls to the daemon at `http://127.0.0.1:18790`.
 
-Configured in `~/.openclaw/workspace/config/mcporter.json`:
-```json
-{
-  "mcpServers": {
-    "agentic-computer-use": {
-      "command": "python3",
-      "args": ["-m", "agentic_computer_use.server"],
-      "env": { "DISPLAY": ":99", "PYTHONPATH": "/path/to/src" }
-    }
-  }
-}
+Registered via `install.sh` which runs:
+```bash
+openclaw mcp set agentic-computer-use '{"command":"python3","args":["-m","agentic_computer_use.server"],"env":{"DISPLAY":":99","PYTHONPATH":"/path/to/src"}}'
 ```
 
 ### 2. Skill (behavioral instructions)

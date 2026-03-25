@@ -31,22 +31,11 @@ The installer is idempotent — safe to re-run anytime.
 ## Uninstall
 
 ```bash
-# Stop services
-sudo systemctl stop detm-daemon detm-xvfb detm-vnc detm-novnc detm-desktop
-sudo systemctl disable detm-daemon detm-xvfb detm-vnc detm-novnc detm-desktop
+# Run the uninstall script (reverses everything install.sh did)
+./uninstall.sh
 
-# Remove systemd units
-sudo rm /etc/systemd/system/detm-*.service
-sudo systemctl daemon-reload
-
-# Remove data
-rm -rf ~/.agentic-computer-use
-
-# Remove repo
+# Then remove the repo itself
 rm -rf ~/openclaw-memoriesai
-
-# (Optional) Remove MCP server entry
-openclaw mcp unset agentic-computer-use
 ```
 
 ## Dashboard
@@ -172,7 +161,7 @@ DETM_DEPLOY_AGENTS=1 ./install.sh
 - The `main` agent is always the default — all messages route there
 - Sub-agents are spawned explicitly: `/subagents spawn linkedin-test "do X"`
 - Each sub-agent has its own workspace, SOUL.md, and AGENTS.md
-- Sub-agents share DETM tools via mcporter
+- Sub-agents share DETM tools via MCP
 
 ### If you get stuck in a sub-agent
 Sub-agents should not intercept your messages unless explicitly bound. If you're stuck:
@@ -193,36 +182,20 @@ openclaw agents list
 2. Add `SOUL.md` (agent personality) and `AGENTS.md` (tool instructions)
 3. Run `DETM_DEPLOY_AGENTS=1 ./install.sh`
 
-## OpenClaw Setup
+## Using DETM with OpenClaw
 
-After running `install.sh`, DETM is registered as an MCP server. To use it through OpenClaw:
+`install.sh` handles all DETM-side setup, including MCP server registration. After install:
 
-```bash
-# Set model (must include openrouter/ prefix)
-openclaw models set openrouter/google/gemini-2.5-flash
-
-# Write API key for the gateway
-echo "OPENROUTER_API_KEY=sk-or-v1-YOUR-KEY" > ~/.openclaw/.env
-
-# Set gateway mode
-openclaw config set gateway.mode local
-
-# Start the gateway
-OPENROUTER_API_KEY=sk-or-v1-YOUR-KEY openclaw gateway --force --auth none
-```
-
-**Alternative**: Run `openclaw configure` interactively to set provider, model, and API key in one flow.
-
-Verify DETM tools are visible:
+1. **Restart the OpenClaw gateway** so it discovers the new MCP server
+2. **Verify** DETM tools are visible:
 ```bash
 openclaw mcp list
 # Should show: agentic-computer-use
-
-openclaw agent --agent main -m "What DETM tools do you have?"
-# Should list: task_register, gui_agent, desktop_look, desktop_action, etc.
 ```
 
-**Note**: Use `openrouter/google/gemini-2.5-flash` (not `-preview`). OpenClaw may strip the `openrouter/` prefix from preview model IDs, causing a 400 error.
+That's it. OpenClaw will now have access to all DETM tools (task_register, gui_agent, desktop_look, etc.).
+
+**Important**: DETM is an MCP server. Do **not** manually add a `"detm"` entry to `plugins.entries` in `openclaw.json` — that is a different integration path and will cause errors. If `install.sh` ran successfully, no manual OpenClaw configuration is needed for DETM.
 
 ## Common Issues
 
@@ -270,12 +243,14 @@ sudo systemctl restart detm-desktop
 openclaw mcp list
 # Should show: agentic-computer-use
 
-# If missing, re-register it
-openclaw mcp set agentic-computer-use '{"command":"'$HOME'/openclaw-memoriesai/.venv/bin/python3","args":["-m","agentic_computer_use.server"],"cwd":"'$HOME'/openclaw-memoriesai","env":{"DISPLAY":":99","PYTHONPATH":"'$HOME'/openclaw-memoriesai/src"}}'
+# If missing, re-run the installer (it's idempotent)
+./install.sh
 
-# Restart the gateway to pick up changes
+# Restart the OpenClaw gateway to pick up changes
 kill -HUP $(pgrep -f openclaw-gateway)
 ```
+
+If you see DETM configured as a plugin in `openclaw.json` (`"detm": {"enabled": true}` under `plugins.entries`), remove that entry — DETM should only be used as an MCP server.
 
 ### Docker volumes filling disk
 OSWorld benchmark runs create Docker volumes. Clean them periodically:
@@ -330,12 +305,40 @@ journalctl -u detm-daemon -f    # tail logs
 
 ## Storage
 
-| Path | Contents |
-|------|----------|
-| `~/.agentic-computer-use/data.db` | SQLite database (tasks, actions, logs) |
-| `~/.agentic-computer-use/screenshots/` | Action screenshots |
-| `~/.agentic-computer-use/recordings/` | Screen recordings |
-| `~/.agentic-computer-use/logs/debug.log` | Debug log |
+| Path | Contents | Growth |
+|------|----------|--------|
+| `~/.agentic-computer-use/data.db` | SQLite database (tasks, actions, logs) | Slow |
+| `~/.agentic-computer-use/screenshots/` | Action screenshots (JPEG per GUI action) | Fast |
+| `~/.agentic-computer-use/live_sessions/` | GUI agent session logs and frames | Fast |
+| `~/.agentic-computer-use/recordings/` | Screen recordings (auto-pruned at 1GB) | Medium |
+| `~/.agentic-computer-use/logs/` | Debug logs (auto-rotated at 10MB each) | Medium |
+
+### Automatic cleanup
+
+- **Recordings**: Oldest task recordings are pruned when total exceeds `ACU_MAX_RECORDINGS_MB` (default: 1000MB). Set to `0` for unlimited.
+- **Debug logs**: Rotated automatically when a log exceeds 10MB.
+- **Screenshots**: Deleted automatically when a task is deleted.
+
+### Manual cleanup
+
+```bash
+# Check disk usage
+du -sh ~/.agentic-computer-use/*/
+
+# Delete old screenshots (older than 7 days)
+find ~/.agentic-computer-use/screenshots/ -type f -mtime +7 -delete
+
+# Delete old session logs (older than 7 days)
+find ~/.agentic-computer-use/live_sessions/ -type d -mtime +7 -exec rm -rf {} +
+
+# Delete old debug logs (keeps current)
+find ~/.agentic-computer-use/logs/ -name "debug.*.log" -mtime +7 -delete
+
+# Nuclear option: wipe all data and start fresh (stops daemon first)
+sudo systemctl stop detm-daemon
+rm -rf ~/.agentic-computer-use
+sudo systemctl start detm-daemon
+```
 
 ## License
 

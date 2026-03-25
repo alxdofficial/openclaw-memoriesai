@@ -37,8 +37,7 @@ deploy_agents() {
         [ -d "$skill_link" ] && rm -rf "$skill_link"
         [ -d "$REPO_DIR/skill" ] && ln -s "$REPO_DIR/skill" "$skill_link"
 
-        # Copy mcporter config for MCP tool access
-        [ -f "$OC_WORKSPACE/config/mcporter.json" ] && cp "$OC_WORKSPACE/config/mcporter.json" "$ws/config/mcporter.json"
+        # MCP tool access is inherited from the main agent's openclaw.json config
 
         # Print status (uses ok() from caller if available, else echo)
         if type ok &>/dev/null; then

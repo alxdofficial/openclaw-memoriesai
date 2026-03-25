@@ -72,7 +72,7 @@
           <mxGeometry x="310" y="280" width="520" height="70" as="geometry"/>
         </mxCell>
 
-        <mxCell id="mcpserver" value="&lt;b&gt;MCP Server&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;thin HTTP proxy — spawned per-call by mcporter&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
+        <mxCell id="mcpserver" value="&lt;b&gt;MCP Server&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot;&gt;thin HTTP proxy — registered via openclaw mcp set&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="380" y="295" width="380" height="45" as="geometry"/>
         </mxCell>
 

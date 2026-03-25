@@ -82,7 +82,7 @@
   <!-- ─── MCP Server ─── -->
   <rect x="320" y="248" width="320" height="40" class="mcp-bg"/>
   <text x="480" y="265" text-anchor="middle" class="label">MCP Server</text>
-  <text x="480" y="279" text-anchor="middle" class="label-dim">thin HTTP proxy — spawned per-call by mcporter</text>
+  <text x="480" y="279" text-anchor="middle" class="label-dim">thin HTTP proxy — registered via openclaw mcp set</text>
 
   <!-- Arrow: MCP → Daemon -->
   <line x1="480" y1="288" x2="480" y2="318" class="arrow-green"/>

@@ -7,7 +7,7 @@ set -euo pipefail
 #   OPENROUTER_API_KEY=sk-or-... ./install.sh
 #
 # Installs DETM on a Linux box: virtual display, VNC, daemon,
-# and hooks into OpenClaw (mcporter + skill + plugin).
+# and hooks into OpenClaw (MCP server + skill + plugin).
 #
 # Requirements: Linux, Python 3.11+
 
@@ -53,6 +53,35 @@ if [ "$(uname)" != "Linux" ]; then
     err "DETM requires Linux. You're on $(uname)."
     exit 1
 fi
+
+# ─── Clean previous install (keeps data) ──────────────────────────
+# Makes install.sh safe to re-run: tears down stale services, venv,
+# and registrations before setting them up fresh.
+
+info "Cleaning previous install (data preserved)..."
+for svc in detm-daemon detm-desktop detm-novnc detm-vnc detm-xvfb; do
+    sudo systemctl stop "$svc" 2>/dev/null || true
+    sudo systemctl disable "$svc" 2>/dev/null || true
+    sudo rm -f "/etc/systemd/system/${svc}.service"
+done
+sudo systemctl daemon-reload 2>/dev/null || true
+
+# Remove old venv (rebuilt below)
+[ -d "$VENV_DIR" ] && rm -rf "$VENV_DIR"
+
+# Remove old skill symlink (re-created below)
+OC_WORKSPACE_EARLY="${OPENCLAW_WORKSPACE:-$HOME/.openclaw/workspace}"
+[ -L "$OC_WORKSPACE_EARLY/skills/agentic-computer-use" ] && rm "$OC_WORKSPACE_EARLY/skills/agentic-computer-use"
+
+# Unregister old MCP entry (re-registered below)
+for p in "$HOME/.npm-global/bin/openclaw" "$(which openclaw 2>/dev/null || true)" "/usr/local/bin/openclaw"; do
+    if [ -n "$p" ] && [ -x "$p" ] 2>/dev/null; then
+        "$p" mcp unset agentic-computer-use 2>/dev/null || true
+        break
+    fi
+done
+
+ok "Clean slate (data in ~/.agentic-computer-use preserved)"
 
 step "API key"
 
@@ -499,7 +528,7 @@ echo "    Then open http://localhost:$DAEMON_PORT/dashboard"
 echo ""
 fi
 if [ -n "$OPENCLAW_BIN" ]; then
-echo "  OpenClaw will auto-discover DETM tools via mcporter."
+echo "  OpenClaw will auto-discover DETM tools via MCP."
 echo "  Reload OpenClaw: kill -HUP \$(pgrep -f openclaw-gateway)"
 fi
 echo ""

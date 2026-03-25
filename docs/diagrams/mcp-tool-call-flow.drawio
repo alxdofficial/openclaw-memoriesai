@@ -17,7 +17,7 @@
         <mxCell id="lane2" value="&lt;b&gt;OpenClaw&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="260" y="70" width="140" height="40" as="geometry"/>
         </mxCell>
-        <mxCell id="lane3" value="&lt;b&gt;mcporter&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;shadow=1;" vertex="1" parent="1">
+        <mxCell id="lane3" value="&lt;b&gt;MCP Runtime&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;shadow=1;" vertex="1" parent="1">
           <mxGeometry x="470" y="70" width="140" height="40" as="geometry"/>
         </mxCell>
         <mxCell id="lane4" value="&lt;b&gt;MCP Proxy&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#666&quot; style=&quot;font-size:9px&quot;&gt;server.py&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;shadow=1;" vertex="1" parent="1">
@@ -57,12 +57,12 @@
           <mxGeometry relative="1" as="geometry"><mxPoint x="120" y="190" as="sourcePoint"/><mxPoint x="330" y="190" as="targetPoint"/></mxGeometry>
         </mxCell>
 
-        <!-- Step 3: OpenClaw runs mcporter call -->
-        <mxCell id="s3" value="2. exec: mcporter call&lt;br&gt;memoriesai.smart_wait ..." style="text;html=1;fontSize=10;align=center;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
+        <!-- Step 3: OpenClaw runs MCP call_tool -->
+        <mxCell id="s3" value="2. exec: MCP call_tool&lt;br&gt;memoriesai.smart_wait ..." style="text;html=1;fontSize=10;align=center;fillColor=#fff2cc;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1">
           <mxGeometry x="250" y="200" width="160" height="40" as="geometry"/>
         </mxCell>
 
-        <!-- Step 4: mcporter spawns MCP server -->
+        <!-- Step 4: OpenClaw spawns MCP server -->
         <mxCell id="m2" value="spawn stdio" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
           <mxGeometry x="370" y="245" width="140" height="20" as="geometry"/>
         </mxCell>
@@ -70,7 +70,7 @@
           <mxGeometry relative="1" as="geometry"><mxPoint x="330" y="260" as="sourcePoint"/><mxPoint x="540" y="260" as="targetPoint"/></mxGeometry>
         </mxCell>
 
-        <!-- Step 5: mcporter sends JSON-RPC to proxy -->
+        <!-- Step 5: MCP runtime sends JSON-RPC to proxy -->
         <mxCell id="m3" value="JSON-RPC call_tool" style="text;html=1;fontSize=9;fontColor=#666;align=center;" vertex="1" parent="1">
           <mxGeometry x="560" y="275" width="160" height="20" as="geometry"/>
         </mxCell>
@@ -87,7 +87,7 @@
         </mxCell>
 
         <!-- Key normalization note -->
-        <mxCell id="norm-note" value="&lt;font color=&quot;#cc0000&quot;&gt;⚠ Key normalizer strips&lt;br&gt;trailing &quot;:&quot; from keys&lt;br&gt;(mcporter :=  artifact)&lt;/font&gt;" style="text;html=1;fontSize=9;align=center;fillColor=#fff;strokeColor=#cc0000;rounded=1;dashed=1;" vertex="1" parent="1">
+        <mxCell id="norm-note" value="&lt;font color=&quot;#cc0000&quot;&gt;⚠ Key normalizer strips&lt;br&gt;trailing &quot;:&quot; from keys&lt;br&gt;(MCP :=  artifact)&lt;/font&gt;" style="text;html=1;fontSize=9;align=center;fillColor=#fff;strokeColor=#cc0000;rounded=1;dashed=1;" vertex="1" parent="1">
           <mxGeometry x="1020" y="300" width="160" height="50" as="geometry"/>
         </mxCell>
 
@@ -119,7 +119,7 @@
         </mxCell>
 
         <!-- Proxy dies -->
-        <mxCell id="die" value="&lt;font color=&quot;#b85450&quot;&gt;✕ proxy + mcporter exit&lt;/font&gt;" style="text;html=1;fontSize=9;align=center;" vertex="1" parent="1">
+        <mxCell id="die" value="&lt;font color=&quot;#b85450&quot;&gt;✕ proxy + MCP exit&lt;/font&gt;" style="text;html=1;fontSize=9;align=center;" vertex="1" parent="1">
           <mxGeometry x="500" y="475" width="200" height="20" as="geometry"/>
         </mxCell>
 
