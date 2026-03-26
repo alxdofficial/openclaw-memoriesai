@@ -49,10 +49,12 @@ The signal: if a human would need to be logged in to do it, DETM is the right to
 
 **When DETM hits a login wall or CAPTCHA:** use `task_update` to tell the user, then poll until they confirm they've resolved it in the browser (display :99). Never skip or bypass auth — escalate and wait.
 
-**Launch applications via CLI, not gui_agent.** Opening apps through gui_agent is slow and unreliable (it hunts for icons/menus). Instead, launch apps with `desktop_action(action="press_key", text="...")` or shell commands, then use `gui_agent` once the app is open and ready.
+**Launch applications via CLI, not gui_agent.** DETM runs on a bare Linux desktop (typically XFCE on a headless VM). Unlike a user's personal machine, the desktop is minimal — no curated dock, no pinned apps, possibly no desktop icons. gui_agent trying to visually find and launch applications is slow (30-60s) and unreliable because there's nothing well-organized to click on. But it's just Linux — every app can be launched instantly from the command line.
+
+**Rule: always launch apps via CLI. Use gui_agent only after the app is open and ready for UI interaction.**
 
 ```
-# WRONG — gui_agent spends 60s+ hunting for browser icons:
+# WRONG — gui_agent spends 30-60s hunting for browser icons/menus on a bare desktop:
 gui_agent(instruction="Open Firefox and go to google.com", task_id=<id>)
 
 # RIGHT — launch via CLI (instant), then gui_agent for UI interaction:
@@ -61,11 +63,15 @@ desktop_action(action="type", text="firefox https://google.com &\n", task_id=<id
 # ... wait a few seconds for browser to load, then use gui_agent for clicks/typing
 ```
 
-Common app launch commands:
+Common launch commands:
 - **Firefox**: `firefox <url> &` or `firefox --new-window <url> &`
-- **File manager**: `thunar &`
-- **Terminal**: `xfce4-terminal &` or `Ctrl+Alt+T`
-- **LibreOffice**: `libreoffice --calc <file> &`
+- **File manager**: `thunar &` or `thunar <path> &`
+- **Terminal**: `xfce4-terminal &` or keyboard shortcut `Ctrl+Alt+T`
+- **LibreOffice**: `libreoffice --calc <file> &`, `libreoffice --writer <file> &`
+- **Text editor**: `mousepad <file> &` or `xdg-open <file> &`
+- **Any app**: use `which <app>` to check if it exists, then run it directly
+
+This principle applies broadly: anything that can be done via CLI should be done via CLI. Only use gui_agent for tasks that require visual interaction (clicking buttons, filling forms, reading UI state).
 
 ## HARD RULES — no exceptions
 

@@ -15,6 +15,14 @@ Five layers:
 4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
 5. **Display** — single shared display `:99` (XFCE desktop, visible via VNC)
 
+## Design Principles
+
+**CLI-first on a bare desktop.** DETM runs on a headless Linux VM with a minimal XFCE desktop — no curated dock, no pinned apps, sparse desktop icons. The GUI is not designed for visual app discovery. Since it's just Linux, every application can be launched instantly from the command line. The agent should always launch apps via CLI and only use `gui_agent` for UI interaction within already-open applications. See `skill/SKILL.md` for the full rule and common launch commands.
+
+**gui_agent for interaction, not navigation.** `gui_agent` (Gemini + UI-TARS) excels at clicking buttons, filling forms, and navigating within an app. It's slow and unreliable at finding and launching apps on a bare desktop. The split: CLI handles orchestration (launching, file ops, data processing), gui_agent handles visual interaction (forms, dialogs, web pages).
+
+**Observe → Act → Verify.** Every desktop action follows the pattern: `desktop_look` to understand state, `gui_agent`/`desktop_action` to act, then verify the result. But avoid unnecessary screenshots — trust `gui_agent`'s built-in verification for routine actions.
+
 ## System Architecture
 
 ```

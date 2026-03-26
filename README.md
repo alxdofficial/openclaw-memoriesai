@@ -109,16 +109,15 @@ The `gui_agent` is the main tool for desktop interaction. It uses:
 - **Multi-View Point ensembling** (MVP) for more accurate cursor placement
 - **Independent verification** — checks task completion before signaling done
 
-Give it a whole subtask, not individual clicks:
+**Launch apps via CLI, use gui_agent for interaction.** DETM runs on a bare Linux desktop (XFCE on a headless VM) — no curated dock or app menus. gui_agent is slow at finding and opening apps visually. Since it's just Linux, launch everything from the command line:
 
 ```python
-# Good — delegate a subtask
-gui_agent(instruction="Open Chrome, navigate to Google Flights, search for flights from NYC to London on March 28", timeout=120)
+# Good — launch browser via CLI, then delegate UI interaction to gui_agent
+# (terminal): firefox https://www.google.com/travel/flights &
+gui_agent(instruction="Search for flights from NYC to London on March 28", timeout=120)
 
-# Bad — micromanage
-gui_agent(instruction="Click the search bar")
-gui_agent(instruction="Type NYC to London")
-# ... this is 5x slower
+# Bad — gui_agent wastes 30-60s hunting for browser icons on a bare desktop
+gui_agent(instruction="Open Chrome, navigate to Google Flights, search for flights from NYC to London on March 28", timeout=120)
 ```
 
 ## Tools
