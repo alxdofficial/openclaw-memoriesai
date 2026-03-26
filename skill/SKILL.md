@@ -49,7 +49,23 @@ The signal: if a human would need to be logged in to do it, DETM is the right to
 
 **When DETM hits a login wall or CAPTCHA:** use `task_update` to tell the user, then poll until they confirm they've resolved it in the browser (display :99). Never skip or bypass auth — escalate and wait.
 
-**Adapt to what's actually installed.** Never assume specific apps exist (e.g. "Open Firefox"). Use `desktop_look` first or write generic instructions ("Open a web browser", "Open the file manager"). The gui_agent will figure out how to use whatever is available on screen.
+**Launch applications via CLI, not gui_agent.** Opening apps through gui_agent is slow and unreliable (it hunts for icons/menus). Instead, launch apps with `desktop_action(action="press_key", text="...")` or shell commands, then use `gui_agent` once the app is open and ready.
+
+```
+# WRONG — gui_agent spends 60s+ hunting for browser icons:
+gui_agent(instruction="Open Firefox and go to google.com", task_id=<id>)
+
+# RIGHT — launch via CLI (instant), then gui_agent for UI interaction:
+desktop_action(action="press_key", text="ctrl+alt+t", task_id=<id>)  # open terminal
+desktop_action(action="type", text="firefox https://google.com &\n", task_id=<id>)
+# ... wait a few seconds for browser to load, then use gui_agent for clicks/typing
+```
+
+Common app launch commands:
+- **Firefox**: `firefox <url> &` or `firefox --new-window <url> &`
+- **File manager**: `thunar &`
+- **Terminal**: `xfce4-terminal &` or `Ctrl+Alt+T`
+- **LibreOffice**: `libreoffice --calc <file> &`
 
 ## HARD RULES — no exceptions
 
@@ -164,7 +180,8 @@ task_item_update(task_id=<id>, ordinal=N+1, status="active")
 
 | Scenario | Prefer | Why |
 |---|---|---|
-| Visual apps (DaVinci Resolve, Blender, VS Code GUI) | `gui_agent` / `desktop_action` | No CLI equivalent |
+| **Launching any application** | **CLI** (`firefox &`, `thunar &`, etc.) | **Instant and reliable. gui_agent wastes 30-60s hunting for icons.** |
+| Visual apps (DaVinci Resolve, Blender, VS Code GUI) | `gui_agent` / `desktop_action` | No CLI equivalent for UI interaction |
 | File operations, git, builds | CLI/exec | Faster, deterministic |
 | Web forms, dialogs, popups | `gui_agent` | Visual interaction required |
 | Status monitoring | `smart_wait` with window target | Vision handles any app |
@@ -246,13 +263,19 @@ The entire point is to interact the way a human would — looking at the screen 
 
 **How to start a browser research session:**
 ```
--> gui_agent(instruction="Open a web browser and navigate to google.com", task_id=<id>)
--> # gui_agent reports success — browser is open. Proceed immediately.
+-> # Launch browser via CLI (instant — no gui_agent overhead):
+-> desktop_action(action="press_key", text="ctrl+alt+t", task_id=<id>)
+-> desktop_action(action="type", text="firefox https://google.com &\n", task_id=<id>)
+-> # Wait for browser to load:
+-> smart_wait(target="screen", wake_when="Firefox browser window is open and page has loaded", task_id=<id>, timeout=15)
+-> # Now use gui_agent for UI interaction:
+-> gui_agent(instruction="Click the search bar, type 'fitness supplement creators', and press Enter", task_id=<id>, timeout=90)
 ```
 
 **Typical browser workflow:**
 ```
--> gui_agent(instruction="Navigate to youtube.com, search for fitness supplement creators", task_id=<id>, timeout=90)
+-> # Browser already open from CLI launch above
+-> gui_agent(instruction="Search for fitness supplement creators on youtube.com", task_id=<id>, timeout=90)
 -> # gui_agent succeeded — now I need to READ the results, so desktop_look is justified:
 -> desktop_look(task_id=<id>)          # read results from the screenshot
 -> task_update(task_id=<id>, message="Search results show: ...")
@@ -523,13 +546,17 @@ Autonomous GUI agent for any desktop interaction. Uses Gemini Flash for reasonin
 
 ### Subtask delegation (recommended)
 
-Give gui_agent a whole subtask with a clear goal. It will plan and execute autonomously.
+Give gui_agent a whole subtask with a clear goal. It will plan and execute autonomously. **Always launch the app via CLI first** — gui_agent should only handle UI interaction within an already-open app.
 
 ```python
-# Subtask 1: Search for flights
+# Launch browser via CLI first (instant)
+desktop_action(action="press_key", text="ctrl+alt+t", task_id=task_id)
+desktop_action(action="type", text="firefox https://www.google.com/travel/flights &\n", task_id=task_id)
+
+# Subtask 1: Search for flights (app already open)
 result = gui_agent(
     task_id=task_id,
-    instruction="Open Google Flights, search for nonstop flights from NYC JFK to London Heathrow on March 28 for 1 adult, and wait for results to load",
+    instruction="In the Google Flights page, search for nonstop flights from NYC JFK to London Heathrow on March 28 for 1 adult, and wait for results to load",
     timeout=120,
 )
 
