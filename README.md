@@ -280,27 +280,37 @@ journalctl -u detm-daemon -f    # tail logs
 
 ## Configuration
 
+Everything runs through OpenRouter by default — no local GPU or models needed. The installer validates the API key at install time.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `OPENROUTER_API_KEY` | -- | **Required.** Used by GUI agent, Smart Wait, and grounding. Validated at install. |
 | `DISPLAY` | `:99` | X11 display |
-| `OPENROUTER_API_KEY` | -- | Required for GUI agent (Gemini + UI-TARS) |
-| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | Supervisor model |
-| `ACU_UITARS_OPENROUTER_MODEL` | `bytedance/ui-tars-1.5-7b` | Grounding model |
-| `ACU_MVP_ENABLED` | `0` | Multi-View Point ensembling (`1` to enable) |
-| `ACU_GUI_AGENT_BACKEND` | `direct` | Grounding backend (uitars, qwen3vl, direct). Set to `uitars` for UI-TARS grounding. |
-| `ACU_VISION_BACKEND` | `ollama` | Vision backend for smart_wait |
+| `ACU_OPENROUTER_LIVE_MODEL` | `google/gemini-3-flash-preview` | GUI agent supervisor model |
+| `ACU_UITARS_OPENROUTER_MODEL` | `bytedance/ui-tars-1.5-7b` | Grounding model (cursor placement) |
+| `ACU_OPENROUTER_VISION_MODEL` | `google/gemini-2.0-flash-lite-001` | Smart Wait vision model |
+| `ACU_VISION_BACKEND` | `openrouter` | Vision backend for Smart Wait. Change to `ollama` only if you have a local GPU. |
 | `ACU_DEBUG` | `0` | Verbose debug logging |
-| `ACU_STUCK_DETECTION` | `0` | Stuck task detection (`1` to enable) |
 | `MAVI_API_KEY` | -- | Memories.AI API key for `mavi_understand` |
+
+## Logs
+
+| Log | Location | How to view |
+|-----|----------|-------------|
+| Daemon log | `~/.agentic-computer-use/logs/debug.log` | `tail -f ~/.agentic-computer-use/logs/debug.log` |
+| Systemd journal | journalctl | `journalctl -u detm-daemon -f` |
+| Dev mode | tmux | `./dev.sh logs` |
+| GUI agent sessions | `~/.agentic-computer-use/live_sessions/` | `PYTHONPATH=src .venv/bin/python3 scripts/inspect_session.py --list` |
 
 ## Requirements
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | Python | 3.11+ | 3.12+ |
-| RAM | 8 GB | 16 GB |
+| RAM | 4 GB | 8 GB |
 | OS | Linux (X11) | Ubuntu 22.04+ |
-| GPU | None (CPU works) | NVIDIA GPU for local vision models |
+| GPU | Not needed | All vision runs through OpenRouter |
+| API Key | OpenRouter | Free at https://openrouter.ai/keys |
 
 ## Storage
 

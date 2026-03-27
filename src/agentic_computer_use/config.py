@@ -15,8 +15,8 @@ DISPLAY = os.environ.get("DISPLAY", ":99")
 DEFAULT_TASK_DISPLAY_WIDTH = int(os.environ.get("ACU_TASK_DISPLAY_WIDTH", "1280"))
 DEFAULT_TASK_DISPLAY_HEIGHT = int(os.environ.get("ACU_TASK_DISPLAY_HEIGHT", "720"))
 
-# Vision backend selection
-VISION_BACKEND = os.environ.get("ACU_VISION_BACKEND", "ollama")  # ollama|vllm|claude|passthrough
+# Vision backend selection — default to openrouter (tested, no local GPU needed)
+VISION_BACKEND = os.environ.get("ACU_VISION_BACKEND", "openrouter")  # openrouter|ollama|vllm|claude|passthrough
 
 # Ollama
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")

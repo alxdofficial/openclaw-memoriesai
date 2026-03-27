@@ -91,7 +91,7 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
     echo "  DETM needs an OpenRouter API key for:"
     echo "    - GUI agent (Gemini Flash supervisor)"
     echo "    - UI-TARS grounding (precise cursor placement)"
-    echo "    - Cloud vision (SmartWait screen polling)"
+    echo "    - Smart Wait (cloud vision screen polling)"
     echo ""
     echo "  Get one free at: https://openrouter.ai/keys"
     echo ""
@@ -101,11 +101,30 @@ if [ -z "${OPENROUTER_API_KEY:-}" ]; then
             export OPENROUTER_API_KEY="$user_key"
             ok "API key set"
         else
-            warn "Skipping — GUI agent and cloud vision will not work."
+            warn "Skipping — GUI agent, Smart Wait, and grounding will not work."
             warn "Set OPENROUTER_API_KEY later and restart the daemon."
         fi
     else
         warn "Non-interactive — pass key via: OPENROUTER_API_KEY=sk-or-... bash"
+    fi
+fi
+
+# Validate the API key works
+if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    info "Validating OpenRouter API key..."
+    _OR_RESP=$(curl -s -w "\n%{http_code}" -X POST https://openrouter.ai/api/v1/chat/completions \
+        -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{"model":"google/gemini-2.0-flash-lite-001","messages":[{"role":"user","content":"hi"}],"max_tokens":1}' 2>/dev/null)
+    _OR_STATUS=$(echo "$_OR_RESP" | tail -1)
+    if [ "$_OR_STATUS" = "200" ]; then
+        ok "OpenRouter API key is valid"
+    else
+        _OR_BODY=$(echo "$_OR_RESP" | head -1)
+        err "OpenRouter API key validation failed (HTTP $_OR_STATUS)"
+        err "Response: $_OR_BODY"
+        err "Get a valid key at: https://openrouter.ai/keys"
+        exit 1
     fi
 fi
 
@@ -508,10 +527,13 @@ if [ "$VIRTUAL_DISPLAY" = true ]; then
 echo "  noVNC:     http://127.0.0.1:$NOVNC_PORT/vnc.html"
 fi
 echo ""
+echo "  Logs:"
+echo "    tail -f ~/.agentic-computer-use/logs/debug.log   # daemon debug log"
+echo "    journalctl -u detm-daemon -f                     # systemd journal"
+echo ""
 echo "  Manage:"
 echo "    sudo systemctl restart detm-daemon    # restart daemon"
 echo "    sudo systemctl status detm-daemon     # check status"
-echo "    journalctl -u detm-daemon -f          # tail logs"
 if [ "$VIRTUAL_DISPLAY" = true ]; then
 echo "    sudo systemctl restart detm-xvfb      # restart display"
 fi
