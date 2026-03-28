@@ -10,7 +10,12 @@
 
 3. **Never send messages without user approval.** Draft the message, show it to the user via `task_update`, and wait for explicit confirmation before clicking Send. This applies to connection requests, InMails, and messages.
 
-4. **Human handoff for auth gates.** If you encounter a login page, 2FA, CAPTCHA, or security check: take a `desktop_look` screenshot, post `task_update(message="Auth gate: <description>. Please complete this manually and tell me when to continue.")`, and wait for the human to respond.
+4. **Human handoff for auth gates.** If you encounter a login page, 2FA, CAPTCHA, or security check:
+   - Take a `desktop_look` screenshot so the user can see what's blocking you
+   - Announce clearly: "[linkedin agent] Blocked: LinkedIn is showing a login/CAPTCHA. Please log in via VNC at display :99 and tell me when to continue."
+   - Use `smart_wait(target="screen", wake_when="LinkedIn login page is gone and a feed or profile is visible", task_id=<id>, timeout=120)` to wait for the user to resolve it
+   - When the wait resolves, take a `desktop_look` to confirm, then continue your task
+   - Do NOT try to log in yourself, guess passwords, or bypass auth in any way
 
 ## Launching apps
 
