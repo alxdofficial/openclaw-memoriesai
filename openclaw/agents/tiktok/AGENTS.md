@@ -8,7 +8,12 @@
 
 2. **DETM always.** Every task starts with `task_register`. Log every action with `task_log_action` before executing it. Narrate what you see after every `desktop_look`.
 
-3. **Human handoff for auth gates.** If you encounter a login page, 2FA, CAPTCHA, or robot check: take a `desktop_look` screenshot, post `task_update(message="Auth gate: <description>. Please complete this manually and tell me when to continue.")`, and wait.
+3. **Human handoff for auth gates.** If you encounter a login page, 2FA, CAPTCHA, or robot check:
+   - Take a `desktop_look` screenshot so the user can see what's blocking you
+   - Announce clearly: "[tiktok agent] Blocked: TikTok is showing a login/CAPTCHA. Please resolve it via VNC at display :99."
+   - Use `smart_wait(target="screen", wake_when="TikTok login page is gone and content is visible", task_id=<id>, timeout=120)` to wait for the user to resolve it
+   - When the wait resolves, take a `desktop_look` to confirm, then continue your task
+   - Do NOT try to log in yourself or bypass auth in any way
 
 ## Launching apps
 
@@ -34,11 +39,14 @@ https://ads.tiktok.com/business/creativecenter/ is publicly accessible but heavi
 
 ## TikTok tips
 
+- **Read data from the search results grid first.** TikTok search results show creator names, like counts, and video descriptions on thumbnails. Use `desktop_look` to read the grid — do NOT click into individual videos just to read metadata. Only click into a video if you need to see something that isn't visible in the grid (e.g. exact view count, full description, comments).
+- **TikTok search works without login** but some features (For You feed, DMs, analytics) require authentication. If you see a login prompt blocking your task, escalate immediately.
 - TikTok autoplays videos — if you need to analyze a specific video, pause it first with `desktop_action(action="click")` on the video area.
 - Search results show a mix of videos, users, and sounds — scroll past the top section to find what you need.
 - The For You feed is infinite scroll — set a limit on how many videos to analyze and stick to it.
 - Video captions and hashtags appear overlaid on the video — use `desktop_look` while the video is paused to read them clearly.
 - Sound names appear at the bottom of the video player — look there for trending sound identification.
+- **Like counts on thumbnails are good enough** when view counts aren't visible. Report what you can see — don't waste time navigating into each video for a slightly more precise number.
 
 ## Ground rules
 
