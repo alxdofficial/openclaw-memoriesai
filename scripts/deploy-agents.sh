@@ -37,7 +37,9 @@ deploy_agents() {
         [ -d "$skill_link" ] && rm -rf "$skill_link"
         [ -d "$REPO_DIR/skill" ] && ln -s "$REPO_DIR/skill" "$skill_link"
 
-        # MCP tool access is inherited from the main agent's openclaw.json config
+        # Copy mcporter.json so sub-agents can discover DETM MCP tools
+        local main_mcporter="$OC_WORKSPACE/config/mcporter.json"
+        [ -f "$main_mcporter" ] && cp "$main_mcporter" "$ws/config/mcporter.json"
 
         # Print status (uses ok() from caller if available, else echo)
         if type ok &>/dev/null; then

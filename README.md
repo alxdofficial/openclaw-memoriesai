@@ -98,7 +98,7 @@ Five layers:
 1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
 2. **Smart Wait** — vision-based async monitoring with adaptive polling
 3. **GUI Agent** — Gemini Flash supervisor + UI-TARS grounding (precise cursor placement)
-4. **Vision** — pluggable backends (Ollama, vLLM, Claude, OpenRouter, passthrough)
+4. **Vision** — cloud vision via OpenRouter (default), or local backends (Ollama, vLLM)
 5. **Display** — shared system display visible in VNC and the dashboard
 
 ## GUI Agent
@@ -187,14 +187,17 @@ DETM_DEPLOY_AGENTS=1 ./install.sh
 
 `install.sh` handles all DETM-side setup, including MCP server registration. After install:
 
-1. **Restart the OpenClaw gateway** so it discovers the new MCP server
-2. **Verify** DETM tools are visible:
+1. **Restart the OpenClaw gateway** to pick up the new MCP server:
 ```bash
-openclaw mcp list
-# Should show: agentic-computer-use
+openclaw gateway restart
+```
+2. **Verify** DETM tools are available — ask the agent:
+```
+"What DETM tools do you have?"
+# Should list: task_register, gui_agent, desktop_look, desktop_action, etc.
 ```
 
-That's it. OpenClaw will now have access to all DETM tools (task_register, gui_agent, desktop_look, etc.).
+That's it. OpenClaw will now have access to all DETM tools.
 
 **Important**: DETM is an MCP server. Do **not** manually add a `"detm"` entry to `plugins.entries` in `openclaw.json` — that is a different integration path and will cause errors. If `install.sh` ran successfully, no manual OpenClaw configuration is needed for DETM.
 
@@ -240,15 +243,14 @@ sudo systemctl restart detm-desktop
 
 ### OpenClaw doesn't see DETM tools
 ```bash
-# Check MCP server is registered
-openclaw mcp list
-# Should show: agentic-computer-use
-
-# If missing, re-run the installer (it's idempotent)
+# Re-run the installer (it's idempotent)
 ./install.sh
 
-# Restart the OpenClaw gateway to pick up changes
-kill -HUP $(pgrep -f openclaw-gateway)
+# Restart the OpenClaw gateway
+openclaw gateway restart
+
+# Ask the agent to confirm
+openclaw agent --agent main -m "What DETM tools do you have?"
 ```
 
 If you see DETM configured as a plugin in `openclaw.json` (`"detm": {"enabled": true}` under `plugins.entries`), remove that entry — DETM should only be used as an MCP server.
