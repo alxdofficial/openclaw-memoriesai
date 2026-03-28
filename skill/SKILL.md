@@ -88,12 +88,25 @@ sessions_spawn(agentId="linkedin", task="Find the LinkedIn profile of John Smith
 
 **Rule: always launch apps via CLI. Use gui_agent only after the app is open and ready for UI interaction.**
 
-**Maximize windows before interacting.** The desktop is 1920x1080 but windows may open small or partially off-screen. Always maximize the browser window after launching it so gui_agent and desktop_look can see the full page:
+**Maximize windows and ensure full visibility.** The desktop is 1920x1080 but windows may open small, partially off-screen, or overlapping. Before any gui_agent or desktop_look interaction:
+
+1. **Maximize the window** so the full page is visible:
 ```
-# After launching an app, maximize it:
 wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
-# Or via xdotool:
-xdotool key super+Up
+```
+
+2. **Ensure all window borders are visible.** If a window is partially off-screen, content will be hidden and gui_agent will miss it. After maximizing, if content still looks cut off, move the window to position (0,0):
+```
+wmctrl -r :ACTIVE: -e 0,0,0,-1,-1
+```
+
+3. **Close popups and overlays** before reading the screen. Cookie banners, login modals, and notification popups block content. Dismiss them with gui_agent before taking screenshots.
+
+4. **Do this every time you launch an app.** Include `wmctrl` maximize in your launch sequence:
+```
+firefox https://example.com &
+sleep 3
+wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
 ```
 
 ```
