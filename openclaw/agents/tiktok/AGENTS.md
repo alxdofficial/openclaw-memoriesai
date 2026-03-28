@@ -17,11 +17,13 @@
 
 ## Launching apps
 
-Launch the browser via CLI, then maximize the window so the full page is visible:
-```
+Launch the browser via CLI, then resize to full screen:
+```bash
 firefox https://tiktok.com &
 sleep 3
-wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+WID=$(DISPLAY=:99 xdotool search --name "Firefox" | head -1)
+DISPLAY=:99 xdotool windowsize --sync $WID 1920 1080
+DISPLAY=:99 xdotool windowmove --sync $WID 0 0
 ```
 Do not ask gui_agent to find browser icons — the desktop is minimal.
 

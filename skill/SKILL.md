@@ -88,26 +88,30 @@ sessions_spawn(agentId="linkedin", task="Find the LinkedIn profile of John Smith
 
 **Rule: always launch apps via CLI. Use gui_agent only after the app is open and ready for UI interaction.**
 
-**Maximize windows and ensure full visibility.** The desktop is 1920x1080 but windows may open small, partially off-screen, or overlapping. Before any gui_agent or desktop_look interaction:
+**Maximize windows and ensure full visibility.** The desktop is 1920x1080 but windows often open at ~1280x792 or smaller. gui_agent and desktop_look will miss content that's off-screen. **Always resize and reposition windows before interacting:**
 
-1. **Maximize the window** so the full page is visible:
-```
-wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
-```
-
-2. **Ensure all window borders are visible.** If a window is partially off-screen, content will be hidden and gui_agent will miss it. After maximizing, if content still looks cut off, move the window to position (0,0):
-```
-wmctrl -r :ACTIVE: -e 0,0,0,-1,-1
+```bash
+# After launching any app, resize to full screen and move to top-left:
+WID=$(DISPLAY=:99 xdotool search --name "Firefox" | head -1)
+DISPLAY=:99 xdotool windowsize --sync $WID 1920 1080
+DISPLAY=:99 xdotool windowmove --sync $WID 0 0
 ```
 
-3. **Close popups and overlays** before reading the screen. Cookie banners, login modals, and notification popups block content. Dismiss them with gui_agent before taking screenshots.
-
-4. **Do this every time you launch an app.** Include `wmctrl` maximize in your launch sequence:
+Or as a one-liner for the active window:
+```bash
+DISPLAY=:99 xdotool windowsize --sync $(xdotool getactivewindow) 1920 1080 && DISPLAY=:99 xdotool windowmove --sync $(xdotool getactivewindow) 0 0
 ```
+
+**Full app launch sequence:**
+```bash
 firefox https://example.com &
 sleep 3
-wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+WID=$(DISPLAY=:99 xdotool search --name "Firefox" | head -1)
+DISPLAY=:99 xdotool windowsize --sync $WID 1920 1080
+DISPLAY=:99 xdotool windowmove --sync $WID 0 0
 ```
+
+**Also:** close popups and overlays (cookie banners, login modals) before reading the screen — they block content. Use gui_agent to dismiss them.
 
 ```
 # WRONG — gui_agent spends 30-60s hunting for browser icons/menus on a bare desktop:

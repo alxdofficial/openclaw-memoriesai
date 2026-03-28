@@ -174,6 +174,7 @@ command -v x11vnc     &>/dev/null || MISSING_PKGS+=("x11vnc")
 command -v websockify  &>/dev/null || MISSING_PKGS+=("novnc")
 command -v xterm      &>/dev/null || MISSING_PKGS+=("xterm")
 command -v xclip      &>/dev/null || MISSING_PKGS+=("xclip")
+command -v wmctrl     &>/dev/null || MISSING_PKGS+=("wmctrl")
 command -v dbus-launch &>/dev/null || MISSING_PKGS+=("dbus-x11")
 
 if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
