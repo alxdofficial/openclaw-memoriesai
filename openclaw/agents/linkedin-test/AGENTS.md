@@ -2,13 +2,11 @@
 
 ## Hard Rules
 
-1. **Vision only.** You MUST NOT use `web_search`, `web_fetch`, `browser.snapshot`, `browser.navigate`, or any DOM/API-based browser tool. All interaction with LinkedIn happens through the GUI on the desktop display.
+1. **Use DETM for LinkedIn interaction.** LinkedIn requires authentication and visual interaction — use `gui_agent` for navigating profiles, filling forms, and clicking buttons. CLI tools (bash, python, curl for public URLs) are fine for supporting tasks like data processing.
 
 2. **DETM always.** Every task starts with `task_register`. Log every action with `task_log_action` before executing it. Narrate what you see after every `desktop_look`.
 
 3. **No memory persistence.** Do NOT read `MEMORY.md`, `memory/*.md`, or any prior session context. Do NOT write memory files. Every run is independent.
-
-4. **No web search.** Treat every task as `DETM ONLY` — web_search and WebFetch are banned.
 
 5. **Human handoff for auth gates.** If you encounter a login page, 2FA prompt, CAPTCHA, or any robot-check blocker, do NOT give up or try workarounds. Instead:
    - Take a `desktop_look` screenshot so the human can see what's blocking you.
@@ -25,9 +23,9 @@
 
 4. **`smart_wait`** — use when waiting for page loads, spinners to disappear, or content to render. Target `window:<browser_name>` not `screen`.
 
-## Adapt to what's installed
+## Launching apps
 
-Never assume specific apps exist. Don't say "Open Firefox" — say "Open a web browser." Use `desktop_look` first if unsure what's on screen, or write generic instructions and let `gui_agent` figure it out.
+Always launch applications via CLI (e.g. `firefox https://linkedin.com &`), not by asking gui_agent to find and open them. The desktop is minimal — no curated dock or app menus. See the base DETM skill for common launch commands.
 
 ## LinkedIn-Specific Tips
 

@@ -84,9 +84,11 @@ If the human's request contains the phrase **DETM ONLY**, you must do ALL resear
 # WRONG — even if faster, even if just one call:
 web_search("TechCrunch AI reporters")
 
-# RIGHT — use gui_agent to drive the browser:
-task_log_action(task_id=<id>, action_type="gui", summary="Opening browser and searching Google for TechCrunch AI reporters", status="started")
-gui_agent(instruction="Open a web browser, navigate to google.com, and search for TechCrunch AI reporters", task_id=<id>)
+# RIGHT — launch browser via CLI, then gui_agent for search:
+task_log_action(task_id=<id>, action_type="cli", summary="Launching Firefox to google.com", status="started")
+desktop_action(action="press_key", text="ctrl+alt+t", task_id=<id>)
+desktop_action(action="type", text="firefox https://google.com &\n", task_id=<id>)
+gui_agent(instruction="Search for TechCrunch AI reporters", task_id=<id>)
 desktop_look(task_id=<id>)
 ```
 
@@ -212,9 +214,13 @@ AI-powered GUI agent that uses Gemini Flash for reasoning and UI-TARS for precis
 
 **Delegate whole subtasks, not individual clicks.** The gui_agent is designed to handle 10-30 step workflows autonomously. Don't micromanage it with one-action instructions — describe the goal and let it figure out the steps. You should check in between subtasks to read results and decide what's next.
 
-**Good — delegate a subtask:**
+**Good — launch via CLI, then delegate subtask to gui_agent:**
 ```
-gui_agent(instruction="Open Chrome, go to Google Flights, search for flights from NYC to London on March 28, and filter for nonstop only", task_id=<id>, timeout=120)
+# Launch browser first (instant):
+desktop_action(action="press_key", text="ctrl+alt+t", task_id=<id>)
+desktop_action(action="type", text="firefox https://www.google.com/travel/flights &\n", task_id=<id>)
+# Then gui_agent for the interaction:
+gui_agent(instruction="Search for flights from NYC to London on March 28 and filter for nonstop only", task_id=<id>, timeout=120)
 ```
 
 **Bad — micromanage individual clicks:**
@@ -251,21 +257,16 @@ gui_agent(instruction="Click the date field", task_id=<id>)
 
 **Rule of thumb:** If you're about to call `gui_agent` 3+ times in a row with `desktop_look` between each, combine them into one `gui_agent` call with a single instruction describing the full sequence.
 
-## Browser interaction — visual only
+## Browser interaction
 
-**Always interact with browsers visually.** This is the primary way to use the browser with DETM.
+**Prefer visual interaction for browser tasks** — `gui_agent` for clicking/typing/navigating, `desktop_look` for reading screen content. This is the primary workflow for authenticated sites and interactive web apps.
 
-- Use `gui_agent` for multi-step browser interactions (navigate, click, type, scroll)
-- Use `desktop_look` to see what's on screen and read content from screenshots
-- Read content by looking at the screenshot — not by extracting it programmatically
+**But be pragmatic.** If gui_agent is struggling or a CLI approach is faster and more reliable, use it:
+- `curl`/`wget` to fetch a public URL and extract text — faster than screenshotting and reading
+- CLI tools to process downloaded data (grep, jq, python scripts)
+- `xdg-open` or `firefox <url>` to navigate directly instead of clicking through menus
 
-**Never use:**
-- Browser developer tools or the console (`F12`, `Ctrl+Shift+I`)
-- JavaScript execution in the browser (`document.querySelector`, `window.location`, etc.)
-- DOM inspection or scraping via CLI tools (`curl`, `wget` for HTML parsing, `lynx`, `w3m`)
-- Browser extension APIs or CDP/Playwright/Selenium automation
-
-The entire point is to interact the way a human would — looking at the screen and clicking. If you find yourself wanting to run JS or scrape HTML, stop and use `gui_agent` instead.
+**The goal is task completion, not visual purity.** Use GUI when the task requires it (forms, logins, interactive apps). Use CLI when it's faster and the page is publicly accessible.
 
 **How to start a browser research session:**
 ```
