@@ -19,7 +19,13 @@
 
 ## Launching apps
 
-Launch the browser via CLI: `firefox https://linkedin.com &`. Do not ask gui_agent to find and open browser icons — the desktop is minimal.
+Launch the browser via CLI, then maximize the window so the full page is visible:
+```
+firefox https://linkedin.com &
+sleep 3
+wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+```
+Do not ask gui_agent to find and open browser icons — the desktop is minimal.
 
 ## When to use gui_agent vs desktop_look
 

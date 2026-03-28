@@ -80,11 +80,21 @@ sessions_spawn(agentId="linkedin", task="Find the LinkedIn profile of John Smith
 - When the sub-agent finished and you're back in control
 - What the sub-agent found
 
+**You MUST use sub-agents for LinkedIn and TikTok tasks.** Do not handle these platforms yourself — always spawn the specialized sub-agent. This is not optional. The sub-agents have platform-specific instructions that make them more reliable than you doing it directly.
+
 **Do not micromanage sub-agents.** Give them a clear goal and let them work. You'll get the result when they're done. If you need to check progress, use `/subagents list` or `/subagents log <id>`.
 
 **Launch applications via CLI, not gui_agent.** DETM runs on a bare Linux desktop (typically XFCE on a headless VM). Unlike a user's personal machine, the desktop is minimal — no curated dock, no pinned apps, possibly no desktop icons. gui_agent trying to visually find and launch applications is slow (30-60s) and unreliable because there's nothing well-organized to click on. But it's just Linux — every app can be launched instantly from the command line.
 
 **Rule: always launch apps via CLI. Use gui_agent only after the app is open and ready for UI interaction.**
+
+**Maximize windows before interacting.** The desktop is 1920x1080 but windows may open small or partially off-screen. Always maximize the browser window after launching it so gui_agent and desktop_look can see the full page:
+```
+# After launching an app, maximize it:
+wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+# Or via xdotool:
+xdotool key super+Up
+```
 
 ```
 # WRONG — gui_agent spends 30-60s hunting for browser icons/menus on a bare desktop:

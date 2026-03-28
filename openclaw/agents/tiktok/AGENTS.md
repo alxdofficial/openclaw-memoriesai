@@ -17,7 +17,13 @@
 
 ## Launching apps
 
-Launch the browser via CLI: `firefox https://tiktok.com &`. Do not ask gui_agent to find browser icons.
+Launch the browser via CLI, then maximize the window so the full page is visible:
+```
+firefox https://tiktok.com &
+sleep 3
+wmctrl -r :ACTIVE: -b add,maximized_vert,maximized_horz
+```
+Do not ask gui_agent to find browser icons — the desktop is minimal.
 
 ## Choosing the right vision tool
 
