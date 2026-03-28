@@ -91,6 +91,14 @@ for d in sorted(glob.glob(os.path.join(agents_src, '*'))):
         })
         print(f'Registered agent: {agent_id}')
 
+# Ensure main agent can spawn all sub-agents
+sub_ids = [os.path.basename(d) for d in sorted(glob.glob(os.path.join(agents_src, '*'))) if os.path.isdir(d)]
+for a in agent_list:
+    if a['id'] == 'main':
+        a.setdefault('subagents', {})['allowAgents'] = sub_ids
+        print(f'Updated main agent allowAgents: {sub_ids}')
+        break
+
 with open(config_path, 'w') as f:
     json.dump(config, f, indent=2)
 "
