@@ -49,6 +49,33 @@ The signal: if a human would need to be logged in to do it, DETM is the right to
 
 **When DETM hits a login wall or CAPTCHA:** use `task_update` to tell the user, then poll until they confirm they've resolved it in the browser (display :99). Never skip or bypass auth — escalate and wait.
 
+## Sub-agent routing
+
+For platform-specific DETM tasks, **spawn a specialized sub-agent** instead of doing it yourself. Sub-agents have platform-specific instructions and tips that make them more reliable. They run in the background and announce results back to you when done.
+
+| Task involves | Spawn sub-agent | Why |
+|---|---|---|
+| **LinkedIn** — profiles, search, messages, connections | `linkedin` | Knows LinkedIn UI, outreach rules, rate limits |
+| **TikTok** — trends, sounds, creators, Creative Center | `tiktok` | Knows when to use `mavi_understand` vs `desktop_look`, TikTok navigation |
+| General desktop task (not platform-specific) | Handle it yourself | No specialized agent needed |
+
+**How to spawn:**
+```
+sessions_spawn(agentId="linkedin", task="Find the LinkedIn profile of John Smith at Acme Corp and summarize his experience")
+```
+Or via slash command:
+```
+/subagents spawn linkedin "Find the LinkedIn profile of John Smith at Acme Corp and summarize his experience"
+```
+
+The sub-agent will:
+1. Create its own DETM task with `task_register`
+2. Launch the browser via CLI, navigate the platform
+3. Complete the work using `gui_agent` + `desktop_look`
+4. Announce the result back to your conversation
+
+**Do not micromanage sub-agents.** Give them a clear goal and let them work. You'll get the result when they're done. If you need to check progress, use `/subagents list` or `/subagents log <id>`.
+
 **Launch applications via CLI, not gui_agent.** DETM runs on a bare Linux desktop (typically XFCE on a headless VM). Unlike a user's personal machine, the desktop is minimal — no curated dock, no pinned apps, possibly no desktop icons. gui_agent trying to visually find and launch applications is slow (30-60s) and unreliable because there's nothing well-organized to click on. But it's just Linux — every app can be launched instantly from the command line.
 
 **Rule: always launch apps via CLI. Use gui_agent only after the app is open and ready for UI interaction.**

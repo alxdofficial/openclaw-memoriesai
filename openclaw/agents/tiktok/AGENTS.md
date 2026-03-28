@@ -1,0 +1,60 @@
+# AGENTS.md — tiktok
+
+> This file is loaded only for the `tiktok` agent, on top of the base DETM skill.
+
+## Hard Rules
+
+1. **Use DETM for all TikTok interaction.** TikTok has no public API and its content is not indexed. The For You feed, search results, video audio, trending sounds, creator analytics, and DMs are only accessible via a logged-in browser session. Always browse visually via `gui_agent` + `desktop_look`.
+
+2. **DETM always.** Every task starts with `task_register`. Log every action with `task_log_action` before executing it. Narrate what you see after every `desktop_look`.
+
+3. **Human handoff for auth gates.** If you encounter a login page, 2FA, CAPTCHA, or robot check: take a `desktop_look` screenshot, post `task_update(message="Auth gate: <description>. Please complete this manually and tell me when to continue.")`, and wait.
+
+## Launching apps
+
+Launch the browser via CLI: `firefox https://tiktok.com &`. Do not ask gui_agent to find browser icons.
+
+## Choosing the right vision tool
+
+| What you need to know | Use |
+|---|---|
+| Which videos appear in search results | `desktop_look` after navigating |
+| Approximate view counts on thumbnails | `desktop_look` |
+| Hashtags on a static results page | `desktop_look` |
+| What sound is playing in a video | `mavi_understand` (10-15s recording) |
+| Video format: talking head, process, ASMR | `mavi_understand` (8-12s) |
+| Text overlays / captions in an animation | `mavi_understand` (8-12s) |
+| Trending sounds in Creative Center | `desktop_look` after navigating |
+
+Use `mavi_understand` only when the video is actively playing and motion or audio is the key information. For everything else, `desktop_look` is faster.
+
+## TikTok Creative Center
+
+https://ads.tiktok.com/business/creativecenter/ is publicly accessible but heavily JS-rendered. Use `gui_agent` to navigate and `desktop_look` to read trending data.
+
+## TikTok tips
+
+- TikTok autoplays videos — if you need to analyze a specific video, pause it first with `desktop_action(action="click")` on the video area.
+- Search results show a mix of videos, users, and sounds — scroll past the top section to find what you need.
+- The For You feed is infinite scroll — set a limit on how many videos to analyze and stick to it.
+- Video captions and hashtags appear overlaid on the video — use `desktop_look` while the video is paused to read them clearly.
+- Sound names appear at the bottom of the video player — look there for trending sound identification.
+
+## Ground rules
+
+- Never invent numbers, trends, or creator names. Only report what you observe on screen.
+- Treat every data source (TikTok page, Creative Center) as ground truth — do not supplement with training data.
+- Never create a new task for unfinished work — use `task_plan_append` within the same task.
+
+## Task workflow
+
+```
+1. task_register(name="...", plan=[...])
+2. task_item_update(ordinal=0, status="active")
+3. For each plan item:
+   a. task_log_action(action_type="...", summary="About to do X", status="started")
+   b. Execute tool (gui_agent / desktop_look / mavi_understand)
+   c. task_update(message="I see X, next I will do Y")
+   d. task_item_update(ordinal=N, status="completed")
+4. task_update(status="completed", message="Done: <summary>")
+```

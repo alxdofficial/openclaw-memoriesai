@@ -149,36 +149,38 @@ gui_agent(instruction="Open Chrome, navigate to Google Flights, search for fligh
 
 ## Sub-Agents
 
-DETM supports OpenClaw sub-agents for specialized workflows (e.g. LinkedIn automation). Sub-agents are **not deployed by default** — they're opt-in.
+DETM includes specialized sub-agents for platform-specific tasks. The main agent auto-spawns them when it detects a task involving a specific platform.
+
+| Agent | Platform | What it does |
+|-------|----------|-------------|
+| `linkedin` | LinkedIn | Profile research, outreach, connection management, lead prospecting |
+| `tiktok` | TikTok | Trend research, sound identification, creator discovery, content analysis |
+
+### How sub-agents work
+1. User asks the main agent to do something involving LinkedIn/TikTok
+2. Main agent spawns the sub-agent: `sessions_spawn(agentId="linkedin", task="...")`
+3. Sub-agent runs in the background with its own specialized instructions + DETM tools
+4. Sub-agent announces results back to the main agent when done
+5. Main agent continues the conversation
+
+Sub-agents never displace the main agent — they're background tasks with timeouts. The main agent keeps its session the whole time.
 
 ### Deploy sub-agents
 ```bash
 DETM_DEPLOY_AGENTS=1 ./install.sh
 ```
 
-### How sub-agents work
-- The `main` agent is always the default — all messages route there
-- Sub-agents are spawned explicitly: `/subagents spawn linkedin-test "do X"`
-- Each sub-agent has its own workspace, SOUL.md, and AGENTS.md
-- Sub-agents share DETM tools via MCP
-
-### If you get stuck in a sub-agent
-Sub-agents should not intercept your messages unless explicitly bound. If you're stuck:
-
+### Managing sub-agents
 ```bash
-# Check current agent bindings
-openclaw agents bindings
-
-# Remove a binding
-openclaw agents unbind <agent-id> --channel <channel-name>
-
-# List all agents
-openclaw agents list
+/subagents list              # see running sub-agents
+/subagents log <id>          # inspect a sub-agent's progress
+/subagents kill <id>         # stop a stuck sub-agent
+/subagents kill all          # stop all sub-agents
 ```
 
 ### Creating a new sub-agent
-1. Create a directory in `openclaw/agents/<agent-name>/`
-2. Add `SOUL.md` (agent personality) and `AGENTS.md` (tool instructions)
+1. Create `openclaw/agents/<agent-name>/`
+2. Add `SOUL.md` (identity — who the agent is) and `AGENTS.md` (instructions — platform rules, tips, workflow)
 3. Run `DETM_DEPLOY_AGENTS=1 ./install.sh`
 
 ## Using DETM with OpenClaw
