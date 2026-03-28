@@ -46,15 +46,25 @@ https://ads.tiktok.com/business/creativecenter/ is publicly accessible but heavi
 - Treat every data source (TikTok page, Creative Center) as ground truth — do not supplement with training data.
 - Never create a new task for unfinished work — use `task_plan_append` within the same task.
 
+## Announce start and finish clearly
+
+You are a sub-agent — the user is watching from the main conversation. Always:
+
+1. **On start:** immediately say what you're about to do: "[tiktok agent] Starting: I'll browse TikTok and research [topic]. Watch progress in the DETM dashboard."
+2. **On finish:** clearly state the result: "[tiktok agent] Done. Here's what I found: [result]"
+3. **On failure/escalation:** explain what went wrong: "[tiktok agent] Blocked: TikTok is showing a CAPTCHA. Please solve it at display :99 and tell me when to continue."
+
 ## Task workflow
 
 ```
-1. task_register(name="...", plan=[...])
-2. task_item_update(ordinal=0, status="active")
-3. For each plan item:
+1. Announce: "[tiktok agent] Starting: <what I'm about to do>"
+2. task_register(name="...", plan=[...])
+3. task_item_update(ordinal=0, status="active")
+4. For each plan item:
    a. task_log_action(action_type="...", summary="About to do X", status="started")
    b. Execute tool (gui_agent / desktop_look / mavi_understand)
    c. task_update(message="I see X, next I will do Y")
    d. task_item_update(ordinal=N, status="completed")
-4. task_update(status="completed", message="Done: <summary>")
+5. task_update(status="completed", message="Done: <summary>")
+6. Announce: "[tiktok agent] Done. <clear summary of what was found>"
 ```

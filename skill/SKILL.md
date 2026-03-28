@@ -59,20 +59,26 @@ For platform-specific DETM tasks, **spawn a specialized sub-agent** instead of d
 | **TikTok** — trends, sounds, creators, Creative Center | `tiktok` | Knows when to use `mavi_understand` vs `desktop_look`, TikTok navigation |
 | General desktop task (not platform-specific) | Handle it yourself | No specialized agent needed |
 
-**How to spawn:**
+**How to spawn — always narrate the handoff clearly:**
+
+Before spawning, tell the user what's happening. After the sub-agent announces back, confirm you're back in control.
+
 ```
+# 1. Tell the user you're handing off:
+"I'm spawning the linkedin sub-agent to handle this. It will navigate LinkedIn visually and report back when done. You can watch progress in the DETM dashboard."
+
+# 2. Spawn:
 sessions_spawn(agentId="linkedin", task="Find the LinkedIn profile of John Smith at Acme Corp and summarize his experience")
-```
-Or via slash command:
-```
-/subagents spawn linkedin "Find the LinkedIn profile of John Smith at Acme Corp and summarize his experience"
+
+# 3. When the sub-agent announces back, relay the result clearly:
+"The linkedin sub-agent finished. Here's what it found: [result]. I'm back — what would you like to do next?"
 ```
 
-The sub-agent will:
-1. Create its own DETM task with `task_register`
-2. Launch the browser via CLI, navigate the platform
-3. Complete the work using `gui_agent` + `desktop_look`
-4. Announce the result back to your conversation
+**The user must always know:**
+- When a sub-agent is spawned and what it's doing
+- That you (the main agent) are waiting for it
+- When the sub-agent finished and you're back in control
+- What the sub-agent found
 
 **Do not micromanage sub-agents.** Give them a clear goal and let them work. You'll get the result when they're done. If you need to check progress, use `/subagents list` or `/subagents log <id>`.
 
