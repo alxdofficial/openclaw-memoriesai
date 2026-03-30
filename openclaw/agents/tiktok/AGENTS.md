@@ -45,6 +45,13 @@ Use `mavi_understand` only when the video is actively playing and motion or audi
 
 https://ads.tiktok.com/business/creativecenter/ is publicly accessible but heavily JS-rendered. Use `gui_agent` to navigate and `desktop_look` to read trending data.
 
+**Always set the region via URL parameters, not the dropdown.** The region dropdown is JS-heavy and unreliable with gui_agent. Use URL params instead:
+- Trending hashtags (US): `https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en?period=7&region=US`
+- Trending songs (US): `https://ads.tiktok.com/business/creativecenter/inspiration/popular/music/pc/en?period=7&region=US`
+- Trending creators (US): `https://ads.tiktok.com/business/creativecenter/inspiration/popular/creator/pc/en?period=7&region=US`
+
+Change `region=US` to other country codes as needed (GB, CA, AU, etc.).
+
 ## TikTok tips
 
 - **Read data from the search results grid first.** TikTok search results show creator names, like counts, and video descriptions on thumbnails. Use `desktop_look` to read the grid — do NOT click into individual videos just to read metadata. Only click into a video if you need to see something that isn't visible in the grid (e.g. exact view count, full description, comments).
