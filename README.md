@@ -149,33 +149,63 @@ gui_agent(instruction="Open Chrome, navigate to Google Flights, search for fligh
 
 ## Sub-Agents
 
-DETM includes specialized sub-agents for platform-specific tasks. The main agent auto-spawns them when it detects a task involving a specific platform.
+DETM includes specialized sub-agents for platform-specific tasks. Each sub-agent has its own instructions, tips, and workflow optimized for a specific platform.
 
 | Agent | Platform | What it does |
 |-------|----------|-------------|
 | `linkedin` | LinkedIn | Profile research, outreach, connection management, lead prospecting |
 | `tiktok` | TikTok | Trend research, sound identification, creator discovery, content analysis |
 
-### How sub-agents work
-1. User asks the main agent to do something involving LinkedIn/TikTok
-2. Main agent spawns the sub-agent: `sessions_spawn(agentId="linkedin", task="...")`
-3. Sub-agent runs in the background with its own specialized instructions + DETM tools
-4. Sub-agent announces results back to the main agent when done
-5. Main agent continues the conversation
+### How to use sub-agents
 
-Sub-agents never displace the main agent — they're background tasks with timeouts. The main agent keeps its session the whole time.
+Spawn a sub-agent from Discord or the OpenClaw TUI with the `/subagents spawn` command:
+
+```
+/subagents spawn linkedin "Find Eddy Wu from Memories AI on LinkedIn and tell me his headline and current role"
+/subagents spawn tiktok "Search TikTok for trending AI hashtags and give me the top 5 with post counts"
+```
+
+The sub-agent runs in the background and announces results back to your conversation when done. On Discord with thread bindings enabled, it gets its own thread.
+
+### What happens when you spawn
+
+1. You type `/subagents spawn <agent> "task description"`
+2. Sub-agent starts in an isolated session with platform-specific instructions + DETM tools
+3. Sub-agent launches Firefox via CLI, navigates the platform, completes the task
+4. Sub-agent announces results back to your conversation
+5. If the sub-agent hits a login wall or CAPTCHA, it will ask you to resolve it via VNC
+
+### Monitoring and managing
+
+```
+/subagents list              # see running sub-agents
+/subagents log <id>          # inspect a sub-agent's progress
+/subagents kill <id>         # stop a stuck sub-agent
+/subagents kill all          # stop all sub-agents
+```
+
+Watch the DETM dashboard (`http://127.0.0.1:18790/dashboard`) to see the sub-agent's task, plan items, screenshots, and progress in real time.
 
 ### Deploy sub-agents
 ```bash
 DETM_DEPLOY_AGENTS=1 ./install.sh
 ```
 
-### Managing sub-agents
-```bash
-/subagents list              # see running sub-agents
-/subagents log <id>          # inspect a sub-agent's progress
-/subagents kill <id>         # stop a stuck sub-agent
-/subagents kill all          # stop all sub-agents
+### Discord thread bindings (recommended)
+
+Enable thread bindings so each sub-agent run gets its own Discord thread:
+```json
+{
+  "channels": {
+    "discord": {
+      "threadBindings": {
+        "enabled": true,
+        "spawnSubagentSessions": true,
+        "idleHours": 24
+      }
+    }
+  }
+}
 ```
 
 ### Creating a new sub-agent
