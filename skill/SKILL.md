@@ -129,7 +129,15 @@ desktop_look(task_id=<id>)  # see what actually happened
 
 **`desktop_look` is your ground truth.** When in doubt about what happened, look at the screen. Don't reason from error messages alone — the screen shows the real state.
 
-If a step genuinely fails, do NOT create a new task. Use `task_plan_append` to add corrective steps and `task_item_update(status="scrapped")` on stale items.
+**Retry once with a different approach before giving up.** If gui_agent fails:
+1. `desktop_look` to see the screen
+2. If the screen shows the task actually succeeded → continue
+3. If it genuinely failed → retry **once** with a different instruction (e.g. use a URL instead of clicking, try a keyboard shortcut, simplify the instruction)
+4. If the retry also fails → try solving it via CLI (`exec`) if possible, or escalate to the user
+5. **Never retry the exact same instruction** — if it failed once, the same instruction will fail again. Change your approach.
+6. **Never retry more than once** — two failures means the approach is wrong, not that it needs a third try
+
+If a step genuinely fails after retrying, do NOT create a new task. Use `task_plan_append` to add corrective steps and `task_item_update(status="scrapped")` on stale items.
 
 **5. Check task status after each plan item.**
 ```
