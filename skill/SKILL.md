@@ -38,8 +38,27 @@ You (plan, decide, talk to user)
 | Public APIs with known endpoints | Direct HTTP calls via `Bash` or `httpx` |
 | File operations, data processing, code execution | `Bash`, Python, CLI tools |
 | Publicly accessible URLs with no login | `WebFetch` or `curl` |
+| Simple web page with no bot detection | OpenClaw `browser` tool (faster, DOM-level) |
 
-**Use DETM when the task requires visual interaction or an authenticated platform** — anything behind a login, or where you need to click/type/scroll in a GUI.
+**Use DETM when:**
+- The site requires **authentication** (login, session cookies) — DETM uses a real Firefox session that the user can log into via VNC
+- The site has **bot detection** (TikTok, LinkedIn, Instagram, most social media) — OpenClaw's `browser` tool uses headless Chrome with CDP, which many sites detect and block. DETM uses a real Firefox window on a real X11 display, which is much harder to fingerprint
+- You need to interact with **non-browser apps** (DaVinci Resolve, LibreOffice, file manager, etc.)
+- The user needs to **see what's happening** in real time (VNC + dashboard)
+- You need the user to **take over** at any point (login, CAPTCHA, 2FA) — DETM runs on a visible desktop the user can VNC into
+
+**DETM vs. OpenClaw browser tool:**
+| | DETM (`gui_agent`) | OpenClaw `browser` |
+|---|---|---|
+| How it works | Screenshots + visual grounding (pixel-level) | CDP + accessibility tree (DOM-level) |
+| Browser | Firefox on real X11 display | Headless Chromium |
+| Bot detection | Hard to detect — real browser, real display | Often detected — headless Chrome fingerprint |
+| Auth / login | User logs in via VNC, session persists | Requires cookies/credentials in config |
+| Non-browser apps | Yes — any app on the desktop | No — Chrome only |
+| Speed | Slower (screenshot per action) | Faster (DOM operations) |
+| User takeover | Yes — VNC into display :99 | No |
+
+**Rule of thumb:** If the site might block bots, or the user might need to log in or solve a CAPTCHA, use DETM. If it's a simple public page with no bot detection, use the `browser` tool or `WebFetch`.
 
 **When DETM hits a login wall or CAPTCHA:** tell the user via `task_update`, then use `smart_wait` to poll until they resolve it via VNC. Never try to log in yourself or bypass auth.
 
