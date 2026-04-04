@@ -42,6 +42,8 @@ build_run_cmd() {
         ACU_VISION_BACKEND
         ACU_GUI_AGENT_BACKEND
         OPENROUTER_API_KEY
+        ANTHROPIC_API_KEY
+        MAVI_API_KEY
         OLLAMA_URL
         OPENCLAW_GATEWAY_PORT
     )
