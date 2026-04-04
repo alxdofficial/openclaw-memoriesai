@@ -393,8 +393,8 @@ info "Setting up Python environment..."
 if [ ! -d "$VENV_DIR" ]; then
     "$PYTHON" -m venv "$VENV_DIR"
 fi
-"$VENV_DIR/bin/pip" install --quiet --upgrade pip
-"$VENV_DIR/bin/pip" install --quiet -e "$REPO_DIR"
+"$VENV_DIR/bin/pip" install --upgrade pip 2>&1 | tail -1
+"$VENV_DIR/bin/pip" install -e "$REPO_DIR" 2>&1 | grep -E "Installing|Successfully|already satisfied" | tail -5
 ok "Python package installed"
 
 step "DETM daemon service"
