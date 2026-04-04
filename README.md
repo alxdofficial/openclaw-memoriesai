@@ -127,7 +127,6 @@ gui_agent(instruction="Open Chrome, navigate to Google Flights, search for fligh
 |------|-------------|
 | `gui_agent` | Autonomous GUI agent for any desktop interaction (clicks, typing, navigation, forms). Handles 10-30 step workflows. |
 | `desktop_look` | Screenshot — you interpret the image yourself |
-| `desktop_action` | Raw control: click(x,y), type, key press, window management |
 | `smart_wait` | Vision-based async monitoring ("wake when export finishes") |
 
 ### Task Management
@@ -224,7 +223,7 @@ openclaw gateway restart
 2. **Verify** DETM tools are available — ask the agent:
 ```
 "What DETM tools do you have?"
-# Should list: task_register, gui_agent, desktop_look, desktop_action, etc.
+# Should list: task_register, gui_agent, desktop_look, etc.
 ```
 
 That's it. OpenClaw will now have access to all DETM tools.

@@ -26,7 +26,7 @@ You (plan, decide, talk to user)
   → You read result, take desktop_look if needed, decide next step
 ```
 
-**Key principle:** DETM is one of your tools, not your only tool. If a website is broken and the fix is `pkill firefox && firefox <url> &`, do that via CLI. If you need to check whether a URL is up before navigating to it, use `curl`. If gui_agent fails and you can solve the problem with a keyboard shortcut via `desktop_action(action="press_key")`, do that. The supervisor is fast at GUI manipulation but blind to everything else — you are the one with the full picture.
+**Key principle:** DETM is one of your tools, not your only tool. If a website is broken and the fix is `pkill firefox && firefox <url> &`, do that via CLI. If you need to check whether a URL is up before navigating to it, use `curl`. The supervisor is fast at GUI manipulation but blind to everything else — you are the one with the full picture. All GUI interaction (clicking, typing, scrolling, keyboard shortcuts) goes through `gui_agent`. For CLI commands, use your native `Bash`/`exec` tools directly.
 
 ## When to use DETM vs. other tools
 
@@ -65,7 +65,7 @@ DISPLAY=:99 xdotool windowmove --sync $(xdotool getactivewindow) 0 0
 These are not guidelines. Violating them breaks observability and cancellation.
 
 **1. Always create a task before touching the desktop.**
-`task_register` MUST be your first call for any work that involves `desktop_look`, `desktop_action`, `gui_agent`, or `smart_wait`. Without a task, the human cannot cancel you and the dashboard shows nothing.
+`task_register` MUST be your first call for any work that involves `desktop_look`, `gui_agent`, or `smart_wait`. Without a task, the human cannot cancel you and the dashboard shows nothing.
 
 ```
 task_register(name="Find reporters on LinkedIn", plan=["Search LinkedIn", "Collect profiles", "Write to sheet"])
@@ -73,7 +73,7 @@ task_item_update(task_id=<id>, ordinal=0, status="active")
 ```
 
 **2. Log desktop actions with `task_log_action`.**
-Before each `gui_agent`, `desktop_look`, or `desktop_action` call, log what you're about to do. After, report what you observed via `task_update`. This is how the dashboard shows your progress.
+Before each `gui_agent` or `desktop_look` call, log what you're about to do. After, report what you observed via `task_update`. This is how the dashboard shows your progress.
 
 ```
 task_log_action(task_id=<id>, action_type="gui", summary="Searching LinkedIn for reporters")
@@ -86,7 +86,7 @@ You do NOT need to log non-desktop tool calls (web_search, file reads, bash comm
 **3. Pass `task_id` to every desktop/GUI/wait call.**
 
 **4. Verify each step before marking it complete.**
-After `gui_agent`: trust the `{success, summary}` result — only take `desktop_look` if you need to read specific content. After `desktop_action`: one `desktop_look` to verify is enough.
+After `gui_agent`: read the `{success, summary, actions_log}` result. Only take `desktop_look` if you need to read specific content that the summary didn't cover.
 
 If a step fails, do NOT create a new task. Use `task_plan_append` to add corrective steps and `task_item_update(status="scrapped")` on stale items.
 
@@ -102,12 +102,12 @@ This is how the human cancels you from the dashboard.
 
 | Situation | Tool |
 |---|---|
-| Launch an app | CLI (`firefox &`, `thunar &`) |
+| Launch an app | CLI via `Bash` (`firefox &`, `thunar &`) |
 | See the current screen state | `desktop_look` |
-| Complete a multi-step UI workflow | `gui_agent` with a full subtask instruction |
-| One precise click at known coordinates | `desktop_action` |
+| Any GUI interaction (click, type, scroll, keyboard shortcuts) | `gui_agent` |
 | Wait for something to appear/finish | `smart_wait` |
 | Read content from a public URL | `curl` or `WebFetch` (faster than screenshotting) |
+| File operations, shell commands | `Bash` / `exec` (OpenClaw native) |
 
 ### gui_agent — deterministic GUI steps
 
@@ -138,17 +138,7 @@ gui_agent(instruction="Search for flights, filter nonstop, select the cheapest, 
 
 ### desktop_look — observe and decide
 
-Take a screenshot and reason about it yourself. No model is invoked — you interpret the image directly.
-
-### desktop_action — raw pixel control
-
-Use when you have exact coordinates from `desktop_look`. Always click a text field before typing into it.
-
-```
-desktop_action(action="click", x=640, y=400, task_id=<id>)    # click field
-desktop_action(action="type", text="hello world", task_id=<id>) # type into it
-desktop_action(action="press_key", text="Return", task_id=<id>) # press Enter
-```
+Take a screenshot and reason about it yourself. No model is invoked — you interpret the image directly. Use this to read content from the screen, check results, or understand the current state before deciding what to do next.
 
 ## Browser interaction
 
@@ -194,8 +184,7 @@ If reality diverges from the plan, use `task_item_update(status="scrapped")` + `
 ### GUI Agent
 - `gui_agent` — autonomous GUI agent (Gemini Flash + UI-TARS). Handles clicks, typing, scrolling, navigation, form filling. Returns `{success, summary, escalated, actions_taken}`.
 
-### Desktop Control
-- `desktop_action` — click(x,y), type, press_key, drag, window management
+### Desktop
 - `desktop_look` — screenshot returned as image (you interpret it)
 - `video_record` — record screen/window clip
 

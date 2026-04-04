@@ -56,7 +56,7 @@ Change `region=US` to other country codes as needed (GB, CA, AU, etc.).
 
 - **Read data from the search results grid first.** TikTok search results show creator names, like counts, and video descriptions on thumbnails. Use `desktop_look` to read the grid — do NOT click into individual videos just to read metadata. Only click into a video if you need to see something that isn't visible in the grid (e.g. exact view count, full description, comments).
 - **TikTok search works without login** but some features (For You feed, DMs, analytics) require authentication. If you see a login prompt blocking your task, escalate immediately.
-- TikTok autoplays videos — if you need to analyze a specific video, pause it first with `desktop_action(action="click")` on the video area.
+- TikTok autoplays videos — if you need to analyze a specific video, pause it first with `gui_agent(instruction="click on the video to pause it")`.
 - Search results show a mix of videos, users, and sounds — scroll past the top section to find what you need.
 - The For You feed is infinite scroll — set a limit on how many videos to analyze and stick to it.
 - Video captions and hashtags appear overlaid on the video — use `desktop_look` while the video is paused to read them clearly.

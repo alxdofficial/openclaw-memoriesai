@@ -191,40 +191,6 @@ TOOLS = [
         },
     ),
 
-    # ── Desktop Control ────────────────────────────────────────
-    Tool(
-        name="desktop_action",
-        description="Control the desktop: click, type text, press keys, manage windows.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["click", "double_click", "type", "press_key", "mouse_move",
-                             "drag", "screenshot", "list_windows", "find_window",
-                             "focus_window", "resize_window", "move_window", "close_window",
-                             "get_mouse_position"],
-                    "description": (
-                        "Action to perform. "
-                        "TYPING WORKFLOW: (1) click the text field first, (2) then call type with the text. "
-                        "'type' sends characters to the currently focused window — the field MUST be clicked/focused first. "
-                        "'press_key' sends key combos: 'Return', 'ctrl+c', 'ctrl+v', 'Tab', 'Escape', 'ctrl+a', 'BackSpace', etc."
-                    )
-                },
-                "task_id": {"type": "string", "description": "Task ID — actions target the task's virtual display"},
-                "x": {"type": "integer", "description": "X coordinate in image pixel space (from desktop_look)"},
-                "y": {"type": "integer", "description": "Y coordinate in image pixel space (from desktop_look)"},
-                "x2": {"type": "integer"}, "y2": {"type": "integer"},
-                "text": {"type": "string", "description": "For 'type': the string to type. For 'press_key': the key combo (e.g. 'Return', 'ctrl+c', 'Tab', 'BackSpace')."},
-                "button": {"type": "integer", "default": 1, "description": "Mouse button: 1=left, 2=middle, 3=right"},
-                "window_id": {"type": "integer"},
-                "window_name": {"type": "string"},
-                "width": {"type": "integer"}, "height": {"type": "integer"},
-            },
-            "required": ["action"],
-        },
-    ),
-
     # ── GUI Agent (unified: Gemini supervisor + UI-TARS grounding) ─
     Tool(
         name="gui_agent",
@@ -376,7 +342,6 @@ ROUTE_MAP = {
     "task_thread": ("POST", "/task_thread"),
     "task_list": ("POST", "/task_list"),
     "health_check": ("GET", "/health"),
-    "desktop_action": ("POST", "/desktop_action"),
     "gui_agent": ("POST", "/gui_agent"),
     "desktop_look": ("POST", "/desktop_look"),
     "video_record": ("POST", "/video_record"),
