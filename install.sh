@@ -552,6 +552,14 @@ echo ""
 fi
 if [ -n "$OPENCLAW_BIN" ]; then
 echo "  OpenClaw will auto-discover DETM tools via MCP."
-echo "  Reload OpenClaw: kill -HUP \$(pgrep -f openclaw-gateway)"
+echo "  Reload OpenClaw: openclaw gateway restart"
+fi
+if [ "${DETM_DEPLOY_AGENTS:-0}" = "1" ]; then
+echo ""
+echo "  Sub-agents installed. Use from Discord or TUI:"
+echo "    /subagents spawn linkedin \"Find someone on LinkedIn...\""
+echo "    /subagents spawn tiktok \"Find trending hashtags on TikTok...\""
+echo "    /subagents list                    # see running sub-agents"
+echo "    /subagents kill <id>               # stop a sub-agent"
 fi
 echo ""
