@@ -112,7 +112,7 @@ fi
 # Validate the API key works
 if [ -n "${OPENROUTER_API_KEY:-}" ]; then
     info "Validating OpenRouter API key..."
-    _OR_RESP=$(curl -s -w "\n%{http_code}" -X POST https://openrouter.ai/api/v1/chat/completions \
+    _OR_RESP=$(curl -s -m 15 -w "\n%{http_code}" -X POST https://openrouter.ai/api/v1/chat/completions \
         -H "Authorization: Bearer $OPENROUTER_API_KEY" \
         -H "Content-Type: application/json" \
         -d '{"model":"google/gemini-2.0-flash-lite-001","messages":[{"role":"user","content":"hi"}],"max_tokens":1}' 2>/dev/null)
