@@ -101,20 +101,32 @@ This is how the human cancels you from the dashboard.
 | Wait for something to appear/finish | `smart_wait` |
 | Read content from a public URL | `curl` or `WebFetch` (faster than screenshotting) |
 
-### gui_agent — delegate whole subtasks
+### gui_agent — deterministic GUI steps
 
-Give `gui_agent` a coherent goal, not individual clicks. It handles 10-30 step workflows autonomously.
+`gui_agent` is a fast vision-based executor. It handles the screenshot→action→verify loop using a vision model (Gemini Flash) and a grounding model (UI-TARS). It does NOT plan or reason about the broader task — that's your job.
+
+**Give it concrete, deterministic instructions (3-8 GUI steps).** Don't dump a whole task on it — break your work into small, verifiable chunks and check in between each.
 
 ```
-# Good — one coherent subtask:
-gui_agent(instruction="Search for flights from NYC to London on March 28 and filter for nonstop", task_id=<id>, timeout=120)
+# Good — concrete, verifiable:
+gui_agent(instruction="Click the search bar on Google, type 'flights NYC to London', press Enter", task_id=<id>)
+# → check results with desktop_look → decide next step
 
-# Bad — micromanaging individual clicks:
-gui_agent(instruction="Click the search bar", task_id=<id>)
-gui_agent(instruction="Type NYC to London", task_id=<id>)
+gui_agent(instruction="Click the 'Nonstop' filter checkbox in the left sidebar", task_id=<id>)
+# → check results with desktop_look → decide next step
+
+# Bad — too broad, supervisor can't recover if anything goes wrong:
+gui_agent(instruction="Search for flights, filter nonstop, select the cheapest, and proceed to booking", task_id=<id>)
 ```
 
-Break the user's overall task into 2-5 subtasks. Check in between with `desktop_look` when you need to read results or make decisions.
+**After each gui_agent call, take a `desktop_look`** to see what actually happened. The gui_agent result includes `{success, summary, actions_taken, actions_log}` — read the `actions_log` to understand what was tried, especially on failure.
+
+**When gui_agent fails:** read the `actions_log` and `summary` carefully. It tells you what the supervisor tried and why it gave up. Use that to decide:
+- Retry with a different instruction (e.g. keyboard shortcut instead of clicking)
+- Fix the underlying problem via CLI (restart browser, navigate via URL bar)
+- Take a `desktop_look` to see the current state and replan
+
+**gui_agent cannot access CLI, files, or web search.** If the problem requires anything outside the GUI (checking a URL, clearing cache, restarting an app), you must do it yourself, then send gui_agent back in.
 
 ### desktop_look — observe and decide
 

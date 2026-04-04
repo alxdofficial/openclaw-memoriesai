@@ -95,9 +95,11 @@ The grounding model finds elements by your description, so be specific:
 
 ## Completion
 
-- done(success=true) only when the screenshot confirms the task is fully complete.
-- done(success=false) after 3+ failed approaches.
-- escalate() for login walls, CAPTCHAs, or anything outside your capability.
+When finishing, your summary is the ONLY information the caller gets. They don't see your screenshots or reasoning. Be specific:
+
+- **done(success=true, summary="...")** — describe what was accomplished and what the screen shows now.
+- **done(success=false, summary="...")** — describe what you tried, why it failed, and what the screen currently shows. The caller needs this to decide whether to retry differently, fix something via CLI, or escalate. Bad: "Could not complete task." Good: "Clicked the Submit button 3 times but a 'Session expired' dialog keeps appearing. The page shows a login form. The caller may need to re-authenticate."
+- **escalate(reason="...")** — for login walls, CAPTCHAs, 2FA, or anything outside your capability. Describe exactly what you see so the caller can tell the user what to do.
 
 ## Thinking
 
@@ -646,6 +648,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
         MAX_FORMAT_RETRIES = 10
         CONTEXT_WINDOW = 40
         actions_taken = 0
+        actions_log = []  # brief log of each action for the caller
         action_turns = 0
         format_retries = 0
         last_usage_data = None
@@ -759,7 +762,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             _dbg.log("LIVE", f"[{sid}] API error: {err}")
                             if session:
                                 session.record_error(err)
-                            return {"error": err, "success": False, "actions_taken": actions_taken}
+                            return {"error": err, "success": False, "actions_taken": actions_taken, "actions_log": actions_log[-10:]}
 
                         data = resp.json()
                         last_usage_data = data
@@ -849,6 +852,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "escalated": False,
                                 "escalation_reason": "",
                                 "actions_taken": actions_taken,
+                                "actions_log": actions_log[-10:],
                                 "session_id": session.id if session else "",
                                 "elapsed_s": round(_time.time() - t_start, 1),
                             }
@@ -866,6 +870,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                                 "escalation_reason": reason,
                                 "summary": f"Escalated: {reason}",
                                 "actions_taken": actions_taken,
+                                "actions_log": actions_log[-10:],
                                 "session_id": session.id if session else "",
                                 "elapsed_s": round(_time.time() - t_start, 1),
                             }
@@ -1010,6 +1015,11 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             action_result = f"error: unknown tool {fn_name}"
 
                         actions_taken += 1
+                        # Log action for caller visibility
+                        _log_entry = f"{fn_name}({', '.join(f'{k}={v}' for k, v in fn_args.items())})"
+                        if "error" in str(action_result):
+                            _log_entry += f" → {action_result}"
+                        actions_log.append(_log_entry)
 
                         if session:
                             session.record_tool_response(fn_name, tc_id, action_result)
@@ -1061,6 +1071,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             "summary": "Model failed to produce tool calls",
                             "error": "max format retries",
                             "actions_taken": actions_taken,
+                            "actions_log": actions_log[-10:],
                             "session_id": session.id if session else "",
                             "elapsed_s": round(_time.time() - t_start, 1),
                         }
@@ -1072,6 +1083,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                         "success": False,
                         "summary": f"Reached max {MAX_TURNS} turns without completion",
                         "actions_taken": actions_taken,
+                        "actions_log": actions_log[-10:],
                         "session_id": session.id if session else "",
                         "elapsed_s": round(_time.time() - t_start, 1),
                     }
@@ -1087,6 +1099,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                     "summary": f"Timed out after {timeout}s",
                     "error": f"timeout after {timeout}s",
                     "actions_taken": actions_taken,
+                    "actions_log": actions_log[-10:],
                     "session_id": session.id if session else "",
                     "elapsed_s": round(_time.time() - t_start, 1),
                 }
@@ -1097,7 +1110,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                     session.record_error(str(e))
                 if last_usage_data:
                     _record_usage(model, task_id, last_usage_data)
-                return {"error": str(e), "success": False, "actions_taken": actions_taken, "session_id": session.id if session else "", "elapsed_s": round(_time.time() - t_start, 1)}
+                return {"error": str(e), "success": False, "actions_taken": actions_taken, "actions_log": actions_log[-10:], "session_id": session.id if session else "", "elapsed_s": round(_time.time() - t_start, 1)}
 
 
 def _record_usage(model: str, task_id: str | None, data: dict) -> None:
