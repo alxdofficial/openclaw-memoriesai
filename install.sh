@@ -66,6 +66,9 @@ for svc in detm-daemon detm-desktop detm-novnc detm-vnc detm-xvfb; do
 done
 sudo systemctl daemon-reload 2>/dev/null || true
 
+# Kill any non-systemd daemon (e.g. from dev.sh) holding the port
+fuser -k "$DAEMON_PORT/tcp" 2>/dev/null || true
+
 # Remove old venv (rebuilt below)
 [ -d "$VENV_DIR" ] && rm -rf "$VENV_DIR"
 
