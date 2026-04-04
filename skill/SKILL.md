@@ -60,6 +60,15 @@ You (plan, decide, talk to user)
 
 **Rule of thumb:** If the site might block bots, or the user might need to log in or solve a CAPTCHA, use DETM. If it's a simple public page with no bot detection, use the `browser` tool or `WebFetch`.
 
+**NEVER use the `browser` tool for these platforms — always use DETM `gui_agent`:**
+- **TikTok** — aggressive bot detection, blocks headless Chrome
+- **LinkedIn** — requires auth, blocks headless Chrome
+- **Instagram** — requires auth, blocks headless Chrome
+- **Twitter/X** — aggressive bot detection
+- **Any site where the user says "use DETM"** — respect the explicit request
+
+This is a hard rule. Even if the `browser` tool seems faster or easier, these platforms will block it or return incomplete data. Use DETM `gui_agent` which runs a real Firefox on a real display.
+
 **When DETM hits a login wall or CAPTCHA:** tell the user via `task_update`, then use `smart_wait` to poll until they resolve it via VNC. Never try to log in yourself or bypass auth.
 
 ## Desktop environment
