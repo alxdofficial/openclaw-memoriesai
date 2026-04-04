@@ -671,18 +671,26 @@ class OpenRouterVLMProvider(LiveUIProvider):
             screenshot_b64, init_cursor = await asyncio.get_running_loop().run_in_executor(
                 None, _capture_jpeg_b64, display, session
             )
+        if not screenshot_b64:
+            err = f"Failed to capture screenshot from display {display}. Is the display running?"
+            _dbg.log("LIVE", f"[{sid}] {err}")
+            return {
+                "error": err, "success": False, "summary": err,
+                "actions_taken": 0, "actions_log": [],
+                "session_id": session.id if session else "",
+                "elapsed_s": round(_time.time() - t_start, 1),
+            }
         if _benchmark and screenshot_b64:
             _current_frame = _decode_frame_from_b64(screenshot_b64)
         if init_cursor:
             cursor_x, cursor_y = init_cursor
         user_content: list[dict] = [
             {"type": "text", "text": f"Instruction: {instruction} [current screenshot]"},
-        ]
-        if screenshot_b64:
-            user_content.append({
+            {
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{screenshot_b64}"},
-            })
+            },
+        ]
         messages.append({"role": "user", "content": user_content})
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
@@ -762,7 +770,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                             _dbg.log("LIVE", f"[{sid}] API error: {err}")
                             if session:
                                 session.record_error(err)
-                            return {"error": err, "success": False, "actions_taken": actions_taken, "actions_log": actions_log[-10:]}
+                            return {"error": err, "summary": f"GUI agent API error: {err[:200]}", "success": False, "actions_taken": actions_taken, "actions_log": actions_log[-10:]}
 
                         data = resp.json()
                         last_usage_data = data
@@ -1110,7 +1118,7 @@ class OpenRouterVLMProvider(LiveUIProvider):
                     session.record_error(str(e))
                 if last_usage_data:
                     _record_usage(model, task_id, last_usage_data)
-                return {"error": str(e), "success": False, "actions_taken": actions_taken, "actions_log": actions_log[-10:], "session_id": session.id if session else "", "elapsed_s": round(_time.time() - t_start, 1)}
+                return {"error": str(e), "summary": f"GUI agent error: {str(e)[:200]}", "success": False, "actions_taken": actions_taken, "actions_log": actions_log[-10:], "session_id": session.id if session else "", "elapsed_s": round(_time.time() - t_start, 1)}
 
 
 def _record_usage(model: str, task_id: str | None, data: dict) -> None:
