@@ -113,10 +113,23 @@ You do NOT need to log non-desktop tool calls (web_search, file reads, bash comm
 
 **3. Pass `task_id` to every desktop/GUI/wait call.**
 
-**4. Verify each step before marking it complete.**
-After `gui_agent`: read the `{success, summary, actions_log}` result. Only take `desktop_look` if you need to read specific content that the summary didn't cover.
+**4. Verify visually — don't assume failure.**
+`gui_agent` calls can take 30-120 seconds. If a call times out or returns an unclear result, **do NOT assume it failed.** Always take a `desktop_look` to see the actual screen state before deciding what to do next. The task often succeeded — the response just took too long to arrive.
 
-If a step fails, do NOT create a new task. Use `task_plan_append` to add corrective steps and `task_item_update(status="scrapped")` on stale items.
+```
+# gui_agent timed out or returned empty:
+# WRONG — blindly retry:
+gui_agent(instruction="same thing again", task_id=<id>)  # wastes time, page already loaded
+
+# RIGHT — look first, then decide:
+desktop_look(task_id=<id>)  # see what actually happened
+# If the page loaded → continue to next step
+# If it genuinely failed → try a different approach
+```
+
+**`desktop_look` is your ground truth.** When in doubt about what happened, look at the screen. Don't reason from error messages alone — the screen shows the real state.
+
+If a step genuinely fails, do NOT create a new task. Use `task_plan_append` to add corrective steps and `task_item_update(status="scrapped")` on stale items.
 
 **5. Check task status after each plan item.**
 ```
