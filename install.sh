@@ -457,58 +457,29 @@ for p in "$HOME/.npm-global/bin/openclaw" "$(which openclaw 2>/dev/null)" "/usr/
 done
 [ -n "$OPENCLAW_BIN" ] && ok "OpenClaw found: $OPENCLAW_BIN" || warn "OpenClaw CLI not found"
 
-# MCP server config — write directly to openclaw.json (v2026.4+ reads mcp.servers from here)
-OC_CONFIG="$HOME/.openclaw/openclaw.json"
-if [ -f "$OC_CONFIG" ]; then
-    "$PYTHON" -c "
-import json, os
+# MCP server registration
+if [ -n "$OPENCLAW_BIN" ]; then
+    MCP_ENV="{\"DISPLAY\":\"$DETM_DISPLAY\",\"PYTHONPATH\":\"$REPO_DIR/src\""
+    [ -n "${OPENROUTER_API_KEY:-}" ] && MCP_ENV="$MCP_ENV,\"OPENROUTER_API_KEY\":\"$OPENROUTER_API_KEY\""
+    MCP_ENV="$MCP_ENV}"
+    "$OPENCLAW_BIN" mcp set agentic-computer-use \
+        "{\"command\":\"$VENV_DIR/bin/python3\",\"args\":[\"-m\",\"agentic_computer_use.server\"],\"cwd\":\"$REPO_DIR\",\"env\":$MCP_ENV}" \
+        2>/dev/null && ok "MCP server registered" || warn "openclaw mcp set failed"
 
-config_path = '$OC_CONFIG'
-with open(config_path) as f:
-    config = json.load(f)
-
-# Enable MCP commands
-config.setdefault('commands', {})['mcp'] = True
-
-# Register MCP server
-env = {'DISPLAY': '$DETM_DISPLAY', 'PYTHONPATH': '$REPO_DIR/src'}
-openrouter_key = os.environ.get('OPENROUTER_API_KEY', '')
-if openrouter_key:
-    env['OPENROUTER_API_KEY'] = openrouter_key
-
-config.setdefault('mcp', {}).setdefault('servers', {})['agentic-computer-use'] = {
-    'command': '$VENV_DIR/bin/python3',
-    'args': ['-m', 'agentic_computer_use.server'],
-    'cwd': '$REPO_DIR',
-    'env': env,
-}
-
-with open(config_path, 'w') as f:
-    json.dump(config, f, indent=2)
-print('MCP server registered in openclaw.json')
-"
-    ok "MCP server registered"
-
-    # Also write mcporter.json for backward compatibility with older OpenClaw versions
-    MCPORTER_DIR="$OC_WORKSPACE/config"
-    mkdir -p "$MCPORTER_DIR"
-    "$PYTHON" -c "
-import json, os
-env = {'DISPLAY': '$DETM_DISPLAY', 'PYTHONPATH': '$REPO_DIR/src'}
-openrouter_key = os.environ.get('OPENROUTER_API_KEY', '')
-if openrouter_key:
-    env['OPENROUTER_API_KEY'] = openrouter_key
-config = {'mcpServers': {'agentic-computer-use': {
-    'command': '$VENV_DIR/bin/python3',
-    'args': ['-m', 'agentic_computer_use.server'],
-    'cwd': '$REPO_DIR',
-    'env': env,
-}}}
-with open('$MCPORTER_DIR/mcporter.json', 'w') as f:
-    json.dump(config, f, indent=2)
-"
+    # Enable MCP commands if not already
+    OC_CONFIG="$HOME/.openclaw/openclaw.json"
+    if [ -f "$OC_CONFIG" ]; then
+        "$PYTHON" -c "
+import json
+with open('$OC_CONFIG') as f:
+    c = json.load(f)
+c.setdefault('commands', {})['mcp'] = True
+with open('$OC_CONFIG', 'w') as f:
+    json.dump(c, f, indent=2)
+" 2>/dev/null
+    fi
 else
-    warn "openclaw.json not found — MCP server not registered. Install OpenClaw first, then re-run install.sh."
+    warn "OpenClaw CLI not found — MCP server not registered. Install OpenClaw first, then re-run install.sh."
 fi
 
 # Skill symlink
