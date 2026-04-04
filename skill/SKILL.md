@@ -7,18 +7,26 @@ description: Desktop Environment Task Manager (DETM) — hierarchical task track
 
 Local daemon on `127.0.0.1:18790` with hierarchical task persistence, async wait engine, GUI grounding, and pluggable vision.
 
-## Architecture
+## Architecture — who owns what
+
+Three layers, each with a clear responsibility:
+
+**You (OpenClaw LLM)** — own the plan and the user. You decide what needs to happen, break it into steps, create the DETM task, and talk to the user. You have access to everything: CLI, web search, file system, DETM tools, and any other OpenClaw tools. During a DETM task, you are free to mix GUI actions with CLI commands, web searches, file writes, or any other tool — DETM handles visual GUI interaction, but that is not the only way to get things done. Use whatever is fastest and most reliable.
+
+**Supervisor (Gemini Flash)** — owns each action loop. When you call `gui_agent`, the supervisor takes over the screen. It sees screenshots, decides what to click/type/scroll, and uses the grounding model to place the cursor precisely. It verifies each action landed correctly before proceeding. It does NOT plan, does NOT know the broader task, and has NO access to CLI, files, or web search. It executes one concrete instruction and reports back.
+
+**Grounding model (UI-TARS)** — owns cursor placement. Given a screenshot and a target description ("the Submit button"), it predicts pixel coordinates. The supervisor verifies the placement visually and decides whether to click or retry. UI-TARS does no reasoning — it just points.
 
 ```
-OpenClaw LLM → DETM (task hierarchy) → Vision + GUI Agent → Desktop/Xvfb
+You (plan, decide, talk to user)
+  → gui_agent("click search bar, type hello, press Enter")
+    → Supervisor (screenshot → decide action → verify)
+      → UI-TARS (find element → return coordinates)
+    → Supervisor returns {success, summary, actions_log}
+  → You read result, take desktop_look if needed, decide next step
 ```
 
-Five layers:
-1. **Task Management** — hierarchical: Task → Plan Items → Actions → Logs
-2. **Smart Wait** — binary YES/NO vision polling every 1s; timeout is the fallback
-3. **GUI Agent** — Gemini Flash supervisor + UI-TARS grounding (precise cursor placement)
-4. **Vision** — cloud vision via OpenRouter (default)
-5. **Display** — shared system display visible in VNC and the dashboard live view
+**Key principle:** DETM is one of your tools, not your only tool. If a website is broken and the fix is `pkill firefox && firefox <url> &`, do that via CLI. If you need to check whether a URL is up before navigating to it, use `curl`. If gui_agent fails and you can solve the problem with a keyboard shortcut via `desktop_action(action="press_key")`, do that. The supervisor is fast at GUI manipulation but blind to everything else — you are the one with the full picture.
 
 ## When to use DETM vs. other tools
 
