@@ -241,8 +241,39 @@ If reality diverges from the plan, use `task_item_update(status="scrapped")` + `
 - `mavi_understand` — record screen, ask a question about the video (for audio/motion content like TikTok sounds, animations, live feeds)
 
 ### System
-- `health_check` — daemon + vision + system status
+- `health_check` — full DETM diagnostic (see **Doctor & narration** below)
 - `memory_search`, `memory_read`, `memory_append` — workspace memory files
+
+## Doctor & narration
+
+`health_check` returns a structured report: one row per subsystem (daemon,
+display, services, dashboard, backends, keys, MCP registration, storage,
+deps, workspace). Each row has `status` = `ok` / `warn` / `fail` / `skip`.
+
+**After calling `health_check`, you MUST post a `task_update` summarizing
+what is green, what is yellow, and what is red.** If there are any `fail`
+rows, name them specifically and tell the user what they need to do (e.g.
+"Your OpenRouter key is invalid — get a fresh one at https://openrouter.ai/keys
+and run `detm-configure keys --set OPENROUTER_API_KEY=...`").
+
+The user can also run diagnostics and reconfiguration directly from a
+shell — these are the commands to mention when escalating:
+
+```
+detm-doctor                               # full report (exit 0/1/2)
+detm-doctor --json                        # machine-readable
+detm-doctor --quiet                       # only warnings/failures
+detm-configure                            # interactive wizard (all sections)
+detm-configure <section>                  # just one section
+detm-configure <section> --show           # read-only
+detm-configure <section> --set KEY=VAL    # non-interactive write
+detm-configure <section> --dry-run        # compute diff, don't write
+```
+
+Sections: `vision`, `gui-agent`, `keys`, `display`, `services`,
+`workspace`, `runtime`, `mcp`, `dashboard`. Writes to both the systemd
+unit (`/etc/systemd/system/detm-daemon.service`) and `~/.openclaw/openclaw.json`
+with `.bak` rotation; restarts the daemon automatically when it has sudo.
 
 ## Escalation scenarios
 

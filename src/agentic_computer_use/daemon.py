@@ -603,6 +603,23 @@ async def handle_api_health(request: web.Request) -> web.Response:
     return await handle_health(request)
 
 
+async def handle_doctor(request: web.Request) -> web.Response:
+    """Full diagnostic report — richer than /health.
+
+    Used by the MCP `health_check` tool and the dashboard. /health stays
+    minimal for install.sh compatibility; anything wanting the full
+    per-subsystem view should hit /doctor or /api/doctor.
+    """
+    from dataclasses import asdict
+    from .doctor import run_diagnostics, summarize, exit_code
+    results = await run_diagnostics()
+    return web.json_response({
+        "summary": summarize(results),
+        "exit_code": exit_code(results),
+        "results": [asdict(r) for r in results],
+    })
+
+
 async def handle_api_usage_stats(request: web.Request) -> web.Response:
     """GET /api/usage/stats?since=<days>&task_id=<id> — return aggregated AI API usage and cost."""
     from . import usage as _usage
@@ -1345,6 +1362,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/snapshot", handle_api_snapshot)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)
+    app.router.add_get("/doctor", handle_doctor)
+    app.router.add_get("/api/doctor", handle_doctor)
     app.router.add_get("/api/usage/stats", handle_api_usage_stats)
     app.router.add_get("/api/screen", handle_api_screen_stream)
     app.router.add_get("/api/screenshots/{filename}", handle_api_screenshot)

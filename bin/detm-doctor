@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Run the DETM end-to-end health check.
+# Usage: detm-doctor [--json] [--quiet]
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+VENV_PY="$REPO_DIR/.venv/bin/python3"
+
+if [ ! -x "$VENV_PY" ]; then
+    echo "DETM venv not found at $VENV_PY" >&2
+    echo "Run ./install.sh first." >&2
+    exit 3
+fi
+
+exec "$VENV_PY" -m agentic_computer_use.doctor "$@"

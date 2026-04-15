@@ -2,6 +2,7 @@
 
 Focused on deterministic components (task memory, wait linkage, diff/poller helpers).
 """
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -208,3 +209,85 @@ async def test_stuck_detection_respects_active_wait_and_emits_resume_packet(isol
     # Cooldown should suppress immediate duplicate alerts
     alerts_again = await manager.check_stuck_tasks()
     assert alerts_again == []
+
+
+def test_doctor_returns_structured_results():
+    """Doctor runs end-to-end without crashing and returns a well-shaped report."""
+    from src.agentic_computer_use.doctor import (
+        run_diagnostics, summarize, exit_code, OK, WARN, FAIL, SKIP,
+    )
+
+    results = asyncio.run(run_diagnostics())
+    assert isinstance(results, list)
+    assert len(results) > 5, "expected several checks"
+
+    # Every result must have required fields and a valid status
+    for r in results:
+        assert r.section, "missing section"
+        assert r.name, "missing name"
+        assert r.status in (OK, WARN, FAIL, SKIP), f"bad status: {r.status}"
+
+    # Summary counts must add up
+    s = summarize(results)
+    assert sum(s.values()) == len(results)
+
+    # Exit code must follow the 0/1/2 rule
+    rc = exit_code(results)
+    assert rc in (0, 1, 2)
+    if any(r.status == FAIL for r in results):
+        assert rc == 2
+    elif any(r.status == WARN for r in results):
+        assert rc == 1
+    else:
+        assert rc == 0
+
+
+def test_configure_plan_unit_update_preserves_existing_env():
+    """plan_unit_update should preserve existing Environment= lines when adding new ones."""
+    import tempfile
+    from pathlib import Path
+    from src.agentic_computer_use.configure import io
+
+    unit_text = (
+        "[Unit]\nDescription=Test\n\n"
+        "[Service]\n"
+        "Type=simple\n"
+        "Environment=EXISTING_KEY=keep-me\n"
+        "Environment=OTHER=also-keep\n"
+        "ExecStart=/bin/true\n"
+        "\n[Install]\nWantedBy=multi-user.target\n"
+    )
+    with tempfile.TemporaryDirectory() as d:
+        unit = Path(d) / "fake.service"
+        unit.write_text(unit_text)
+        plan = io.plan_unit_update({"NEW_KEY": "hello"}, unit_path=unit)
+        assert plan is not None
+        assert "+ Environment=NEW_KEY" in plan.changes
+        assert "EXISTING_KEY=keep-me" in plan.new_content
+        assert "OTHER=also-keep" in plan.new_content
+        assert "NEW_KEY=hello" in plan.new_content
+
+        # No-op case: re-applying the same value should produce None
+        unit.write_text(plan.new_content)
+        assert io.plan_unit_update({"NEW_KEY": "hello"}, unit_path=unit) is None
+
+
+def test_configure_openclaw_dry_run_does_not_write(tmp_path, monkeypatch):
+    """update_openclaw_config(dry_run=True) must return a diff without touching the file."""
+    from src.agentic_computer_use.configure import io, state
+
+    cfg_path = tmp_path / "openclaw.json"
+    cfg_path.write_text('{"mcp": {"servers": {}}}')
+    monkeypatch.setattr(state, "OPENCLAW_CONFIG", cfg_path)
+
+    import hashlib
+    before = hashlib.md5(cfg_path.read_bytes()).hexdigest()
+
+    _new, diff = io.update_openclaw_config(
+        lambda c: {**c, "mcp": {"servers": {"agentic-computer-use": {"env": {"K": "v"}}}}},
+        dry_run=True,
+    )
+    assert diff is not None
+
+    after = hashlib.md5(cfg_path.read_bytes()).hexdigest()
+    assert before == after, "dry_run wrote to disk"

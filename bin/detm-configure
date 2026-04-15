@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Interactively (or scriptably) configure DETM.
+# Usage:
+#   detm-configure                          # full wizard
+#   detm-configure <section>                # one section
+#   detm-configure <section> --show         # read-only
+#   detm-configure <section> --set K=V      # non-interactive
+#   detm-configure --dry-run                # compute diffs, don't write
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+VENV_PY="$REPO_DIR/.venv/bin/python3"
+
+if [ ! -x "$VENV_PY" ]; then
+    echo "DETM venv not found at $VENV_PY" >&2
+    echo "Run ./install.sh first." >&2
+    exit 3
+fi
+
+exec "$VENV_PY" -m agentic_computer_use.configure "$@"

@@ -281,7 +281,14 @@ TOOLS = [
     ),
     Tool(
         name="health_check",
-        description="Check if the DETM daemon, vision backends, and system are healthy.",
+        description=(
+            "End-to-end DETM health report. Returns a structured list of checks across "
+            "daemon, display (Xvfb/VNC/noVNC), dashboard, backends (OpenRouter/Anthropic/"
+            "Ollama), API keys, MCP registration, storage (SQLite + disk), dependencies, "
+            "and workspace. Each row has status=ok|warn|fail|skip and a detail string. "
+            "After calling, narrate the result via task_update: state which subsystems "
+            "are green/yellow/red and list any missing keys the user must provide."
+        ),
         inputSchema={"type": "object", "properties": {}},
     ),
 
@@ -341,7 +348,7 @@ ROUTE_MAP = {
     "task_drill_down": ("POST", "/task_drill_down"),
     "task_thread": ("POST", "/task_thread"),
     "task_list": ("POST", "/task_list"),
-    "health_check": ("GET", "/health"),
+    "health_check": ("GET", "/doctor"),
     "gui_agent": ("POST", "/gui_agent"),
     "desktop_look": ("POST", "/desktop_look"),
     "video_record": ("POST", "/video_record"),
