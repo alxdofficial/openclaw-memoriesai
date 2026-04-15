@@ -242,7 +242,53 @@ If reality diverges from the plan, use `task_item_update(status="scrapped")` + `
 
 ### System
 - `health_check` — full DETM diagnostic (see **Doctor & narration** below)
+- `humanize_status`, `humanize_set` — GUI humanization flag (see **Humanization** below)
 - `memory_search`, `memory_read`, `memory_append` — workspace memory files
+
+## Humanization
+
+GUI actions (click, mouse move, typing) run with **human-like timing and
+motion by default**. This matters because every sensitive platform you
+drive via DETM — LinkedIn, Instagram, TikTok, Outlook, Canva — runs bot
+detection that fingerprints the mouse path, typing cadence, and click
+timing in the JS event stream. Mechanical timing is the single biggest
+tell, and it doesn't matter how clever your LLM reasoning is if the
+events themselves look robotic.
+
+What humanization does (all reliability-preserving):
+- **Typing**: per-key delay is lognormally distributed around ~115 ms
+  with ~22% chance of a 180–600 ms pause at word boundaries. Text
+  content is unchanged.
+- **Mouse moves**: quadratic Bezier arc with Fitts-scaled duration;
+  endpoint is exactly the target (no overshoot), path stays on-screen.
+- **Clicks**: 40–120 ms dwell between mousedown/mouseup; ±1–2 px jitter
+  clamped inside the target bbox.
+- **Pre-action thinking pause**: available but not auto-applied; call
+  `humanize.apply_thinking_pause()` in the daemon side if a path wants
+  it. (Your SKILL.md narration of what you're about to do already
+  provides visible "thinking" to the dashboard viewer.)
+
+**When to turn it off.** Pass `humanize_set(enabled=false, reason=...)`
+when the task is **not** touching a fingerprinted web surface — examples:
+- Running a shell/tmux command on :99 for local automation
+- Driving DaVinci Resolve, Blender, VS Code, or other local desktop apps
+- Speed-sensitive batch operations where no web platform is watching
+
+Remember to flip it back on before the next sensitive task, or just let
+it persist off for the session if you're staying local. The daemon also
+resets to env default (`ACU_HUMANIZE=1`) on restart.
+
+**When in doubt, leave it on.** The speed cost is ~5× typing and ~1.5–3×
+total time per task — never a correctness cost. A correctness cost would
+be if humanization caused a click to miss its target; by design (Bezier
+endpoint invariant + bbox-clamped jitter) it can't.
+
+Quick checklist:
+```
+humanize_status()                               # check current state
+humanize_set(enabled=false, reason="local ffmpeg loop")   # opt out for one task
+humanize_set(enabled=true, reason="resuming LinkedIn")    # opt back in
+```
 
 ## Doctor & narration
 
@@ -294,3 +340,142 @@ If the resume packet contains `agent_id`, spawn that sub-agent to continue:
 ## Dashboard
 
 The daemon serves a web dashboard at `http://127.0.0.1:18790/dashboard`. The human can see tasks, plan items, screenshots, live screen stream, and cancel/pause tasks.
+
+## Lifecycle: install / update / debug / uninstall
+
+This section is the single source of truth for managing the DETM install
+end-to-end. When the user asks you to install/update/diagnose/remove
+DETM, follow these recipes — don't improvise. Every command here is
+idempotent (safe to re-run).
+
+### Repository
+
+- **Source:** https://github.com/alxdofficial/openclaw-memoriesai.git
+- **Default checkout:** `~/openclaw-memoriesai/`  (use this unless the
+  user specifies otherwise)
+- **Branch:** `master`
+
+### Install (first time)
+
+```
+git clone https://github.com/alxdofficial/openclaw-memoriesai.git ~/openclaw-memoriesai
+cd ~/openclaw-memoriesai
+OPENROUTER_API_KEY=sk-or-... ./install.sh
+```
+
+`install.sh` is interactive — it'll prompt for the OpenRouter key if
+unset, ask for sudo to write systemd units, and print a summary at the
+end. It's safe to re-run (it tears down stale services first). Takes
+~30s on a warm machine, ~3min on a fresh box (apt installs).
+
+What it does (in order): cleans previous install → validates OpenRouter
+key → installs Python 3.11+ → installs system deps (xdotool, ffmpeg,
+xfce4, xvfb, x11vnc, novnc, …) → ensures a browser is present →
+sets up the virtual display + VNC + noVNC services on `:99` →
+configures XFCE → installs the Python venv at `.venv/` → registers
+the `detm-daemon` systemd service → registers the OpenClaw MCP server
++ skill symlink + plugin → final health check.
+
+### Update (day-to-day)
+
+```
+cd ~/openclaw-memoriesai
+./update.sh                  # fast: git pull + pip + restart + verify
+./update.sh --check          # show what's new on origin/master, don't pull
+./update.sh --no-restart     # pull + pip but leave the daemon running stale code
+```
+
+Takes <5s when there are no dep changes. Falls back to ./install.sh
+if anything looks broken (working tree dirty, venv missing, etc.).
+
+When in doubt, `./install.sh` does the same thing — slower but more
+thorough (re-runs apt installs, recreates services from scratch).
+
+### Status / health check
+
+```
+./bin/detm-doctor                  # human-readable, exit 0/1/2
+./bin/detm-doctor --quiet          # only warnings + failures
+./bin/detm-doctor --json           # for piping
+curl http://127.0.0.1:18790/health # lightweight (just daemon + vision)
+curl http://127.0.0.1:18790/doctor # full diagnostic JSON
+```
+
+Or call `health_check` via MCP — same result, narrate per the
+**Doctor & narration** section above.
+
+### Reconfigure
+
+```
+./bin/detm-configure                       # interactive wizard, all sections
+./bin/detm-configure <section>             # one section
+./bin/detm-configure <section> --show      # read-only
+./bin/detm-configure <section> --set K=V   # non-interactive write
+./bin/detm-configure <section> --dry-run   # compute diff, don't write
+```
+
+Sections: `vision`, `gui-agent`, `keys`, `display`, `services`,
+`workspace`, `runtime`, `mcp`, `dashboard`. Writes are atomic with
+`.bak` rotation; the daemon is restarted automatically when sudo is
+available, otherwise the exact commands are printed for the user to
+run.
+
+### Debug
+
+When something's wrong:
+
+| Symptom | First check |
+|---|---|
+| `health_check` returns FAIL on `daemon` | `sudo systemctl status detm-daemon`, then `journalctl -u detm-daemon -n 100` |
+| `gui_agent` returns escalated/error repeatedly | OpenRouter key (rotate via `detm-configure keys`); also check `~/.agentic-computer-use/logs/debug.log` |
+| Live dashboard screen is black | Xvfb died — `sudo systemctl restart detm-xvfb detm-desktop` |
+| Doctor flags `.env drift` warning | A stale `OPENROUTER_API_KEY` in repo's `.env` differs from the systemd unit. Either delete the stale line from `.env` or run `detm-configure keys` to sync everything |
+| Daemon won't start after update | Check `journalctl -u detm-daemon -n 50`; if Python error, re-run `./install.sh` to rebuild venv |
+| MCP tools missing in OpenClaw | Restart the gateway: `systemctl --user restart openclaw-gateway` |
+
+Live debug log:
+```
+tail -f ~/.agentic-computer-use/logs/debug.log     # only populated when ACU_DEBUG=1
+journalctl -u detm-daemon -f                       # systemd journal (always)
+./bin/detm-doctor --quiet                          # surfaces last 200 lines of error tail
+```
+
+To enable verbose logging: `./bin/detm-configure runtime --set ACU_DEBUG=1`
+(restarts daemon).
+
+### Restart services
+
+```
+sudo systemctl restart detm-daemon                 # just the daemon (most common)
+sudo systemctl restart detm-xvfb detm-desktop      # virtual display + XFCE
+sudo systemctl restart detm-vnc detm-novnc         # VNC export
+systemctl --user restart openclaw-gateway          # OpenClaw side (no sudo)
+```
+
+### Uninstall
+
+```
+cd ~/openclaw-memoriesai
+./uninstall.sh                                     # reverses install.sh
+rm -rf ~/openclaw-memoriesai                       # finally, drop the repo
+```
+
+`uninstall.sh` removes: all 5 systemd services + unit files, the MCP
+server registration, the OpenClaw plugin, deployed sub-agents, the
+skill symlink, the DETM section in MEMORY.md, the data dir
+(`~/.agentic-computer-use`), and the venv. It does NOT uninstall
+system packages (xdotool, ffmpeg, etc.) since other software may
+depend on them.
+
+### Paths reference
+
+| Path | Purpose |
+|---|---|
+| `~/openclaw-memoriesai/` | Source repo + venv |
+| `/etc/systemd/system/detm-*.service` | 5 systemd units (daemon, xvfb, desktop, vnc, novnc) |
+| `~/.agentic-computer-use/` | Runtime data: `data.db`, `screenshots/`, `recordings/`, `logs/`, `live_sessions/` |
+| `~/.openclaw/openclaw.json` | OpenClaw config (MCP registration, channels, plugins) |
+| `~/.openclaw/workspace/skills/agentic-computer-use` | Symlink → `~/openclaw-memoriesai/skill/` |
+| `~/.openclaw/workspace/MEMORY.md` | OpenClaw long-term memory (DETM injects a section here) |
+| `http://127.0.0.1:18790/dashboard` | Web dashboard (loopback only; SSH-tunnel for remote) |
+| `http://127.0.0.1:6080/vnc.html` | noVNC web client (when display is virtual) |

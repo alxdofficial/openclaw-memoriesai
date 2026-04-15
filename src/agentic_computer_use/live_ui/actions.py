@@ -4,6 +4,8 @@ import os
 import subprocess
 import time
 
+from .. import humanize
+
 log = logging.getLogger(__name__)
 
 _MOUSE_BUTTON = {"left": "1", "middle": "2", "right": "3"}
@@ -34,21 +36,55 @@ def _xdotool(args: list, display: str, timeout: int = 5) -> str:
         return "error: timeout"
 
 
-def _smooth_mousemove(x: int, y: int, display: str) -> str:
-    """Glide the cursor to (x, y) via incremental steps so the motion is visible in frames."""
+def _current_mouse_pos(display: str) -> tuple[int, int] | None:
     env = {**os.environ, "DISPLAY": display}
-    # Get current position
-    cx, cy = x, y  # fallback: treat as if already there
     try:
         loc = subprocess.run(
             ["xdotool", "getmouselocation"],
             capture_output=True, text=True, timeout=2, env=env,
         )
         parts = loc.stdout.strip().split()
-        cx = int(parts[0].split(":")[1])
-        cy = int(parts[1].split(":")[1])
+        return int(parts[0].split(":")[1]), int(parts[1].split(":")[1])
+    except Exception:
+        return None
+
+
+def _screen_bounds(display: str) -> tuple[int, int, int, int] | None:
+    env = {**os.environ, "DISPLAY": display}
+    try:
+        r = subprocess.run(["xdpyinfo"], capture_output=True, text=True, timeout=2, env=env)
+        if r.returncode != 0:
+            return None
+        for line in r.stdout.splitlines():
+            if "dimensions:" in line:
+                dim = line.strip().split("dimensions:", 1)[1].strip().split()[0]
+                w, h = (int(v) for v in dim.split("x"))
+                return (0, 0, w, h)
     except Exception:
         pass
+    return None
+
+
+def _smooth_mousemove(x: int, y: int, display: str) -> str:
+    """Glide the cursor to (x, y).
+
+    - humanize OFF (legacy): 10 linear steps × 18 ms = ~180 ms constant glide.
+    - humanize ON: Bezier arc with Fitts-scaled duration; endpoint is exact.
+    """
+    env = {**os.environ, "DISPLAY": display}
+    pos = _current_mouse_pos(display) or (x, y)
+    cx, cy = pos
+
+    if humanize.is_enabled():
+        bounds = _screen_bounds(display)
+        for wp in humanize.bezier_path(cx, cy, x, y, screen_bounds=bounds):
+            subprocess.run(
+                ["xdotool", "mousemove", str(wp.x), str(wp.y)],
+                capture_output=True, timeout=2, env=env,
+            )
+            if wp.sleep_before_next_s > 0:
+                time.sleep(wp.sleep_before_next_s)
+        return "ok"
 
     steps = _SMOOTH_STEPS
     for i in range(1, steps + 1):
@@ -61,6 +97,34 @@ def _smooth_mousemove(x: int, y: int, display: str) -> str:
         if i < steps:
             time.sleep(_SMOOTH_STEP_MS)
 
+    return "ok"
+
+
+def _humanized_click(btn: str, display: str) -> str:
+    """Click with mousedown/dwell/mouseup when humanize is on."""
+    if not humanize.is_enabled():
+        return _xdotool(["click", btn], display)
+    env = {**os.environ, "DISPLAY": display}
+    subprocess.run(["xdotool", "mousedown", btn], capture_output=True, timeout=2, env=env)
+    time.sleep(humanize.click_dwell_s())
+    r = subprocess.run(["xdotool", "mouseup", btn], capture_output=True, timeout=2, env=env)
+    return "ok" if r.returncode == 0 else f"error: mouseup failed"
+
+
+def _humanized_type(text: str, display: str) -> str:
+    """Per-char typing with lognormal delay when humanize is on."""
+    if not humanize.is_enabled():
+        return _xdotool(["type", "--clearmodifiers", "--", text], display)
+    env = {**os.environ, "DISPLAY": display}
+    for ch, wait_s in zip(text, humanize.typing_delays(text)):
+        r = subprocess.run(
+            ["xdotool", "type", "--delay", "0", "--clearmodifiers", "--", ch],
+            capture_output=True, timeout=3, env=env,
+        )
+        if r.returncode != 0:
+            return f"error: {r.stderr.decode('utf-8', 'replace').strip()[:120]}"
+        if wait_s > 0:
+            time.sleep(wait_s)
     return "ok"
 
 
@@ -81,19 +145,36 @@ def execute_action(name: str, args: dict, display: str) -> str:
         x, y = int(args["x"]), int(args["y"])
         btn = _MOUSE_BUTTON.get(str(args.get("button", "left")), "1")
         clicks = int(args.get("clicks", 1))
+        if humanize.is_enabled():
+            x, y = humanize.jitter_click_coords(x, y)
         _smooth_mousemove(x, y, display)
         if clicks > 1:
+            if humanize.is_enabled():
+                # Separate clicks each with dwell so keydown-keydown intervals vary.
+                for i in range(clicks):
+                    r = _humanized_click(btn, display)
+                    if r != "ok":
+                        return r
+                    if i < clicks - 1:
+                        time.sleep(humanize.click_dwell_s() + 0.02)
+                return "ok"
             return _xdotool(["click", "--repeat", str(clicks), btn], display)
-        return _xdotool(["click", btn], display)
+        return _humanized_click(btn, display)
 
     if name == "double_click":
         x, y = int(args["x"]), int(args["y"])
+        if humanize.is_enabled():
+            x, y = humanize.jitter_click_coords(x, y)
         _smooth_mousemove(x, y, display)
+        if humanize.is_enabled():
+            _humanized_click("1", display)
+            time.sleep(humanize.click_dwell_s() + 0.02)
+            return _humanized_click("1", display)
         return _xdotool(["click", "--repeat", "2", "1"], display)
 
     if name == "type_text":
         text = args.get("text", "")
-        return _xdotool(["type", "--clearmodifiers", "--", text], display)
+        return _humanized_type(text, display)
 
     if name == "key_press":
         key = _normalize_key(args.get("key", "Return"))

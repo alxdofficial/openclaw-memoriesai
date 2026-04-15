@@ -95,6 +95,10 @@ PIXEL_DIFF_THRESHOLD = 0.01  # 1% of pixels must change
 DIFF_MAX_WIDTH = int(os.environ.get("ACU_DIFF_MAX_WIDTH", "320"))  # downsample before diff
 MAX_STATIC_SECONDS = 30  # force vision re-eval even if diff gate says STATIC
 STUCK_DETECTION_ENABLED = os.environ.get("ACU_STUCK_DETECTION", "0") in ("1", "true", "yes")
+# Humanization — ON by default. Sub-agents/tools can flip via humanize_set MCP tool.
+# Source of truth lives in src/agentic_computer_use/humanize.py; this mirror is for
+# install.sh / configure section schemas to list it.
+HUMANIZE_ENABLED_DEFAULT = os.environ.get("ACU_HUMANIZE", "1").strip().lower() in ("1", "true", "yes", "on")
 FRAME_MAX_DIM = int(os.environ.get("ACU_FRAME_MAX_DIM", "960"))  # 960px is sufficient for YES/NO condition checks
 FRAME_JPEG_QUALITY = int(os.environ.get("ACU_FRAME_JPEG_QUALITY", "72"))
 # Grounding needs higher resolution than SmartWait — 1px error at 960px = 2px at 1920px

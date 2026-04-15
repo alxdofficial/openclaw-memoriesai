@@ -291,6 +291,36 @@ TOOLS = [
         ),
         inputSchema={"type": "object", "properties": {}},
     ),
+    Tool(
+        name="humanize_status",
+        description=(
+            "Check whether GUI actions (clicks, mouse moves, typing) run with "
+            "human-like timing and paths. Default is ON for all tasks. Returns "
+            "{enabled, since, reason, defaults}. Call this at the start of a task "
+            "to know whether you're being stealthy (safe for LinkedIn/TikTok/"
+            "Instagram) or fast (safe for local dev automation)."
+        ),
+        inputSchema={"type": "object", "properties": {}},
+    ),
+    Tool(
+        name="humanize_set",
+        description=(
+            "Toggle GUI humanization. Pass enabled=false when you need raw speed "
+            "on a task that doesn't touch anti-bot-monitored sites (scripting, "
+            "local dev, terminal work). Pass enabled=true to restore human timing "
+            "for web platforms that fingerprint behavior. The change persists "
+            "across tool calls until the daemon restarts or this tool is called "
+            "again. Include a short reason for audit."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "reason":  {"type": "string", "description": "Short rationale for the change"},
+            },
+            "required": ["enabled"],
+        },
+    ),
 
     # ── Memory ─────────────────────────────────────────────────
     Tool(
@@ -349,6 +379,8 @@ ROUTE_MAP = {
     "task_thread": ("POST", "/task_thread"),
     "task_list": ("POST", "/task_list"),
     "health_check": ("GET", "/doctor"),
+    "humanize_status": ("GET", "/humanize"),
+    "humanize_set": ("POST", "/humanize"),
     "gui_agent": ("POST", "/gui_agent"),
     "desktop_look": ("POST", "/desktop_look"),
     "video_record": ("POST", "/video_record"),

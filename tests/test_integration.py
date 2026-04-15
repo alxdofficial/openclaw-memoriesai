@@ -291,3 +291,65 @@ def test_configure_openclaw_dry_run_does_not_write(tmp_path, monkeypatch):
 
     after = hashlib.md5(cfg_path.read_bytes()).hexdigest()
     assert before == after, "dry_run wrote to disk"
+
+
+def test_humanize_off_returns_legacy_timing():
+    """When humanization is off (test default), typing delays are exactly 12ms."""
+    from src.agentic_computer_use import humanize as h
+    assert h.is_enabled() is False
+    delays = list(h.typing_delays("hello"))
+    assert delays == [0.012, 0.012, 0.012, 0.012, 0.012]
+    path = h.bezier_path(100, 100, 500, 500)
+    assert len(path) == 1 and path[0].x == 500 and path[0].y == 500
+
+
+def test_humanize_on_varies_typing(humanize_on):
+    """With humanize on, delays vary and are bounded."""
+    delays = list(humanize_on.typing_delays("hello world test"))
+    assert len(delays) == 16
+    assert min(delays) >= humanize_on.TYPING_MIN_S - 1e-9
+    # Any single char can be up to TYPING_MAX + a word-boundary pause
+    assert max(delays) <= humanize_on.TYPING_MAX_S + (humanize_on.WORD_PAUSE_MAX_MS / 1000.0) + 1e-9
+    # Mean should be noticeably above the 12ms legacy flat rate
+    assert sum(delays) / len(delays) > 0.04
+
+
+def test_humanize_bezier_exact_endpoint(humanize_on):
+    """Bezier path must land exactly on the target — no jitter on last waypoint."""
+    for x0, y0, x1, y1 in [(10, 10, 800, 400), (500, 500, 505, 500), (0, 0, 1919, 1079)]:
+        path = humanize_on.bezier_path(x0, y0, x1, y1, screen_bounds=(0, 0, 1920, 1080))
+        assert path[-1].x == x1 and path[-1].y == y1, f"endpoint drift for ({x0},{y0})→({x1},{y1})"
+        assert len(path) >= 1
+
+
+def test_humanize_bezier_stays_in_bounds(humanize_on):
+    """Even with a random control-point offset, the path must stay on screen."""
+    import random
+    rng = random.Random(1)
+    for _ in range(50):
+        x0, y0 = rng.randint(0, 1919), rng.randint(0, 1079)
+        x1, y1 = rng.randint(0, 1919), rng.randint(0, 1079)
+        path = humanize_on.bezier_path(x0, y0, x1, y1, screen_bounds=(0, 0, 1920, 1080))
+        for wp in path:
+            assert 0 <= wp.x <= 1919 and 0 <= wp.y <= 1079, f"waypoint {wp} off-screen"
+
+
+def test_humanize_click_jitter_inside_bbox(humanize_on):
+    """Jitter must land inside bbox — never on a neighboring element."""
+    bbox = (200, 300, 220, 320)  # 20×20 button
+    for _ in range(200):
+        nx, ny = humanize_on.jitter_click_coords(210, 310, bbox=bbox)
+        assert bbox[0] < nx < bbox[2], f"x={nx} escaped {bbox}"
+        assert bbox[1] < ny < bbox[3], f"y={ny} escaped {bbox}"
+
+
+def test_humanize_set_snapshot_roundtrip(humanize_on):
+    """set_enabled(False) → snapshot reports disabled with reason."""
+    humanize_on.set_enabled(False, reason="speed test")
+    snap = humanize_on.snapshot()
+    assert snap["enabled"] is False
+    assert snap["reason"] == "speed test"
+    humanize_on.set_enabled(True, reason="back on")
+    snap = humanize_on.snapshot()
+    assert snap["enabled"] is True
+    assert snap["reason"] == "back on"

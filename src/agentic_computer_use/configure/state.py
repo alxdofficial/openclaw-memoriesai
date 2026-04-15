@@ -47,6 +47,7 @@ SECTION_ENV: dict[str, list[tuple[str, str]]] = {
     "runtime": [
         ("ACU_DEBUG",                "1 to enable verbose logging"),
         ("ACU_STUCK_DETECTION",      "1 to enable stuck-task alerts"),
+        ("ACU_HUMANIZE",             "1 to humanize GUI timing (default on; flip off for speed)"),
         ("ACU_DESKTOP_LOOK_DIM",     "Max dim for desktop_look JPEG"),
         ("ACU_DESKTOP_LOOK_QUALITY", "JPEG quality 1-100"),
         ("ACU_MAX_RECORDINGS_MB",    "Cap on recordings dir size"),

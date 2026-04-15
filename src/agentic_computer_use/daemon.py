@@ -395,6 +395,7 @@ async def handle_api_task_messages(request: web.Request) -> web.Response:
 async def handle_health(request: web.Request) -> web.Response:
     from .wait_vision import check_health
     from .gui_agent.agent import _get_backend
+    from . import humanize as _humanize
     vision_health = await check_health()
     gui_backend = _get_backend()
     return web.json_response({
@@ -407,7 +408,27 @@ async def handle_health(request: web.Request) -> web.Response:
         "active_wait_jobs": len(wait_engine.jobs),
         "data_dir": str(config.DATA_DIR),
         "display": config.DISPLAY,
+        "humanize": {"enabled": _humanize.is_enabled()},
     })
+
+
+async def handle_humanize_get(request: web.Request) -> web.Response:
+    from . import humanize as _humanize
+    return web.json_response(_humanize.snapshot())
+
+
+async def handle_humanize_set(request: web.Request) -> web.Response:
+    from . import humanize as _humanize
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+    if "enabled" not in body:
+        return web.json_response({"error": "missing 'enabled'"}, status=400)
+    enabled = bool(body["enabled"])
+    reason = str(body.get("reason") or "")
+    _humanize.set_enabled(enabled, reason=reason)
+    return web.json_response(_humanize.snapshot())
 
 
 # ─── Async recording state ───────────────────────────────────────
@@ -1364,6 +1385,10 @@ def create_app() -> web.Application:
     app.router.add_get("/api/health", handle_api_health)
     app.router.add_get("/doctor", handle_doctor)
     app.router.add_get("/api/doctor", handle_doctor)
+    app.router.add_get("/humanize", handle_humanize_get)
+    app.router.add_post("/humanize", handle_humanize_set)
+    app.router.add_get("/api/humanize", handle_humanize_get)
+    app.router.add_post("/api/humanize", handle_humanize_set)
     app.router.add_get("/api/usage/stats", handle_api_usage_stats)
     app.router.add_get("/api/screen", handle_api_screen_stream)
     app.router.add_get("/api/screenshots/{filename}", handle_api_screenshot)
