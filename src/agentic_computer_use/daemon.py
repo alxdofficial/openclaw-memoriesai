@@ -383,6 +383,80 @@ async def handle_api_task_video(request: web.Request) -> web.Response:
     )
 
 
+async def handle_api_task_export(request: web.Request) -> web.Response:
+    """Download a ZIP bundle containing task.json, messages, journal slice,
+    debug.log, screenshots, recordings, and any live_sessions for this task.
+    """
+    from . import export as _export
+    task_id = request.match_info["task_id"]
+    try:
+        data, fname = await _export.build_task_bundle(task_id)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    return web.Response(
+        body=data,
+        content_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+async def handle_api_logs(request: web.Request) -> web.Response:
+    """Download a systemd-journal slice for detm-daemon.
+
+    Query params:
+      since=<iso|epoch>   start of window (default: 24h ago)
+      until=<iso|epoch>   end of window  (default: now)
+      task_id=<id>        (optional) narrow window to task's time range
+      lines=<n>           cap; defaults to 200k
+      format=text|json    text returns .log attachment; json returns {"log": "..."}
+    """
+    from . import export as _export
+    since = request.query.get("since")
+    until = request.query.get("until")
+    task_id = request.query.get("task_id")
+    lines = request.query.get("lines")
+    fmt = (request.query.get("format") or "text").lower()
+
+    if task_id and not since and not until:
+        # Derive window from task actions
+        from .task import manager as _mgr
+        summary = await _mgr.get_task_summary(task_id=task_id, detail_level="actions")
+        if summary.get("error"):
+            return web.json_response({"error": summary["error"]}, status=404)
+        since = _export._earliest_action_ts(summary)
+        until = summary.get("last_update") or summary.get("updated_at")
+        if since: since = _export._maybe_pad(since, -60)
+        if until: until = _export._maybe_pad(until, 60)
+    elif not since and not until:
+        # Default window: last 24h
+        since = time.time() - 86400
+
+    try:
+        lines_int = int(lines) if lines else None
+    except ValueError:
+        lines_int = None
+
+    text = _export.read_journal(since=since, until=until, lines=lines_int)
+
+    if fmt == "json":
+        return web.json_response({
+            "since": str(since) if since else None,
+            "until": str(until) if until else None,
+            "task_id": task_id,
+            "lines": len(text.splitlines()),
+            "bytes": len(text),
+            "log": text,
+        })
+
+    fname_stem = f"detm-journal-{task_id}" if task_id else "detm-journal"
+    fname = f"{fname_stem}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.log"
+    return web.Response(
+        body=text,
+        content_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 async def handle_api_task_messages(request: web.Request) -> web.Response:
     task_id = request.match_info["task_id"]
     limit = int(request.query.get("limit", 50))
@@ -1380,6 +1454,8 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks/{task_id}/frames", handle_api_task_frames)
     app.router.add_get("/api/tasks/{task_id}/frames/{frame_n}", handle_api_task_frame)
     app.router.add_get("/api/tasks/{task_id}/video", handle_api_task_video)
+    app.router.add_get("/api/tasks/{task_id}/export", handle_api_task_export)
+    app.router.add_get("/api/logs", handle_api_logs)
     app.router.add_get("/api/snapshot", handle_api_snapshot)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)

@@ -42,6 +42,28 @@ const App = (() => {
       pollTasks();
     });
 
+    // Global journal download — default: last 24h. Hold Shift for custom range.
+    const journalBtn = document.getElementById("download-journal-btn");
+    if (journalBtn) {
+      journalBtn.addEventListener("click", (e) => {
+        let url = "/api/logs";
+        if (e.shiftKey) {
+          const since = prompt("Since (ISO timestamp or epoch seconds, blank = 24h ago):", "");
+          const until = prompt("Until (ISO timestamp or epoch seconds, blank = now):", "");
+          const qs = new URLSearchParams();
+          if (since) qs.set("since", since);
+          if (until) qs.set("until", until);
+          if ([...qs].length) url += "?" + qs.toString();
+        }
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "";  // let server set filename
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+    }
+
     // Start polling
     checkHealth();
     pollTasks();

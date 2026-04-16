@@ -82,6 +82,7 @@ const TaskList = (() => {
           </div>
           ${liveSessionId ? `<button class="task-live-btn" data-session-id="${_esc(liveSessionId)}" title="Connect to live session">&#9679; Live</button>` : ""}
           ${(task.status === "completed" || task.status === "cancelled") ? `<button class="task-video-btn" title="Download recording" data-task-id="${_esc(task.task_id)}">⬇</button>` : ""}
+          <button class="task-bundle-btn" title="Download bundle (task JSON + journal + screenshots + recordings)" data-task-id="${_esc(task.task_id)}">📦</button>
           <button class="task-delete-btn" title="Delete task" data-task-id="${_esc(task.task_id)}">&times;</button>
         </div>
       `;
@@ -110,6 +111,20 @@ const TaskList = (() => {
         videoBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           if (_onDownload) _onDownload(task.task_id);
+        });
+      }
+
+      const bundleBtn = li.querySelector(".task-bundle-btn");
+      if (bundleBtn) {
+        bundleBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          // Direct link — /api/tasks/{id}/export streams the zip straight to disk.
+          const a = document.createElement("a");
+          a.href = `/api/tasks/${encodeURIComponent(task.task_id)}/export`;
+          a.download = `detm-task-${task.task_id}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
         });
       }
 

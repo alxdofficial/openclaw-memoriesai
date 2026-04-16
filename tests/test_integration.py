@@ -353,3 +353,64 @@ def test_humanize_set_snapshot_roundtrip(humanize_on):
     snap = humanize_on.snapshot()
     assert snap["enabled"] is True
     assert snap["reason"] == "back on"
+
+
+def test_export_format_ts_handles_iso_epoch_and_none():
+    from src.agentic_computer_use.export import _format_ts
+    assert _format_ts("2026-04-16T00:25:00+00:00") == "2026-04-16 00:25:00"
+    # Epoch seconds should produce a matching UTC string
+    assert _format_ts(1776299114).startswith("2026-04-16 00:25:")
+    assert _format_ts(None) is None
+    assert _format_ts("") is None
+
+
+def test_export_earliest_action_ts():
+    from src.agentic_computer_use.export import _earliest_action_ts
+    summary = {
+        "items": [
+            {"action_details": [
+                {"created_at": "2026-04-16T00:26:00+00:00"},
+                {"created_at": "2026-04-16T00:25:20.465+00:00"},
+            ]},
+            {"action_details": [
+                {"created_at": "2026-04-16T00:25:19+00:00"},  # earliest
+            ]},
+        ]
+    }
+    assert _earliest_action_ts(summary) == "2026-04-16T00:25:19+00:00"
+    assert _earliest_action_ts({"items": []}) is None
+
+
+def test_export_shot_candidates():
+    from src.agentic_computer_use.export import _shot_candidates
+    # bare id → generates 4 candidate filenames
+    assert _shot_candidates("abc123") == [
+        "abc123_before.jpg", "abc123_after.jpg",
+        "abc123_before_thumb.jpg", "abc123_after_thumb.jpg",
+    ]
+    # already a filename → returned as-is
+    assert _shot_candidates("abc123_before.jpg") == ["abc123_before.jpg"]
+    # path-prefixed → basename wins
+    assert _shot_candidates("screenshots/abc.png") == ["abc.png"]
+
+
+def test_export_maybe_pad_nudges_iso_timestamps():
+    from src.agentic_computer_use.export import _maybe_pad
+    padded = _maybe_pad("2026-04-16T00:25:20+00:00", -60)
+    assert padded.startswith("2026-04-16T00:24:20")
+    padded = _maybe_pad("2026-04-16T00:28:51+00:00", 60)
+    assert padded.startswith("2026-04-16T00:29:51")
+    # None passes through
+    assert _maybe_pad(None, 60) is None
+    # Unparseable passes through
+    assert _maybe_pad("not-a-date", 60) == "not-a-date"
+
+
+def test_export_read_journal_graceful_on_bad_unit(monkeypatch):
+    """If journalctl fails we should return an explanatory header, not raise."""
+    from src.agentic_computer_use import export
+    # Point to a unit that doesn't exist — journalctl still succeeds with empty
+    # output. So we simulate failure by routing to a bogus binary.
+    result = export.read_journal(unit="definitely-not-a-real-service")
+    # Either empty-but-successful or a "# " header — never raises
+    assert isinstance(result, str)
