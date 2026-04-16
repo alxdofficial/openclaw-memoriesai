@@ -42,26 +42,22 @@ const App = (() => {
       pollTasks();
     });
 
-    // Global journal download — default: last 24h. Hold Shift for custom range.
-    const journalBtn = document.getElementById("download-journal-btn");
-    if (journalBtn) {
-      journalBtn.addEventListener("click", (e) => {
-        let url = "/api/logs";
-        if (e.shiftKey) {
-          const since = prompt("Since (ISO timestamp or epoch seconds, blank = 24h ago):", "");
-          const until = prompt("Until (ISO timestamp or epoch seconds, blank = now):", "");
-          const qs = new URLSearchParams();
-          if (since) qs.set("since", since);
-          if (until) qs.set("until", until);
-          if ([...qs].length) url += "?" + qs.toString();
-        }
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "";  // let server set filename
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      });
+    // Global logs dump — opens a timeline dialog so the user can pick the window.
+    const dumpBtn = document.getElementById("download-dump-btn");
+    if (dumpBtn && typeof DumpDialog !== "undefined") {
+      dumpBtn.addEventListener("click", () => DumpDialog.open());
+      // Deep-link: #dump opens the dialog on load; #dump-all opens at "all" zoom.
+      if (window.location.hash.startsWith("#dump")) {
+        setTimeout(() => {
+          DumpDialog.open();
+          if (window.location.hash === "#dump-all") {
+            setTimeout(() => {
+              const all = document.querySelector('.dump-zoom-btn[data-zoom="all"]');
+              if (all) all.click();
+            }, 200);
+          }
+        }, 300);
+      }
     }
 
     // Start polling

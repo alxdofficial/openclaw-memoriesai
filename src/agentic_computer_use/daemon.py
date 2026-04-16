@@ -383,6 +383,23 @@ async def handle_api_task_video(request: web.Request) -> web.Response:
     )
 
 
+async def handle_api_dump(request: web.Request) -> web.Response:
+    """Central logs dump: DETM + OpenClaw + manifest. Windowed by since/until."""
+    from . import export as _export
+    since = request.query.get("since")
+    until = request.query.get("until")
+    try:
+        data, fname = await _export.build_logs_dump(since=since, until=until)
+    except Exception as e:
+        log.exception("dump failed")
+        return web.json_response({"error": str(e)}, status=500)
+    return web.Response(
+        body=data,
+        content_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 async def handle_api_task_export(request: web.Request) -> web.Response:
     """Download a ZIP bundle containing task.json, messages, journal slice,
     debug.log, screenshots, recordings, and any live_sessions for this task.
@@ -1456,6 +1473,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/tasks/{task_id}/video", handle_api_task_video)
     app.router.add_get("/api/tasks/{task_id}/export", handle_api_task_export)
     app.router.add_get("/api/logs", handle_api_logs)
+    app.router.add_get("/api/dump", handle_api_dump)
     app.router.add_get("/api/snapshot", handle_api_snapshot)
     app.router.add_get("/api/waits", handle_api_waits)
     app.router.add_get("/api/health", handle_api_health)

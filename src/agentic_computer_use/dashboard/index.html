@@ -9,8 +9,10 @@
 <body>
   <header id="top-bar">
     <span class="logo">DETM Dashboard</span>
-    <button id="download-journal-btn" title="Download systemd journal slice for detm-daemon" style="margin-left:auto">📜 Journal</button>
-    <span id="conn-status" class="status-dot disconnected">● Disconnected</span>
+    <div class="top-bar-right">
+      <button id="download-dump-btn" title="Download everything: DETM + OpenClaw logs, task data, manifest. Pick a time window.">📥 Dump logs</button>
+      <span id="conn-status" class="status-dot disconnected">● Disconnected</span>
+    </div>
   </header>
 
   <div id="app">
@@ -60,6 +62,7 @@
   <script src="/dashboard/static/components/screen-viewer.js"></script>
   <script src="/dashboard/static/components/live-session-viewer.js"></script>
   <script src="/dashboard/static/components/usage-stats.js"></script>
+  <script src="/dashboard/static/components/dump-dialog.js"></script>
   <script src="/dashboard/static/app.js"></script>
 </body>
 </html>

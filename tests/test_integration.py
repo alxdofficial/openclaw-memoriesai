@@ -414,3 +414,82 @@ def test_export_read_journal_graceful_on_bad_unit(monkeypatch):
     result = export.read_journal(unit="definitely-not-a-real-service")
     # Either empty-but-successful or a "# " header — never raises
     assert isinstance(result, str)
+
+
+def test_export_parse_any_ts():
+    from src.agentic_computer_use.export import _parse_any_ts
+    from datetime import datetime, timezone
+    assert _parse_any_ts(None) is None
+    assert _parse_any_ts("") is None
+    dt = _parse_any_ts("2026-04-16T12:00:00+00:00")
+    assert dt and dt.year == 2026 and dt.hour == 12
+    dt = _parse_any_ts(1776299114)
+    assert dt and dt.year == 2026 and dt.tzinfo is timezone.utc
+    assert _parse_any_ts("not-a-date") is None
+
+
+def test_export_redact_catches_common_keys():
+    from src.agentic_computer_use.export import _redact, _REDACTED
+    text = (
+        "OPENROUTER_API_KEY=sk-or-v1-abcdef0123456789abcdef0123456789abcdef0123456789 "
+        "ANTHROPIC=sk-ant-api03-aBcDeFgHiJkLmNoPqRsTuVwXyZ_0123456789-hello "
+        "and safe text sk-ant-short stays"
+    )
+    red = _redact(text)
+    assert "sk-or-v1-abcdef" not in red
+    assert "sk-ant-api03-aBcD" not in red
+    assert _REDACTED in red
+    # Short non-matching tokens survive
+    assert "safe text" in red
+
+
+def test_export_error_grep_tags_sources():
+    from src.agentic_computer_use.export import _extract_errors
+    sources = {
+        "detm-daemon.journal": "info ok\n2026-04-16 ERROR something broke\nnormal line\nTraceback (most recent call last):\n",
+        "openclaw-gateway.journal": "info ok\nWARNING mild\n2026-04-16 CRITICAL fatal boom\n",
+    }
+    errors = _extract_errors(sources)
+    assert "[detm-daemon.journal] 2026-04-16 ERROR something broke" in errors
+    assert "[detm-daemon.journal] Traceback (most recent call last):" in errors
+    assert "[openclaw-gateway.journal] 2026-04-16 CRITICAL fatal boom" in errors
+    assert "[openclaw-gateway.journal] WARNING mild" not in errors   # WARNING is not in our error set
+
+
+def test_export_rejected_calls_formatter_calls_out_fingerprint():
+    from src.agentic_computer_use.export import _extract_rejected_calls
+    journal = (
+        '2026-04-16T00:25:08+00:00 aiohttp.access "POST /gui_agent HTTP/1.1" 404 56\n'
+        '2026-04-16T00:25:09+00:00 aiohttp.access "GET /health HTTP/1.1" 200 100\n'
+        '2026-04-16T00:25:10+00:00 aiohttp.access "POST /desktop_look HTTP/1.1" 400 40\n'
+    )
+    out = _extract_rejected_calls(journal)
+    # Both 4xx lines included, 200 is not
+    assert '"POST /gui_agent HTTP/1.1" 404' in out
+    assert '"POST /desktop_look HTTP/1.1" 400' in out
+    assert "HTTP/1.1\" 200" not in out
+    # Instructive header warns about the task_register fingerprint
+    assert "task_register" in out.lower() or "cross-reference" in out.lower()
+
+    empty = _extract_rejected_calls('2026-04-16 "GET /health HTTP/1.1" 200 100\n')
+    assert "no 4xx" in empty.lower()
+
+
+def test_export_session_overlaps_window(tmp_path):
+    from src.agentic_computer_use.export import _session_overlaps_window
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    # Session file that starts 2h ago
+    p = tmp_path / "sess.jsonl"
+    p.write_text(
+        '{"type":"session","version":3,"id":"s1","timestamp":"'
+        + (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        + '","cwd":"/x"}\n'
+    )
+    # Window: last 3h → includes
+    assert _session_overlaps_window(p, now - timedelta(hours=3), now) is True
+    # Window: 4-5h ago → excludes (session starts AFTER the until)
+    assert _session_overlaps_window(
+        p, now - timedelta(hours=5), now - timedelta(hours=4)
+    ) is False

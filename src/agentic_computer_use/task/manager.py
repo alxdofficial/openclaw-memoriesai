@@ -900,6 +900,7 @@ async def _build_item_summary(conn, task_id: str, detail_level: str = "items") -
         "agent_id": task.get("agent_id"),
         "items": items,
         "progress_pct": pct,
+        "created_at": task.get("created_at"),
         "last_update": task["updated_at"],
     }
 
