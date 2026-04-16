@@ -1547,3 +1547,38 @@ html, body {
   font-weight: 600;
 }
 .dump-download-btn:hover { filter: brightness(1.1); }
+
+/* ─── Dump dialog progress/spinner/error ─────────────── */
+.dump-dialog-footer { flex-wrap: wrap; }
+.dump-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text, #c9d1d9);
+  font-size: 12px;
+  margin-right: auto;
+}
+.dump-progress-text { color: var(--text-dim, #8b949e); }
+.dump-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border, #30363d);
+  border-top-color: var(--blue, #58a6ff);
+  border-radius: 50%;
+  animation: dump-spin 0.8s linear infinite;
+}
+@keyframes dump-spin { to { transform: rotate(360deg); } }
+.dump-error {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(229, 57, 53, 0.12);
+  border: 1px solid rgba(229, 57, 53, 0.4);
+  border-radius: 4px;
+  color: #ff7b72;
+  font-size: 12px;
+}
+.dump-download-btn:disabled, .dump-cancel-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

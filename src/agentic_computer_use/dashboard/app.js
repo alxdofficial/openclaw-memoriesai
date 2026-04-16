@@ -46,7 +46,8 @@ const App = (() => {
     const dumpBtn = document.getElementById("download-dump-btn");
     if (dumpBtn && typeof DumpDialog !== "undefined") {
       dumpBtn.addEventListener("click", () => DumpDialog.open());
-      // Deep-link: #dump opens the dialog on load; #dump-all opens at "all" zoom.
+      // Deep-link: #dump opens the dialog on load; #dump-all opens at "all"
+      // zoom; #dump-click opens + clicks Download (for automated testing).
       if (window.location.hash.startsWith("#dump")) {
         setTimeout(() => {
           DumpDialog.open();
@@ -55,6 +56,11 @@ const App = (() => {
               const all = document.querySelector('.dump-zoom-btn[data-zoom="all"]');
               if (all) all.click();
             }, 200);
+          } else if (window.location.hash === "#dump-click") {
+            setTimeout(() => {
+              const btn = document.querySelector(".dump-download-btn");
+              if (btn) btn.click();
+            }, 500);
           }
         }, 300);
       }

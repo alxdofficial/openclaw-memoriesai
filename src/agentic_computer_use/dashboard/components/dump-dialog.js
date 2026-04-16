@@ -281,17 +281,53 @@ const DumpDialog = (() => {
     return `${Math.floor(h / 24)}d ${h % 24}h`;
   }
 
-  function _download() {
-    const since = Math.floor(_pickStart / 1000);   // epoch seconds
+  async function _download() {
+    const footer = _host.querySelector(".dump-dialog-footer");
+    const dlBtn = _host.querySelector(".dump-download-btn");
+    const cxBtn = _host.querySelector(".dump-cancel-btn");
+    if (dlBtn) dlBtn.disabled = true;
+    if (cxBtn) cxBtn.disabled = true;
+    const originalFooter = footer.innerHTML;
+    footer.innerHTML = `<div class="dump-progress"><span class="dump-spinner"></span><span class="dump-progress-text">building dump… the server is slicing journals and zipping sessions, this can take 10–60s for wide windows.</span></div>`;
+
+    const since = Math.floor(_pickStart / 1000);
     const until = Math.floor(_pickEnd / 1000);
     const url = `/api/dump?since=${since}&until=${until}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    close();
+
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`server returned HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const filename = _parseDisposition(resp.headers.get("content-disposition")) || "detm-dump.zip";
+
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
+
+      const sizeMb = (blob.size / 1024 / 1024).toFixed(1);
+      footer.innerHTML = `<div class="dump-progress">✓ downloaded ${sizeMb} MB — saving as ${filename}</div>`;
+      setTimeout(close, 1400);
+    } catch (e) {
+      console.error("dump download failed", e);
+      footer.innerHTML = originalFooter;
+      if (dlBtn) dlBtn.disabled = false;
+      if (cxBtn) cxBtn.disabled = false;
+      const errLine = document.createElement("div");
+      errLine.className = "dump-error";
+      errLine.textContent = `failed: ${e.message} — try a smaller window`;
+      _host.querySelector(".dump-dialog-body").appendChild(errLine);
+    }
+  }
+
+  function _parseDisposition(hdr) {
+    if (!hdr) return null;
+    const m = /filename="?([^"]+)"?/i.exec(hdr);
+    return m ? m[1] : null;
   }
 
   return { open, close };

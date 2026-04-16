@@ -360,8 +360,23 @@ def read_user_journal(
 
 
 def _session_overlaps_window(session_path: Path, since_dt, until_dt) -> bool:
-    """Cheap check: first line's timestamp vs the window. Sessions are
-    append-only, so first-line time <= all subsequent lines."""
+    """Does this session file have activity in [since_dt, until_dt]?
+
+    Checks BOTH mtime (proves no writes after a point) and the first-line
+    timestamp (proves the session started before the window ended). A
+    session whose mtime is before since_dt has no activity in the window,
+    regardless of when it first started — exclude.
+    """
+    # mtime: if the file hasn't been written since the window start, it
+    # has no activity in the window. Catches stale sessions cheaply.
+    try:
+        mtime = datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc)
+        if since_dt and mtime < since_dt:
+            return False
+    except OSError:
+        return False
+    # first-line timestamp: if the session started after the window ended,
+    # it has no activity in the window.
     try:
         with session_path.open("r", encoding="utf-8", errors="replace") as f:
             first = f.readline()
@@ -370,13 +385,7 @@ def _session_overlaps_window(session_path: Path, since_dt, until_dt) -> bool:
         if until_dt and start > until_dt:
             return False
     except (OSError, json.JSONDecodeError, KeyError, ValueError):
-        # Fall back to mtime
-        try:
-            mtime = datetime.fromtimestamp(session_path.stat().st_mtime, tz=timezone.utc)
-            if since_dt and mtime < since_dt:
-                return False
-        except OSError:
-            return False
+        pass  # can't read first-line ts — trust the mtime check alone
     return True
 
 
